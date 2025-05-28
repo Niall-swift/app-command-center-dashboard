@@ -1,0 +1,174 @@
+
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CheckCircle, XCircle, Clock, Filter } from 'lucide-react';
+import type { Request } from '@/types/dashboard';
+
+export default function Requests() {
+  const [requests, setRequests] = useState<Request[]>([
+    {
+      id: '1',
+      title: 'Solicitação de nova funcionalidade',
+      description: 'Gostaria de solicitar a implementação de notificações push no aplicativo',
+      status: 'pending',
+      user: 'João Silva',
+      createdAt: new Date(Date.now() - 86400000),
+      priority: 'high'
+    },
+    {
+      id: '2',
+      title: 'Relatório de bug',
+      description: 'O botão de login não está funcionando no iOS',
+      status: 'approved',
+      user: 'Maria Santos',
+      createdAt: new Date(Date.now() - 172800000),
+      priority: 'medium'
+    },
+    {
+      id: '3',
+      title: 'Solicitação de suporte',
+      description: 'Preciso de ajuda para configurar minha conta',
+      status: 'rejected',
+      user: 'Pedro Costa',
+      createdAt: new Date(Date.now() - 259200000),
+      priority: 'low'
+    }
+  ]);
+
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const handleStatusChange = (requestId: string, newStatus: 'approved' | 'rejected') => {
+    setRequests(requests.map(req => 
+      req.id === requestId ? { ...req, status: newStatus } : req
+    ));
+  };
+
+  const filteredRequests = requests.filter(req => 
+    statusFilter === 'all' || req.status === statusFilter
+  );
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return <CheckCircle className="w-4 h-4 text-green-600" />;
+      case 'rejected':
+        return <XCircle className="w-4 h-4 text-red-600" />;
+      default:
+        return <Clock className="w-4 h-4 text-yellow-600" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-green-100 text-green-800';
+      case 'rejected':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-yellow-100 text-yellow-800';
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return 'bg-red-100 text-red-800';
+      case 'medium':
+        return 'bg-orange-100 text-orange-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Solicitações</h2>
+          <p className="text-gray-600">Gerencie todas as solicitações dos usuários</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-gray-500" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Filtrar por status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="pending">Pendente</SelectItem>
+              <SelectItem value="approved">Aprovado</SelectItem>
+              <SelectItem value="rejected">Rejeitado</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-6">
+        {filteredRequests.map((request) => (
+          <Card key={request.id} className="bg-white shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <CardTitle className="text-lg font-semibold text-gray-900">
+                    {request.title}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Badge className={getPriorityColor(request.priority)}>
+                      {request.priority === 'high' ? 'Alta' : 
+                       request.priority === 'medium' ? 'Média' : 'Baixa'}
+                    </Badge>
+                    <Badge className={getStatusColor(request.status)} variant="outline">
+                      <div className="flex items-center gap-1">
+                        {getStatusIcon(request.status)}
+                        {request.status === 'pending' ? 'Pendente' :
+                         request.status === 'approved' ? 'Aprovado' : 'Rejeitado'}
+                      </div>
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-600 mb-4">{request.description}</p>
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">
+                    Por: <span className="font-medium">{request.user}</span>
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    {request.createdAt.toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                
+                {request.status === 'pending' && (
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleStatusChange(request.id, 'approved')}
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      Aprovar
+                    </Button>
+                    <Button
+                      onClick={() => handleStatusChange(request.id, 'rejected')}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      <XCircle className="w-4 h-4 mr-1" />
+                      Rejeitar
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
