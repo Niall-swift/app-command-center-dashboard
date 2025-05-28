@@ -32,3 +32,13 @@ export interface Bot {
   createdAt: Date;
   commands: string[];
 }
+
+export interface Client {
+  id: string;
+  name: string;
+  avatar: string;
+  lastMessage: string;
+  lastMessageTime: Date;
+  unreadCount: number;
+  isOnline: boolean;
+}

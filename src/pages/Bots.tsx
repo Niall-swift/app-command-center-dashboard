@@ -1,13 +1,10 @@
 
 import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Plus, Bot, Trash2, Edit } from 'lucide-react';
+import { Plus, Play, Pause, Trash2 } from 'lucide-react';
 import type { Bot } from '@/types/dashboard';
 
 export default function Bots() {
@@ -15,188 +12,139 @@ export default function Bots() {
     {
       id: '1',
       name: 'Bot de Atendimento',
-      description: 'Bot para atendimento básico ao cliente',
+      description: 'Bot para atendimento automático de clientes',
       status: 'active',
       createdAt: new Date(Date.now() - 86400000),
-      commands: ['/ajuda', '/suporte', '/contato']
+      commands: ['/start', '/help', '/suporte']
     },
     {
       id: '2',
-      name: 'Bot de FAQ',
-      description: 'Responde perguntas frequentes automaticamente',
-      status: 'active',
+      name: 'Bot de Vendas',
+      description: 'Bot especializado em vendas e conversões',
+      status: 'inactive',
       createdAt: new Date(Date.now() - 172800000),
-      commands: ['/faq', '/duvidas', '/info']
+      commands: ['/produtos', '/comprar', '/desconto']
     }
   ]);
 
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    commands: ''
-  });
+  const [newBotName, setNewBotName] = useState('');
+  const [newBotDescription, setNewBotDescription] = useState('');
 
   const handleCreateBot = () => {
-    if (formData.name && formData.description) {
+    if (newBotName.trim() && newBotDescription.trim()) {
       const newBot: Bot = {
         id: Date.now().toString(),
-        name: formData.name,
-        description: formData.description,
-        status: 'active',
+        name: newBotName,
+        description: newBotDescription,
+        status: 'inactive',
         createdAt: new Date(),
-        commands: formData.commands.split(',').map(cmd => cmd.trim()).filter(cmd => cmd)
+        commands: []
       };
       setBots([...bots, newBot]);
-      setFormData({ name: '', description: '', commands: '' });
-      setShowForm(false);
+      setNewBotName('');
+      setNewBotDescription('');
     }
   };
 
-  const toggleBotStatus = (botId: string) => {
+  const toggleBotStatus = (id: string) => {
     setBots(bots.map(bot => 
-      bot.id === botId 
-        ? { ...bot, status: bot.status === 'active' ? 'inactive' : 'active' }
+      bot.id === id 
+        ? { ...bot, status: bot.status === 'active' ? 'inactive' : 'active' as 'active' | 'inactive' }
         : bot
     ));
   };
 
-  const deleteBot = (botId: string) => {
-    setBots(bots.filter(bot => bot.id !== botId));
+  const deleteBot = (id: string) => {
+    setBots(bots.filter(bot => bot.id !== id));
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Gerenciar Bots</h2>
-          <p className="text-gray-600">Crie e configure bots para seu aplicativo</p>
-        </div>
-        <Button 
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 hover:bg-blue-700"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Novo Bot
-        </Button>
-      </div>
+      <Card className="bg-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Plus className="w-5 h-5" />
+            Criar Novo Bot
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              placeholder="Nome do bot"
+              value={newBotName}
+              onChange={(e) => setNewBotName(e.target.value)}
+            />
+            <Input
+              placeholder="Descrição do bot"
+              value={newBotDescription}
+              onChange={(e) => setNewBotDescription(e.target.value)}
+            />
+          </div>
+          <Button onClick={handleCreateBot} className="bg-blue-600 hover:bg-blue-700">
+            <Plus className="w-4 h-4 mr-2" />
+            Criar Bot
+          </Button>
+        </CardContent>
+      </Card>
 
-      {showForm && (
-        <Card className="bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle>Criar Novo Bot</CardTitle>
-            <CardDescription>Configure as informações básicas do seu bot</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="bot-name">Nome do Bot</Label>
-              <Input
-                id="bot-name"
-                placeholder="Ex: Bot de Vendas"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="bot-description">Descrição</Label>
-              <Textarea
-                id="bot-description"
-                placeholder="Descreva a função do bot..."
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="bot-commands">Comandos (separados por vírgula)</Label>
-              <Input
-                id="bot-commands"
-                placeholder="/vendas, /promocoes, /produtos"
-                value={formData.commands}
-                onChange={(e) => setFormData({ ...formData, commands: e.target.value })}
-              />
-            </div>
-            
-            <div className="flex gap-2">
-              <Button onClick={handleCreateBot} className="bg-blue-600 hover:bg-blue-700">
-                Criar Bot
-              </Button>
-              <Button variant="outline" onClick={() => setShowForm(false)}>
-                Cancelar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {bots.map((bot) => (
-          <Card key={bot.id} className="bg-white shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <Bot className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg font-semibold text-gray-900">
-                      {bot.name}
-                    </CardTitle>
-                    <CardDescription>{bot.description}</CardDescription>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Badge className={bot.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                    {bot.status === 'active' ? 'Ativo' : 'Inativo'}
-                  </Badge>
-                </div>
+          <Card key={bot.id} className="bg-white shadow-sm">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">{bot.name}</CardTitle>
+                <Badge variant={bot.status === 'active' ? 'default' : 'secondary'}>
+                  {bot.status === 'active' ? 'Ativo' : 'Inativo'}
+                </Badge>
               </div>
+              <p className="text-sm text-gray-600">{bot.description}</p>
             </CardHeader>
-            
             <CardContent>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
-                  <Label className="text-sm font-medium text-gray-700">Comandos disponíveis:</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {bot.commands.map((command, index) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {command}
-                      </Badge>
-                    ))}
+                  <p className="text-xs text-gray-500">Comandos:</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {bot.commands.length > 0 ? (
+                      bot.commands.map((command, index) => (
+                        <Badge key={index} variant="outline" className="text-xs">
+                          {command}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-400">Nenhum comando</span>
+                    )}
                   </div>
                 </div>
-                
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="text-sm text-gray-500">
-                    Criado em {bot.createdAt.toLocaleDateString('pt-BR')}
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={bot.status === 'active'}
-                        onCheckedChange={() => toggleBotStatus(bot.id)}
-                      />
-                      <Label className="text-sm">
-                        {bot.status === 'active' ? 'Ativo' : 'Inativo'}
-                      </Label>
-                    </div>
-                    
-                    <Button variant="outline" size="sm">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    
-                    <Button 
-                      variant="destructive" 
-                      size="sm"
-                      onClick={() => deleteBot(bot.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => toggleBotStatus(bot.id)}
+                    className="flex-1"
+                  >
+                    {bot.status === 'active' ? (
+                      <>
+                        <Pause className="w-3 h-3 mr-1" />
+                        Pausar
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3 mr-1" />
+                        Ativar
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => deleteBot(bot.id)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
                 </div>
+                <p className="text-xs text-gray-400">
+                  Criado em {bot.createdAt.toLocaleDateString('pt-BR')}
+                </p>
               </div>
             </CardContent>
           </Card>
