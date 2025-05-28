@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle, XCircle, Clock, Filter } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Filter, MessageCircle, Eye } from 'lucide-react';
+import UserDetailsModal from '@/components/UserDetailsModal';
 import type { Request } from '@/types/dashboard';
 
 export default function Requests() {
@@ -16,7 +17,17 @@ export default function Requests() {
       status: 'pending',
       user: 'João Silva',
       createdAt: new Date(Date.now() - 86400000),
-      priority: 'high'
+      priority: 'high',
+      userDetails: {
+        name: 'João Silva',
+        email: 'joao.silva@email.com',
+        phone: '(11) 99999-9999',
+        cpf: '123.456.789-00',
+        cep: '01234-567',
+        address: 'Rua das Flores, 123',
+        city: 'São Paulo',
+        state: 'SP'
+      }
     },
     {
       id: '2',
@@ -25,7 +36,17 @@ export default function Requests() {
       status: 'approved',
       user: 'Maria Santos',
       createdAt: new Date(Date.now() - 172800000),
-      priority: 'medium'
+      priority: 'medium',
+      userDetails: {
+        name: 'Maria Santos',
+        email: 'maria.santos@email.com',
+        phone: '(21) 88888-8888',
+        cpf: '987.654.321-00',
+        cep: '20000-000',
+        address: 'Av. Copacabana, 456',
+        city: 'Rio de Janeiro',
+        state: 'RJ'
+      }
     },
     {
       id: '3',
@@ -34,16 +55,33 @@ export default function Requests() {
       status: 'rejected',
       user: 'Pedro Costa',
       createdAt: new Date(Date.now() - 259200000),
-      priority: 'low'
+      priority: 'low',
+      userDetails: {
+        name: 'Pedro Costa',
+        email: 'pedro.costa@email.com',
+        phone: '(31) 77777-7777',
+        cpf: '456.789.123-00',
+        cep: '30000-000',
+        address: 'Rua Minas Gerais, 789',
+        city: 'Belo Horizonte',
+        state: 'MG'
+      }
     }
   ]);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedUser, setSelectedUser] = useState<Request | null>(null);
 
   const handleStatusChange = (requestId: string, newStatus: 'approved' | 'rejected') => {
     setRequests(requests.map(req => 
       req.id === requestId ? { ...req, status: newStatus } : req
     ));
+  };
+
+  const handleWhatsAppClick = (phone: string) => {
+    const phoneNumber = phone.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/55${phoneNumber}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   const filteredRequests = requests.filter(req => 
@@ -144,31 +182,61 @@ export default function Requests() {
                   </p>
                 </div>
                 
-                {request.status === 'pending' && (
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => handleStatusChange(request.id, 'approved')}
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-1" />
-                      Aprovar
-                    </Button>
-                    <Button
-                      onClick={() => handleStatusChange(request.id, 'rejected')}
-                      size="sm"
-                      variant="destructive"
-                    >
-                      <XCircle className="w-4 h-4 mr-1" />
-                      Rejeitar
-                    </Button>
-                  </div>
-                )}
+                <div className="flex gap-2 items-center">
+                  <Button
+                    onClick={() => handleWhatsAppClick(request.userDetails.phone)}
+                    size="sm"
+                    variant="outline"
+                    className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-1" />
+                    WhatsApp
+                  </Button>
+                  
+                  <Button
+                    onClick={() => setSelectedUser(request)}
+                    size="sm"
+                    variant="outline"
+                    className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    Detalhes
+                  </Button>
+                  
+                  {request.status === 'pending' && (
+                    <>
+                      <Button
+                        onClick={() => handleStatusChange(request.id, 'approved')}
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        Aprovar
+                      </Button>
+                      <Button
+                        onClick={() => handleStatusChange(request.id, 'rejected')}
+                        size="sm"
+                        variant="destructive"
+                      >
+                        <XCircle className="w-4 h-4 mr-1" />
+                        Rejeitar
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {selectedUser && (
+        <UserDetailsModal
+          isOpen={!!selectedUser}
+          onClose={() => setSelectedUser(null)}
+          userDetails={selectedUser.userDetails}
+        />
+      )}
     </div>
   );
 }

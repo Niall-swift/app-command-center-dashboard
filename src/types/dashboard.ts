@@ -1,4 +1,3 @@
-
 export interface Message {
   id: string;
   user: string;
@@ -6,6 +5,17 @@ export interface Message {
   timestamp: Date;
   avatar?: string;
   isAdmin?: boolean;
+}
+
+export interface UserDetails {
+  name: string;
+  email: string;
+  phone: string;
+  cpf: string;
+  cep: string;
+  address: string;
+  city: string;
+  state: string;
 }
 
 export interface Request {
@@ -16,6 +26,7 @@ export interface Request {
   user: string;
   createdAt: Date;
   priority: 'low' | 'medium' | 'high';
+  userDetails: UserDetails;
 }
 
 export interface ClientData {
