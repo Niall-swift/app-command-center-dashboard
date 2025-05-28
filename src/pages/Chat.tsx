@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Search, MessageCircle } from 'lucide-react';
+import PredefinedMessages from '@/components/PredefinedMessages';
 import type { Message, Client } from '@/types/dashboard';
 
 export default function Chat() {
@@ -49,29 +50,73 @@ export default function Chat() {
   ]);
 
   const [selectedClient, setSelectedClient] = useState<Client | null>(clients[0]);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      user: 'João Silva',
-      content: 'Olá, preciso de ajuda com minha conta',
-      timestamp: new Date(Date.now() - 300000),
-      avatar: 'JS'
-    },
-    {
-      id: '2',
-      user: 'Admin',
-      content: 'Olá João! Como posso ajudá-lo hoje?',
-      timestamp: new Date(Date.now() - 240000),
-      isAdmin: true
-    }
-  ]);
+  
+  // Mensagens específicas por cliente
+  const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({
+    '1': [
+      {
+        id: '1',
+        user: 'João Silva',
+        content: 'Olá, preciso de ajuda com minha conta',
+        timestamp: new Date(Date.now() - 300000),
+        avatar: 'JS'
+      },
+      {
+        id: '2',
+        user: 'Admin',
+        content: 'Olá João! Como posso ajudá-lo hoje?',
+        timestamp: new Date(Date.now() - 240000),
+        isAdmin: true
+      }
+    ],
+    '2': [
+      {
+        id: '1',
+        user: 'Maria Santos',
+        content: 'Quando será lançada a nova funcionalidade?',
+        timestamp: new Date(Date.now() - 120000),
+        avatar: 'MS'
+      }
+    ],
+    '3': [
+      {
+        id: '1',
+        user: 'Pedro Costa',
+        content: 'Preciso alterar meus dados',
+        timestamp: new Date(Date.now() - 700000),
+        avatar: 'PC'
+      },
+      {
+        id: '2',
+        user: 'Admin',
+        content: 'Claro Pedro! Vou ajudá-lo com isso.',
+        timestamp: new Date(Date.now() - 650000),
+        isAdmin: true
+      },
+      {
+        id: '3',
+        user: 'Pedro Costa',
+        content: 'Obrigado pela ajuda!',
+        timestamp: new Date(Date.now() - 600000),
+        avatar: 'PC'
+      }
+    ],
+    '4': [
+      {
+        id: '1',
+        user: 'Ana Lima',
+        content: 'Está funcionando perfeitamente agora',
+        timestamp: new Date(Date.now() - 900000),
+        avatar: 'AL'
+      }
+    ]
+  });
 
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleClientSelect = (client: Client) => {
     setSelectedClient(client);
-    // Aqui você pode carregar as mensagens específicas do cliente
     console.log('Cliente selecionado:', client.name);
   };
 
@@ -84,19 +129,24 @@ export default function Chat() {
         timestamp: new Date(),
         isAdmin: true
       };
-      setMessages([...messages, message]);
+      
+      setClientMessages(prev => ({
+        ...prev,
+        [selectedClient.id]: [...(prev[selectedClient.id] || []), message]
+      }));
       setNewMessage('');
     }
+  };
+
+  const handlePredefinedMessage = (message: string) => {
+    setNewMessage(message);
   };
 
   const filteredClients = clients.filter(client => 
     client.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredMessages = messages.filter(msg => 
-    msg.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    msg.user.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const currentMessages = selectedClient ? (clientMessages[selectedClient.id] || []) : [];
 
   return (
     <div className="h-full flex gap-6">
@@ -194,7 +244,7 @@ export default function Chat() {
           <CardContent className="p-0 flex-1 flex flex-col">
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {selectedClient ? (
-                filteredMessages.map((message) => (
+                currentMessages.map((message) => (
                   <div key={message.id} className={`flex gap-3 ${message.isAdmin ? 'justify-end' : 'justify-start'}`}>
                     {!message.isAdmin && (
                       <Avatar className="w-8 h-8">
@@ -254,6 +304,16 @@ export default function Chat() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Mensagens Predefinidas */}
+      {selectedClient && (
+        <div className="w-72">
+          <PredefinedMessages 
+            client={selectedClient} 
+            onSelectMessage={handlePredefinedMessage}
+          />
+        </div>
+      )}
     </div>
   );
 }
