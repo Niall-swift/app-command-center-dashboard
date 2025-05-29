@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, XCircle, Clock, Filter, MessageCircle, Eye } from 'lucide-react';
 import UserDetailsModal from '@/components/UserDetailsModal';
+import IXCSoftPreRegistration from '@/components/IXCSoftPreRegistration';
 import type { Request } from '@/types/dashboard';
 
 export default function Requests() {
@@ -182,7 +182,7 @@ export default function Requests() {
                   </p>
                 </div>
                 
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center flex-wrap">
                   <Button
                     onClick={() => handleWhatsAppClick(request.userDetails.phone)}
                     size="sm"
@@ -202,6 +202,11 @@ export default function Requests() {
                     <Eye className="w-4 h-4 mr-1" />
                     Detalhes
                   </Button>
+
+                  <IXCSoftPreRegistration 
+                    userDetails={request.userDetails}
+                    requestId={request.id}
+                  />
                   
                   {request.status === 'pending' && (
                     <>

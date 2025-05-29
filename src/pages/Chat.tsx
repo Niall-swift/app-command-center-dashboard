@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Search, MessageCircle } from 'lucide-react';
+import { Send, Search, MessageCircle, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PredefinedMessages from '@/components/PredefinedMessages';
 import PageTransition from '@/components/PageTransition';
+import { useToast } from "@/hooks/use-toast";
 import type { Message, Client } from '@/types/dashboard';
 
 export default function Chat() {
@@ -115,6 +116,71 @@ export default function Chat() {
 
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { toast } = useToast();
+
+  // Criar elemento de áudio para notificação
+  useEffect(() => {
+    // Criar um tom de notificação programaticamente
+    const createNotificationSound = () => {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    };
+
+    audioRef.current = { play: createNotificationSound } as any;
+  }, []);
+
+  // Simular recebimento de mensagem em tempo real (Firebase)
+  useEffect(() => {
+    const simulateFirebaseMessage = () => {
+      // Aqui você integraria com o Firebase para escutar novas mensagens
+      // Por agora, vamos simular
+      console.log('Listening for Firebase real-time messages...');
+    };
+
+    simulateFirebaseMessage();
+  }, []);
+
+  const playNotificationSound = () => {
+    if (notificationEnabled && audioRef.current) {
+      try {
+        audioRef.current.play();
+        toast({
+          title: "Nova mensagem!",
+          description: "Você recebeu uma nova mensagem",
+          duration: 3000,
+        });
+      } catch (error) {
+        console.log('Erro ao reproduzir som de notificação:', error);
+      }
+    }
+  };
+
+  // Função que seria chamada quando uma nova mensagem chega via Firebase
+  const handleNewMessageReceived = (newMsg: Message) => {
+    if (selectedClient && !newMsg.isAdmin) {
+      setClientMessages(prev => ({
+        ...prev,
+        [selectedClient.id]: [...(prev[selectedClient.id] || []), newMsg]
+      }));
+      playNotificationSound();
+    }
+  };
 
   const handleClientSelect = (client: Client) => {
     setSelectedClient(client);
@@ -179,6 +245,14 @@ export default function Chat() {
     }
   };
 
+  const toggleNotifications = () => {
+    setNotificationEnabled(!notificationEnabled);
+    toast({
+      title: notificationEnabled ? "Notificações desativadas" : "Notificações ativadas",
+      description: notificationEnabled ? "Você não receberá sons de notificação" : "Você receberá sons para novas mensagens",
+    });
+  };
+
   return (
     <PageTransition>
       <div className="h-full flex gap-6">
@@ -191,14 +265,24 @@ export default function Chat() {
         >
           <Card className="bg-white shadow-sm flex-1">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                  >
+                    <MessageCircle className="w-5 h-5" />
+                  </motion.div>
+                  Clientes
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleNotifications}
+                  className={`p-2 ${notificationEnabled ? 'text-green-600' : 'text-gray-400'}`}
                 >
-                  <MessageCircle className="w-5 h-5" />
-                </motion.div>
-                Clientes
+                  <Volume2 className="w-4 h-4" />
+                </Button>
               </CardTitle>
               <motion.div 
                 className="relative"
