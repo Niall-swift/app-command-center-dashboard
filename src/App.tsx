@@ -12,6 +12,7 @@ import Requests from "./pages/Requests";
 import Analytics from "./pages/Analytics";
 import Bots from "./pages/Bots";
 import Settings from "./pages/Settings";
+import Raffle from "./pages/Raffle";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ function AnimatedRoutes() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/bots" element={<Bots />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/raffle" element={<Raffle />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>
