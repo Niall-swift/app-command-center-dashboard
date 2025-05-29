@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -91,8 +90,8 @@ export default function TechnicalSupport() {
   });
   const { toast } = useToast();
 
-  // Número do grupo de técnicos no WhatsApp (exemplo)
-  const techniciansGroupNumber = '5511999999999';
+  // ID do grupo de técnicos no WhatsApp (formato: groupid@g.us ou link de convite)
+  const techniciansGroupId = 'CHAT_GROUP_ID_HERE'; // Substitua pelo ID real do grupo
 
   const handleStatusChange = (callId: string, newStatus: TechnicalCall['status']) => {
     setCalls(calls.map(call => 
@@ -105,12 +104,12 @@ export default function TechnicalSupport() {
     });
   };
 
-  const handleSendToWhatsApp = (call: TechnicalCall) => {
+  const handleSendToWhatsAppGroup = (call: TechnicalCall) => {
     const mapsUrl = call.coordinates 
       ? `https://maps.google.com/maps?q=${call.coordinates.lat},${call.coordinates.lng}`
       : `https://maps.google.com/maps?q=${encodeURIComponent(call.address)}`;
 
-    const message = `🔧 *CHAMADO TÉCNICO*
+    const message = `🔧 *CHAMADO TÉCNICO - NOVO*
 
 👤 *Cliente:* ${call.clientName}
 📞 *Telefone:* ${call.clientPhone}
@@ -126,13 +125,16 @@ ${mapsUrl}
                    call.priority === 'high' ? 'Alta' :
                    call.priority === 'medium' ? 'Média' : 'Baixa'}
 
-📋 *ID do Chamado:* ${call.id}`;
+📋 *ID do Chamado:* ${call.id}
 
-    const whatsappUrl = `https://wa.me/${techniciansGroupNumber}?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
+⏰ *Horário:* ${call.createdAt.toLocaleDateString('pt-BR')} às ${call.createdAt.toLocaleTimeString('pt-BR')}`;
+
+    // Para grupo, use o link de convite do grupo ou o chat://group_id
+    const whatsappGroupUrl = `https://chat.whatsapp.com/${techniciansGroupId}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappGroupUrl, '_blank');
     
     toast({
-      title: "Enviado para técnicos",
+      title: "Enviado para grupo de técnicos",
       description: "Chamado encaminhado para o grupo de técnicos no WhatsApp",
     });
   };
@@ -425,12 +427,12 @@ ${mapsUrl}
                     
                     <div className="flex gap-2 items-center flex-wrap">
                       <Button
-                        onClick={() => handleSendToWhatsApp(call)}
+                        onClick={() => handleSendToWhatsAppGroup(call)}
                         size="sm"
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <MessageCircle className="w-4 h-4 mr-1" />
-                        Enviar p/ Técnicos
+                        Enviar p/ Grupo
                       </Button>
                       
                       {call.status === 'pending' && (
