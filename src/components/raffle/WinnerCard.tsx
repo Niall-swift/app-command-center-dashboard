@@ -1,4 +1,3 @@
-
 import React, { useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,8 +52,95 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
     ctx.textAlign = 'center';
     ctx.fillText('🏆 VENCEDOR 🏆', 300, 100);
 
+    // Load and draw avatar image
+    try {
+      if (winner.avatar) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            // Draw circular avatar
+            const avatarSize = 120;
+            const avatarX = 300;
+            const avatarY = 250;
+            
+            // Create circular clipping path
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            
+            // Draw the image
+            ctx.drawImage(img, avatarX - avatarSize / 2, avatarY - avatarSize / 2, avatarSize, avatarSize);
+            ctx.restore();
+            
+            // Draw avatar border
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(avatarX, avatarY, avatarSize / 2 + 2, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            resolve(true);
+          };
+          img.onerror = () => reject(false);
+          img.src = winner.avatar;
+        });
+      } else {
+        // Draw fallback circle with initials if no avatar
+        const avatarSize = 120;
+        const avatarX = 300;
+        const avatarY = 250;
+        
+        // Draw circle background
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw border
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Draw initials
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(winner.name.charAt(0), avatarX, avatarY + 15);
+      }
+    } catch (error) {
+      console.log('Erro ao carregar avatar, usando fallback');
+      // Draw fallback circle with initials
+      const avatarSize = 120;
+      const avatarX = 300;
+      const avatarY = 250;
+      
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.beginPath();
+      ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 48px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(winner.name.charAt(0), avatarX, avatarY + 15);
+    }
+
     // Winner name
+    ctx.fillStyle = 'white';
     ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
     ctx.fillText(winner.name, 300, 400);
 
     // Handle
