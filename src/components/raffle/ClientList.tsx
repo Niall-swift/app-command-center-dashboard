@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Check, CheckAll, X, Search, Eye } from 'lucide-react';
+import { Users, Check, CheckCheck, X, Search, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ParticipantDetailsModal from './ParticipantDetailsModal';
 import type { Client } from '@/types/dashboard';
@@ -100,7 +100,7 @@ export default function ClientList({
                   </>
                 ) : (
                   <>
-                    <CheckAll className="w-3 h-3 mr-1" />
+                    <CheckCheck className="w-3 h-3 mr-1" />
                     Selecionar Todos
                   </>
                 )}
