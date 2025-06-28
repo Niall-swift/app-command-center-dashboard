@@ -52,4 +52,8 @@ export interface Client {
   lastMessageTime: Date;
   unreadCount: number;
   isOnline: boolean;
+  email?: string;
+  phone?: string;
+  cpf?: string;
+  cep?: string;
 }

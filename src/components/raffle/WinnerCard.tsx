@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Download, X, Trophy, Star, Sparkles } from 'lucide-react';
+import { Download, X, Trophy, Star, Sparkles, MessageCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Client } from '@/types/dashboard';
 
@@ -168,6 +168,170 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
     link.click();
   };
 
+  const sendCardToWinner = async () => {
+    // First generate the card
+    if (!cardRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    canvas.width = 600;
+    canvas.height = 800;
+
+    // Background gradient
+    const gradient = ctx.createLinearGradient(0, 0, 600, 800);
+    gradient.addColorStop(0, '#8B5CF6');
+    gradient.addColorStop(0.5, '#EC4899');
+    gradient.addColorStop(1, '#F59E0B');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 600, 800);
+
+    // Add decorative elements
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    for (let i = 0; i < 50; i++) {
+      const x = Math.random() * 600;
+      const y = Math.random() * 800;
+      const size = Math.random() * 10 + 5;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Title
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🏆 VENCEDOR 🏆', 300, 100);
+
+    try {
+      if (winner.avatar) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            // Draw circular avatar
+            const avatarSize = 120;
+            const avatarX = 300;
+            const avatarY = 250;
+            
+            // Create circular clipping path
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            
+            // Draw the image
+            ctx.drawImage(img, avatarX - avatarSize / 2, avatarY - avatarSize / 2, avatarSize, avatarSize);
+            ctx.restore();
+            
+            // Draw avatar border
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(avatarX, avatarY, avatarSize / 2 + 2, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            resolve(true);
+          };
+          img.onerror = () => reject(false);
+          img.src = winner.avatar;
+        });
+      } else {
+        // Draw fallback circle with initials if no avatar
+        const avatarSize = 120;
+        const avatarX = 300;
+        const avatarY = 250;
+        
+        // Draw circle background
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw border
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Draw initials
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(winner.name.charAt(0), avatarX, avatarY + 15);
+      }
+    } catch (error) {
+      console.log('Erro ao carregar avatar, usando fallback');
+      // Draw fallback circle with initials
+      const avatarSize = 120;
+      const avatarX = 300;
+      const avatarY = 250;
+      
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.beginPath();
+      ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 48px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(winner.name.charAt(0), avatarX, avatarY + 15);
+    }
+
+    // Winner name
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(winner.name, 300, 400);
+
+    // Handle
+    ctx.font = '24px Arial';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillText(`@${winner.name.toLowerCase().replace(' ', '')}`, 300, 450);
+
+    // Prize
+    ctx.font = 'bold 28px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText('Ganhou:', 300, 550);
+    ctx.font = 'bold 32px Arial';
+    ctx.fillText(prize, 300, 600);
+
+    // Date
+    const now = new Date();
+    ctx.font = '18px Arial';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillText(now.toLocaleDateString('pt-BR'), 300, 700);
+
+    // Convert canvas to blob and create URL
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        
+        // Create congratulations message
+        const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ Obrigado por participar! ✨`;
+        
+        // Send to WhatsApp with the message
+        const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
+        const whatsappUrl = `https://wa.me/55${phoneNumber}?text=${encodeURIComponent(congratsMessage)}`;
+        window.open(whatsappUrl, '_blank');
+        
+        // Clean up
+        URL.revokeObjectURL(url);
+      }
+    }, 'image/png');
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -307,19 +471,35 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
                 </p>
               </motion.div>
               
-              {/* Download Button */}
+              {/* Action Buttons */}
               <motion.div
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 1 }}
+                className="space-y-3"
               >
-                <Button
-                  onClick={downloadCard}
-                  className="bg-white text-purple-600 hover:bg-white/90 font-semibold px-6 py-2"
-                >
-                  <Download className="w-5 h-5 mr-2" />
-                  Salvar Card
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={downloadCard}
+                    className="flex-1 bg-white text-purple-600 hover:bg-white/90 font-semibold"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Salvar Card
+                  </Button>
+                  <Button
+                    onClick={sendCardToWinner}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
+                    disabled={!winner.phone}
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Enviar ao Vencedor
+                  </Button>
+                </div>
+                {!winner.phone && (
+                  <p className="text-xs text-white/70">
+                    Telefone não cadastrado para envio
+                  </p>
+                )}
               </motion.div>
             </CardContent>
           </div>

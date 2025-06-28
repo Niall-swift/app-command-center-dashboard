@@ -10,7 +10,7 @@ import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
 
-// Mock data for clients
+// Mock data for clients with additional fields
 const mockClients: Client[] = [
   {
     id: '1',
@@ -19,7 +19,11 @@ const mockClients: Client[] = [
     lastMessage: 'Olá!',
     lastMessageTime: new Date(),
     unreadCount: 0,
-    isOnline: true
+    isOnline: true,
+    email: 'joao.silva@email.com',
+    phone: '11987654321',
+    cpf: '123.456.789-00',
+    cep: '01234-567'
   },
   {
     id: '2',
@@ -28,7 +32,11 @@ const mockClients: Client[] = [
     lastMessage: 'Oi!',
     lastMessageTime: new Date(),
     unreadCount: 0,
-    isOnline: false
+    isOnline: false,
+    email: 'maria.santos@email.com',
+    phone: '11876543210',
+    cpf: '987.654.321-00',
+    cep: '54321-098'
   },
   {
     id: '3',
@@ -37,7 +45,11 @@ const mockClients: Client[] = [
     lastMessage: 'Bom dia!',
     lastMessageTime: new Date(),
     unreadCount: 0,
-    isOnline: true
+    isOnline: true,
+    email: 'pedro.costa@email.com',
+    phone: '11765432109',
+    cpf: '456.789.123-00',
+    cep: '98765-432'
   },
   {
     id: '4',
@@ -46,7 +58,11 @@ const mockClients: Client[] = [
     lastMessage: 'Obrigada!',
     lastMessageTime: new Date(),
     unreadCount: 0,
-    isOnline: true
+    isOnline: true,
+    email: 'ana.oliveira@email.com',
+    phone: '11654321098',
+    cpf: '789.123.456-00',
+    cep: '13579-246'
   }
 ];
 
@@ -75,6 +91,14 @@ export default function Raffle() {
         return [...prev, client];
       }
     });
+  };
+
+  const handleSelectAll = () => {
+    setSelectedClients(mockClients);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedClients([]);
   };
 
   const handleRaffle = () => {
@@ -170,6 +194,8 @@ export default function Raffle() {
               clients={mockClients}
               selectedClients={selectedClients}
               onClientToggle={handleClientToggle}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
             />
           </motion.div>
 
