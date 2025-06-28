@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, XCircle, Clock, Filter, MessageCircle, Eye } from 'lucide-react';
 import UserDetailsModal from '@/components/UserDetailsModal';
-import IXCSoftPreRegistration from '@/components/IXCSoftPreRegistration';
+import IXCPreRegistrationForm from '@/components/IXCPreRegistrationForm';
 import type { Request } from '@/types/dashboard';
 
 export default function Requests() {
@@ -203,7 +203,7 @@ export default function Requests() {
                     Detalhes
                   </Button>
 
-                  <IXCSoftPreRegistration 
+                  <IXCPreRegistrationForm 
                     userDetails={request.userDetails}
                     requestId={request.id}
                   />
