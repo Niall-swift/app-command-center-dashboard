@@ -1,4 +1,3 @@
-
 import React, { useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -163,7 +162,7 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: 'Card do Vencedor',
+          title: 'Parabéns! Você ganhou!',
           text: congratsMessage,
           files: [file]
         });
@@ -173,19 +172,57 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
       }
     }
 
-    // Fallback: Download the image and open WhatsApp with message
-    const link = document.createElement('a');
-    link.download = `vencedor_${winner.name.replace(' ', '_')}.png`;
-    link.href = dataUrl;
-    link.click();
-
-    // Open WhatsApp with message
+    // Fallback: Open WhatsApp Web with the image as base64 data
     const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
-    const whatsappMessage = `${congratsMessage}\n\n📸 *Card do vencedor foi baixado em seu dispositivo para envio!*`;
-    const whatsappUrl = `https://wa.me/55${phoneNumber}?text=${encodeURIComponent(whatsappMessage)}`;
     
+    // Try to use WhatsApp Web API with image
+    const imageData = dataUrl.split(',')[1]; // Remove data:image/png;base64, prefix
+    const whatsappMessage = `${congratsMessage}\n\n📸 Seu card de vencedor está anexado!`;
+    
+    // Create a temporary form to send the image via WhatsApp Web
+    const tempForm = document.createElement('form');
+    tempForm.style.display = 'none';
+    tempForm.method = 'POST';
+    tempForm.action = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
+    
+    const imageInput = document.createElement('input');
+    imageInput.type = 'file';
+    imageInput.files = new DataTransfer().files;
+    
+    // Add the file to a DataTransfer object
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    imageInput.files = dt.files;
+    
+    tempForm.appendChild(imageInput);
+    document.body.appendChild(tempForm);
+    
+    // Open WhatsApp Web in a new window/tab
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
+    const whatsappWindow = window.open(whatsappUrl, '_blank', 'width=800,height=600');
+    
+    // Copy image to clipboard as fallback
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'image/png': blob
+        })
+      ]);
+      
+      // Show instruction to paste the image
+      setTimeout(() => {
+        if (whatsappWindow && !whatsappWindow.closed) {
+          alert('A imagem foi copiada para a área de transferência. Cole ela no WhatsApp (Ctrl+V ou Cmd+V)');
+        }
+      }, 2000);
+    } catch (clipboardError) {
+      console.log('Erro ao copiar para área de transferência:', clipboardError);
+      // If clipboard fails, just open WhatsApp with the message
+    }
+    
+    // Clean up
     setTimeout(() => {
-      window.open(whatsappUrl, '_blank');
+      document.body.removeChild(tempForm);
     }, 1000);
   };
 
@@ -358,7 +395,7 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
                   </p>
                 )}
                 <p className="text-xs text-white/70 text-center">
-                  * O card será baixado e você poderá enviá-lo pelo WhatsApp
+                  * O card será enviado diretamente no WhatsApp ou copiado para área de transferência
                 </p>
               </motion.div>
             </CardContent>
