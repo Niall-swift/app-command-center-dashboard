@@ -1,5 +1,6 @@
 
 export interface IXCContactData {
+  principal?: 'S' | 'N'; // S = Sim, N = Não
   nome: string; // OBRIGATÓRIO
   tipo_pessoa: 'F' | 'J'; // F = Física, J = Jurídica
   cnpj_cpf?: string;
@@ -14,7 +15,6 @@ export interface IXCContactData {
   obs?: string;
   lead: 'S' | 'N'; // S = Sim, N = Não
   ativo: 'S' | 'N'; // S = Ativo, N = Inativo
-  principal: 'S' | 'N'; // S = Sim, N = Não
 }
 
 export interface IXCPreRegistrationFormData {
@@ -28,4 +28,6 @@ export interface IXCPreRegistrationFormData {
   cep: string;
   cidade: string;
   observacoes: string;
+  host: string;
+  token: string;
 }

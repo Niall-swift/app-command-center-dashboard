@@ -3,10 +3,10 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import axios from 'axios';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -34,14 +34,19 @@ const ixcSchema = z.object({
   cep: z.string().min(8, 'CEP é obrigatório'),
   cidade: z.string().min(2, 'Cidade é obrigatória'),
   observacoes: z.string().optional(),
+  // Campos para configuração da API
+  host: z.string().url('URL da API é obrigatória').default('https://192.168.27.90/webservice/v1'),
+  token: z.string().min(1, 'Token da API é obrigatório'),
 });
+
+type IXCFormData = z.infer<typeof ixcSchema>;
 
 export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPreRegistrationFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const form = useForm<IXCPreRegistrationFormData>({
+  const form = useForm<IXCFormData>({
     resolver: zodResolver(ixcSchema),
     defaultValues: {
       nome: userDetails.name || '',
@@ -54,20 +59,24 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
       cep: userDetails.cep || '',
       cidade: userDetails.city || '',
       observacoes: '',
+      host: 'https://192.168.27.90/webservice/v1',
+      token: '',
     },
   });
 
-  const handleIXCPreRegistration = async (data: IXCPreRegistrationFormData) => {
+  const handleIXCPreRegistration = async (data: IXCFormData) => {
     setIsLoading(true);
 
     try {
       // Mapear dados do formulário para o formato esperado pela API do IXC
       const ixcData: IXCContactData = {
+        principal: 'N',
         nome: data.nome,
         tipo_pessoa: data.tipo_pessoa,
         cnpj_cpf: data.cnpj_cpf,
         fone_whatsapp: data.telefone,
         fone_celular: data.telefone,
+        fone_residencial: data.telefone,
         email: data.email || '',
         endereco: data.endereco,
         bairro: data.bairro,
@@ -76,44 +85,47 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
         obs: data.observacoes || '',
         lead: 'S',
         ativo: 'S',
-        principal: 'N',
       };
 
       console.log('Dados para envio ao IXC:', ixcData);
 
-      // Aqui você faria a integração real com a API do IXC
-      // const response = await fetch('/api/ixc/contato', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //     'Authorization': `Bearer ${IXC_TOKEN}`
-      //   },
-      //   body: JSON.stringify(ixcData)
-      // });
-
-      // Simulação da API
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      toast({
-        title: "Pré-cadastro IXC realizado!",
-        description: `Cliente ${data.nome} foi cadastrado no sistema IXC como lead`,
+      // Chamada real para a API do IXC
+      const response = await axios.post(`${data.host}/contato`, ixcData, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${data.token}`,
+          'ixcsoft': data.token, // IXC pode usar este header também
+        },
+        timeout: 30000, // 30 segundos de timeout
       });
 
-      console.log('Pré-cadastro IXC realizado:', {
-        client: data,
-        ixcData,
-        requestId
+      console.log('Resposta da API IXC:', response.data);
+
+      toast({
+        title: "Pré-cadastro IXC realizado com sucesso!",
+        description: `Cliente ${data.nome} foi cadastrado no sistema IXC como lead`,
       });
 
       setIsOpen(false);
       form.reset();
     } catch (error) {
+      console.error('Erro na chamada da API IXC:', error);
+      
+      let errorMessage = "Não foi possível realizar o cadastro no IXC. Tente novamente.";
+      
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          errorMessage = `Erro da API IXC: ${error.response.status} - ${error.response.data?.message || error.response.statusText}`;
+        } else if (error.request) {
+          errorMessage = "Erro de conexão com a API IXC. Verifique a URL e conectividade.";
+        }
+      }
+
       toast({
         title: "Erro no pré-cadastro IXC",
-        description: "Não foi possível realizar o cadastro no IXC. Tente novamente.",
+        description: errorMessage,
         variant: "destructive",
       });
-      console.error('Erro no pré-cadastro IXC:', error);
     } finally {
       setIsLoading(false);
     }
@@ -149,6 +161,45 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
+              {/* Configuração da API */}
+              <div className="p-4 bg-gray-50 rounded-lg border">
+                <h3 className="font-semibold text-gray-900 mb-3">Configuração da API IXC</h3>
+                <div className="grid grid-cols-1 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="host"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>URL da API IXC *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="https://seu-servidor.com/webservice/v1" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="token"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Token da API *</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="password" 
+                            placeholder="Seu token de acesso à API IXC" 
+                            {...field} 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* Dados do cliente */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
