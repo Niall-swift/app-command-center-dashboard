@@ -14,6 +14,7 @@ import Bots from "./pages/Bots";
 import Settings from "./pages/Settings";
 import Raffle from "./pages/Raffle";
 import TechnicalSupport from "./pages/TechnicalSupport";
+import NetworkMap from "./pages/NetworkMap";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ function AnimatedRoutes() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/raffle" element={<Raffle />} />
         <Route path="/technical-support" element={<TechnicalSupport />} />
+        <Route path="/network-map" element={<NetworkMap />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>

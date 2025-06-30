@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MessageSquare, FileText, BarChart3, Bot, Home, Settings, Gift, Wrench } from 'lucide-react';
+import { MessageSquare, FileText, BarChart3, Bot, Home, Settings, Gift, Wrench, Map } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +35,11 @@ const menuItems = [
     title: "Suporte Técnico",
     url: "/technical-support",
     icon: Wrench,
+  },
+  {
+    title: "Mapa da Rede",
+    url: "/network-map",
+    icon: Map,
   },
   {
     title: "Gráficos",
