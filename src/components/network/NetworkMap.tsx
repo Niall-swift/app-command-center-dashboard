@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Navigation, Route, MapPin, Play, Square } from 'lucide-react';
+import { Navigation, Route, MapPin, Play, Square, MapPinPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 // Fix for default markers in Leaflet
@@ -45,10 +45,11 @@ const NetworkMap = () => {
   const [rideInProgress, setRideInProgress] = useState(false);
   const [rideStartTime, setRideStartTime] = useState<Date | null>(null);
   const [estimatedArrival, setEstimatedArrival] = useState<string>('');
-  const { toast } = useToast();
-
-  // Dados mock dos pontos da rede
-  const networkPoints: NetworkPoint[] = [
+  const [addingPoint, setAddingPoint] = useState(false);
+  const [newPointName, setNewPointName] = useState('');
+  const [newPointType, setNewPointType] = useState<'tower' | 'station' | 'repeater'>('tower');
+  const [newPointStatus, setNewPointStatus] = useState<'active' | 'inactive' | 'maintenance'>('active');
+  const [networkPoints, setNetworkPoints] = useState<NetworkPoint[]>([
     {
       id: '1',
       name: 'Torre Central',
@@ -77,7 +78,8 @@ const NetworkMap = () => {
       type: 'tower',
       status: 'active'
     }
-  ];
+  ]);
+  const { toast } = useToast();
 
   // Dados mock dos motoristas
   const drivers: Driver[] = [
@@ -107,6 +109,14 @@ const NetworkMap = () => {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map.current);
+
+    // Add click handler for adding points
+    map.current.on('click', (e) => {
+      if (addingPoint) {
+        const { lat, lng } = e.latlng;
+        addNewPoint([lat, lng]);
+      }
+    });
 
     // Add network points
     networkPoints.forEach(point => {
@@ -148,7 +158,47 @@ const NetworkMap = () => {
     return () => {
       map.current?.remove();
     };
-  }, [showDrivers]);
+  }, [showDrivers, networkPoints, addingPoint]);
+
+  const addNewPoint = (coordinates: [number, number]) => {
+    if (!newPointName.trim()) {
+      toast({
+        title: "Erro",
+        description: "Por favor, insira um nome para o ponto.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newPoint: NetworkPoint = {
+      id: Date.now().toString(),
+      name: newPointName,
+      coordinates,
+      type: newPointType,
+      status: newPointStatus
+    };
+
+    setNetworkPoints(prev => [...prev, newPoint]);
+    setNewPointName('');
+    setAddingPoint(false);
+
+    toast({
+      title: "Ponto adicionado!",
+      description: `${newPoint.name} foi adicionado ao mapa.`,
+    });
+
+    console.log('Novo ponto adicionado:', newPoint);
+  };
+
+  const toggleAddingMode = () => {
+    setAddingPoint(!addingPoint);
+    if (!addingPoint) {
+      toast({
+        title: "Modo de adição ativado",
+        description: "Clique no mapa para adicionar um novo ponto.",
+      });
+    }
+  };
 
   const createCustomIcon = (type: string, status: string) => {
     const color = getStatusColor(status);
@@ -314,20 +364,20 @@ const NetworkMap = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Buscar Ponto</label>
               <Input
                 placeholder="Nome do ponto..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                disabled={rideInProgress}
+                disabled={rideInProgress || addingPoint}
               />
             </div>
             
             <div>
               <label className="text-sm font-medium mb-2 block">Destino</label>
-              <Select value={selectedPoint} onValueChange={setSelectedPoint} disabled={rideInProgress}>
+              <Select value={selectedPoint} onValueChange={setSelectedPoint} disabled={rideInProgress || addingPoint}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um ponto" />
                 </SelectTrigger>
@@ -347,7 +397,7 @@ const NetworkMap = () => {
 
             <div>
               <label className="text-sm font-medium mb-2 block">Tipo de Rota</label>
-              <Select value={routeType} onValueChange={setRouteType} disabled={rideInProgress}>
+              <Select value={routeType} onValueChange={setRouteType} disabled={rideInProgress || addingPoint}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -362,12 +412,12 @@ const NetworkMap = () => {
             <div className="flex flex-col gap-2">
               {!rideInProgress ? (
                 <>
-                  <Button onClick={calculateRoute} className="mt-6" disabled={!selectedPoint}>
+                  <Button onClick={calculateRoute} className="mt-6" disabled={!selectedPoint || addingPoint}>
                     <Navigation className="w-4 h-4 mr-2" />
                     Calcular Rota
                   </Button>
                   {routeCalculated && (
-                    <Button onClick={startRide} variant="default" className="bg-green-600 hover:bg-green-700">
+                    <Button onClick={startRide} variant="default" className="bg-green-600 hover:bg-green-700" disabled={addingPoint}>
                       <Play className="w-4 h-4 mr-2" />
                       Iniciar Corrida
                     </Button>
@@ -380,14 +430,72 @@ const NetworkMap = () => {
                 </Button>
               )}
             </div>
+
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={toggleAddingMode}
+                variant={addingPoint ? "destructive" : "outline"}
+                disabled={rideInProgress}
+                className="mt-6"
+              >
+                <MapPinPlus className="w-4 h-4 mr-2" />
+                {addingPoint ? 'Cancelar' : 'Adicionar Ponto'}
+              </Button>
+            </div>
           </div>
+
+          {/* Formulário para novo ponto */}
+          {addingPoint && (
+            <div className="mt-4 p-4 border rounded-lg bg-gray-50">
+              <h3 className="font-medium mb-3">Configurações do Novo Ponto</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Nome do Ponto</label>
+                  <Input
+                    value={newPointName}
+                    onChange={(e) => setNewPointName(e.target.value)}
+                    placeholder="Digite o nome..."
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Tipo</label>
+                  <Select value={newPointType} onValueChange={(value: 'tower' | 'station' | 'repeater') => setNewPointType(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tower">Torre</SelectItem>
+                      <SelectItem value="station">Estação</SelectItem>
+                      <SelectItem value="repeater">Repetidor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Status</label>
+                  <Select value={newPointStatus} onValueChange={(value: 'active' | 'inactive' | 'maintenance') => setNewPointStatus(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Ativo</SelectItem>
+                      <SelectItem value="inactive">Inativo</SelectItem>
+                      <SelectItem value="maintenance">Manutenção</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mt-2">
+                Clique no mapa para selecionar a posição do novo ponto.
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-2 mt-4">
             <Button
               variant={showDrivers ? "default" : "outline"}
               size="sm"
               onClick={() => setShowDrivers(!showDrivers)}
-              disabled={rideInProgress}
+              disabled={rideInProgress || addingPoint}
             >
               {showDrivers ? 'Ocultar' : 'Mostrar'} Motoristas
             </Button>
@@ -455,7 +563,7 @@ const NetworkMap = () => {
       {/* Mapa */}
       <Card>
         <CardContent className="p-0">
-          <div ref={mapContainer} className="w-full h-[600px] rounded-lg" />
+          <div ref={mapContainer} className={`w-full h-[600px] rounded-lg ${addingPoint ? 'cursor-crosshair' : ''}`} />
         </CardContent>
       </Card>
     </div>
