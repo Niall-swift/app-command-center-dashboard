@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Navigation, Route, MapPin } from 'lucide-react';
+import { Navigation, Route, MapPin, Play, Square } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 // Fix for default markers in Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -40,6 +41,11 @@ const NetworkMap = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDrivers, setShowDrivers] = useState(true);
   const [currentRoute, setCurrentRoute] = useState<L.Polyline | null>(null);
+  const [routeCalculated, setRouteCalculated] = useState(false);
+  const [rideInProgress, setRideInProgress] = useState(false);
+  const [rideStartTime, setRideStartTime] = useState<Date | null>(null);
+  const [estimatedArrival, setEstimatedArrival] = useState<string>('');
+  const { toast } = useToast();
 
   // Dados mock dos pontos da rede
   const networkPoints: NetworkPoint[] = [
@@ -202,23 +208,99 @@ const NetworkMap = () => {
             }).addTo(map.current!);
 
             setCurrentRoute(routeLine);
+            setRouteCalculated(true);
+            
+            // Calculate estimated time (mock calculation)
+            const distance = calculateDistance(start, end);
+            const estimatedMinutes = Math.round(distance * 2); // 2 minutes per km (mock)
+            const arrivalTime = new Date(Date.now() + estimatedMinutes * 60000);
+            setEstimatedArrival(arrivalTime.toLocaleTimeString('pt-BR', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            }));
             
             // Fit map to show the route
             map.current!.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
 
+            toast({
+              title: "Rota calculada!",
+              description: `Distância: ${distance.toFixed(1)}km - Tempo estimado: ${estimatedMinutes}min`,
+            });
+
             console.log(`Rota calculada para ${selectedPointData.name} usando ${routeType}`);
           } catch (error) {
             console.error('Erro ao calcular rota:', error);
+            toast({
+              title: "Erro",
+              description: "Não foi possível calcular a rota.",
+              variant: "destructive",
+            });
           }
         },
         (error) => {
           console.error('Erro ao obter localização:', error);
-          alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
+          toast({
+            title: "Erro de localização",
+            description: "Não foi possível obter sua localização. Verifique as permissões do navegador.",
+            variant: "destructive",
+          });
         }
       );
     } else {
-      alert('Geolocalização não suportada pelo navegador.');
+      toast({
+        title: "Erro",
+        description: "Geolocalização não suportada pelo navegador.",
+        variant: "destructive",
+      });
     }
+  };
+
+  const calculateDistance = (start: [number, number], end: [number, number]): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (end[0] - start[0]) * Math.PI / 180;
+    const dLon = (end[1] - start[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(start[0] * Math.PI / 180) * Math.cos(end[0] * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  const startRide = () => {
+    if (!routeCalculated) return;
+    
+    setRideInProgress(true);
+    setRideStartTime(new Date());
+    
+    toast({
+      title: "Corrida iniciada!",
+      description: `Destino: ${networkPoints.find(p => p.id === selectedPoint)?.name} - Chegada prevista: ${estimatedArrival}`,
+    });
+
+    // Simulate ride progress notifications
+    setTimeout(() => {
+      toast({
+        title: "Progresso da corrida",
+        description: "Você está no meio do caminho!",
+      });
+    }, 10000); // 10 seconds for demo
+  };
+
+  const endRide = () => {
+    setRideInProgress(false);
+    setRideStartTime(null);
+    setRouteCalculated(false);
+    setEstimatedArrival('');
+    
+    if (currentRoute && map.current) {
+      map.current.removeLayer(currentRoute);
+      setCurrentRoute(null);
+    }
+    
+    toast({
+      title: "Corrida finalizada!",
+      description: "Você chegou ao seu destino.",
+    });
   };
 
   return (
@@ -239,12 +321,13 @@ const NetworkMap = () => {
                 placeholder="Nome do ponto..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                disabled={rideInProgress}
               />
             </div>
             
             <div>
               <label className="text-sm font-medium mb-2 block">Destino</label>
-              <Select value={selectedPoint} onValueChange={setSelectedPoint}>
+              <Select value={selectedPoint} onValueChange={setSelectedPoint} disabled={rideInProgress}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um ponto" />
                 </SelectTrigger>
@@ -264,7 +347,7 @@ const NetworkMap = () => {
 
             <div>
               <label className="text-sm font-medium mb-2 block">Tipo de Rota</label>
-              <Select value={routeType} onValueChange={setRouteType}>
+              <Select value={routeType} onValueChange={setRouteType} disabled={rideInProgress}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -277,10 +360,25 @@ const NetworkMap = () => {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Button onClick={calculateRoute} className="mt-6">
-                <Navigation className="w-4 h-4 mr-2" />
-                Calcular Rota
-              </Button>
+              {!rideInProgress ? (
+                <>
+                  <Button onClick={calculateRoute} className="mt-6" disabled={!selectedPoint}>
+                    <Navigation className="w-4 h-4 mr-2" />
+                    Calcular Rota
+                  </Button>
+                  {routeCalculated && (
+                    <Button onClick={startRide} variant="default" className="bg-green-600 hover:bg-green-700">
+                      <Play className="w-4 h-4 mr-2" />
+                      Iniciar Corrida
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <Button onClick={endRide} variant="destructive" className="mt-6">
+                  <Square className="w-4 h-4 mr-2" />
+                  Finalizar Corrida
+                </Button>
+              )}
             </div>
           </div>
 
@@ -289,9 +387,31 @@ const NetworkMap = () => {
               variant={showDrivers ? "default" : "outline"}
               size="sm"
               onClick={() => setShowDrivers(!showDrivers)}
+              disabled={rideInProgress}
             >
               {showDrivers ? 'Ocultar' : 'Mostrar'} Motoristas
             </Button>
+            
+            {rideInProgress && (
+              <div className="flex items-center gap-4">
+                <Badge variant="default" className="bg-green-600">
+                  Corrida em andamento
+                </Badge>
+                {estimatedArrival && (
+                  <span className="text-sm text-gray-600">
+                    Chegada prevista: {estimatedArrival}
+                  </span>
+                )}
+                {rideStartTime && (
+                  <span className="text-sm text-gray-600">
+                    Iniciada às: {rideStartTime.toLocaleTimeString('pt-BR', { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
