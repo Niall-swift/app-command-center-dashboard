@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -191,12 +190,11 @@ const NetworkMap = () => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
-          const start = [latitude, longitude];
-          const end = selectedPointData.coordinates;
+          const start: [number, number] = [latitude, longitude];
+          const end: [number, number] = selectedPointData.coordinates;
 
           try {
-            // Use OpenRouteService API (free with registration)
-            // For demo purposes, we'll create a simple straight line
+            // Create route line with proper LatLngExpression type
             const routeLine = L.polyline([start, end], {
               color: '#3b82f6',
               weight: 4,
