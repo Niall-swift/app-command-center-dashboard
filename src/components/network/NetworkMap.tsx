@@ -1,13 +1,21 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Navigation, Route, MapPin } from 'lucide-react';
+
+// Fix for default markers in Leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 interface NetworkPoint {
   id: string;
@@ -27,40 +35,40 @@ interface Driver {
 
 const NetworkMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const [mapboxToken, setMapboxToken] = useState('');
+  const map = useRef<L.Map | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<string>('');
   const [routeType, setRouteType] = useState<string>('fastest');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDrivers, setShowDrivers] = useState(true);
+  const [currentRoute, setCurrentRoute] = useState<L.Polyline | null>(null);
 
   // Dados mock dos pontos da rede
   const networkPoints: NetworkPoint[] = [
     {
       id: '1',
       name: 'Torre Central',
-      coordinates: [-49.2748, -25.4284],
+      coordinates: [-25.4284, -49.2748],
       type: 'tower',
       status: 'active'
     },
     {
       id: '2',
       name: 'Estação Norte',
-      coordinates: [-49.2648, -25.4184],
+      coordinates: [-25.4184, -49.2648],
       type: 'station',
       status: 'active'
     },
     {
       id: '3',
       name: 'Repetidor Sul',
-      coordinates: [-49.2848, -25.4384],
+      coordinates: [-25.4384, -49.2848],
       type: 'repeater',
       status: 'maintenance'
     },
     {
       id: '4',
       name: 'Torre Oeste',
-      coordinates: [-49.2948, -25.4284],
+      coordinates: [-25.4284, -49.2948],
       type: 'tower',
       status: 'active'
     }
@@ -71,105 +79,82 @@ const NetworkMap = () => {
     {
       id: '1',
       name: 'João Silva',
-      coordinates: [-49.2700, -25.4250],
+      coordinates: [-25.4250, -49.2700],
       vehicle: 'Van - ABC-1234',
       status: 'available'
     },
     {
       id: '2',
       name: 'Maria Santos',
-      coordinates: [-49.2800, -25.4300],
+      coordinates: [-25.4300, -49.2800],
       vehicle: 'Caminhão - XYZ-5678',
       status: 'busy'
     }
   ];
 
   useEffect(() => {
-    if (!mapContainer.current || !mapboxToken) return;
+    if (!mapContainer.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
-    
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [-49.2748, -25.4284], // Curitiba, PR
-      zoom: 12
-    });
+    // Initialize map
+    map.current = L.map(mapContainer.current).setView([-25.4284, -49.2748], 13);
 
-    // Adicionar controles de navegação
-    map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map.current);
 
-    // Adicionar controle de geolocalização
-    map.current.addControl(
-      new mapboxgl.GeolocateControl({
-        positionOptions: {
-          enableHighAccuracy: true
-        },
-        trackUserLocation: true,
-        showUserHeading: true
-      }),
-      'top-right'
-    );
-
-    map.current.on('load', () => {
-      // Adicionar pontos da rede
-      networkPoints.forEach(point => {
-        const el = document.createElement('div');
-        el.className = 'network-marker';
-        el.style.backgroundImage = getMarkerIcon(point.type, point.status);
-        el.style.width = '30px';
-        el.style.height = '30px';
-        el.style.backgroundSize = 'cover';
-        el.style.borderRadius = '50%';
-        el.style.cursor = 'pointer';
-        el.style.border = `3px solid ${getStatusColor(point.status)}`;
-
-        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+    // Add network points
+    networkPoints.forEach(point => {
+      const icon = createCustomIcon(point.type, point.status);
+      
+      const marker = L.marker(point.coordinates, { icon })
+        .addTo(map.current!)
+        .bindPopup(`
           <div class="p-2">
             <h3 class="font-bold">${point.name}</h3>
             <p class="text-sm">Tipo: ${point.type}</p>
             <p class="text-sm">Status: ${point.status}</p>
           </div>
         `);
+    });
 
-        new mapboxgl.Marker(el)
-          .setLngLat(point.coordinates)
-          .setPopup(popup)
-          .addTo(map.current!);
-      });
+    // Add drivers if enabled
+    if (showDrivers) {
+      drivers.forEach(driver => {
+        const driverIcon = L.divIcon({
+          html: '🚐',
+          className: 'driver-marker',
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
 
-      // Adicionar motoristas se habilitado
-      if (showDrivers) {
-        drivers.forEach(driver => {
-          const el = document.createElement('div');
-          el.innerHTML = '🚐';
-          el.style.fontSize = '20px';
-          el.style.cursor = 'pointer';
-
-          const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+        L.marker(driver.coordinates, { icon: driverIcon })
+          .addTo(map.current!)
+          .bindPopup(`
             <div class="p-2">
               <h3 class="font-bold">${driver.name}</h3>
               <p class="text-sm">${driver.vehicle}</p>
               <p class="text-sm">Status: ${driver.status}</p>
             </div>
           `);
-
-          new mapboxgl.Marker(el)
-            .setLngLat(driver.coordinates)
-            .setPopup(popup)
-            .addTo(map.current!);
-        });
-      }
-    });
+      });
+    }
 
     return () => {
       map.current?.remove();
     };
-  }, [mapboxToken, showDrivers]);
+  }, [showDrivers]);
 
-  const getMarkerIcon = (type: string, status: string) => {
-    // Retornaria diferentes ícones baseados no tipo e status
-    return 'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiMzYjgyZjYiLz4KPC9zdmc+Cg==")';
+  const createCustomIcon = (type: string, status: string) => {
+    const color = getStatusColor(status);
+    const symbol = getTypeSymbol(type);
+    
+    return L.divIcon({
+      html: `<div style="background-color: ${color}; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${symbol}</div>`,
+      className: 'custom-marker',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -181,44 +166,66 @@ const NetworkMap = () => {
     }
   };
 
-  const calculateRoute = () => {
-    if (!selectedPoint || !map.current) return;
-    
-    console.log(`Calculando rota para ${selectedPoint} usando ${routeType}`);
-    // Aqui implementaria a lógica de cálculo de rota usando a API do Mapbox Directions
+  const getTypeSymbol = (type: string) => {
+    switch (type) {
+      case 'tower': return 'T';
+      case 'station': return 'S';
+      case 'repeater': return 'R';
+      default: return '?';
+    }
   };
 
-  if (!mapboxToken) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Card className="w-96">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="w-5 h-5" />
-              Configurar Mapbox
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Para usar o mapa, insira seu token público do Mapbox:
-            </p>
-            <Input
-              placeholder="pk.eyJ1IjoiZXhhbXBsZSIs..."
-              value={mapboxToken}
-              onChange={(e) => setMapboxToken(e.target.value)}
-            />
-            <p className="text-xs text-gray-500">
-              Obtenha seu token em: <a href="https://mapbox.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">mapbox.com</a>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const calculateRoute = async () => {
+    if (!selectedPoint || !map.current) return;
+    
+    const selectedPointData = networkPoints.find(p => p.id === selectedPoint);
+    if (!selectedPointData) return;
+
+    // Remove existing route
+    if (currentRoute) {
+      map.current.removeLayer(currentRoute);
+    }
+
+    // Get user's current location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          const start = [latitude, longitude];
+          const end = selectedPointData.coordinates;
+
+          try {
+            // Use OpenRouteService API (free with registration)
+            // For demo purposes, we'll create a simple straight line
+            const routeLine = L.polyline([start, end], {
+              color: '#3b82f6',
+              weight: 4,
+              opacity: 0.7
+            }).addTo(map.current!);
+
+            setCurrentRoute(routeLine);
+            
+            // Fit map to show the route
+            map.current!.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+
+            console.log(`Rota calculada para ${selectedPointData.name} usando ${routeType}`);
+          } catch (error) {
+            console.error('Erro ao calcular rota:', error);
+          }
+        },
+        (error) => {
+          console.error('Erro ao obter localização:', error);
+          alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
+        }
+      );
+    } else {
+      alert('Geolocalização não suportada pelo navegador.');
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {/* Filtros e Controles */}
+      {/* Controles do Mapa */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -310,6 +317,18 @@ const NetworkMap = () => {
             <div className="flex items-center gap-2">
               <span className="text-lg">🚐</span>
               <span className="text-sm">Motoristas</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-bold">T</div>
+              <span className="text-sm">Torre</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-bold">S</div>
+              <span className="text-sm">Estação</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-yellow-500 flex items-center justify-center text-white text-xs font-bold">R</div>
+              <span className="text-sm">Repetidor</span>
             </div>
           </div>
         </CardContent>
