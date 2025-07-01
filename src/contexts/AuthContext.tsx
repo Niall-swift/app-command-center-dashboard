@@ -9,6 +9,7 @@ import {
   onAuthStateChanged
 } from 'firebase/auth';
 import { auth, googleProvider } from '../config/firebase';
+import { SessionExpiredModal } from '../components/auth/SessionExpiredModal';
 
 interface AuthContextType {
   user: User | null;
@@ -32,6 +33,7 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showSessionExpired, setShowSessionExpired] = useState(false);
 
   useEffect(() => {
     // Verificar se há usuário armazenado no localStorage
@@ -46,9 +48,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Token ainda válido
         setUser(JSON.parse(storedUser));
       } else {
-        // Token expirado, remover do localStorage
+        // Token expirado, remover do localStorage e mostrar popup
         localStorage.removeItem('firebase_user');
         localStorage.removeItem('firebase_user_expiry');
+        setShowSessionExpired(true);
       }
     }
 
@@ -89,6 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('firebase_user_expiry');
   };
 
+  const handleSessionExpiredClose = () => {
+    setShowSessionExpired(false);
+  };
+
   const value = {
     user,
     loading,
@@ -101,6 +108,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={value}>
       {children}
+      <SessionExpiredModal 
+        isOpen={showSessionExpired}
+        onClose={handleSessionExpiredClose}
+      />
     </AuthContext.Provider>
   );
 };
