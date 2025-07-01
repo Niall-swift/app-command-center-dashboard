@@ -1,11 +1,11 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Settings2, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Settings2, Plus, Trash2, MessageSquare, Users, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
 
@@ -13,6 +13,15 @@ interface CustomMessage {
   id: string;
   title: string;
   content: string;
+}
+
+interface TeamUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'tecnico' | 'atendente';
+  status: 'ativo' | 'inativo';
+  createdAt: string;
 }
 
 export default function Settings() {
@@ -29,9 +38,34 @@ export default function Settings() {
     }
   ]);
 
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([
+    {
+      id: '1',
+      name: 'João Silva',
+      email: 'joao@empresa.com',
+      role: 'tecnico',
+      status: 'ativo',
+      createdAt: '2024-01-15'
+    },
+    {
+      id: '2',
+      name: 'Maria Santos',
+      email: 'maria@empresa.com',
+      role: 'atendente',
+      status: 'ativo',
+      createdAt: '2024-01-10'
+    }
+  ]);
+
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+
+  // Estados para adicionar usuário
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'tecnico' | 'atendente'>('atendente');
+  const [isAddingUser, setIsAddingUser] = useState(false);
 
   const handleAddMessage = () => {
     if (newTitle.trim() && newContent.trim()) {
@@ -49,6 +83,44 @@ export default function Settings() {
 
   const handleDeleteMessage = (id: string) => {
     setCustomMessages(customMessages.filter(msg => msg.id !== id));
+  };
+
+  const handleAddUser = () => {
+    if (newUserName.trim() && newUserEmail.trim()) {
+      const newUser: TeamUser = {
+        id: Date.now().toString(),
+        name: newUserName,
+        email: newUserEmail,
+        role: newUserRole,
+        status: 'ativo',
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+      setTeamUsers([...teamUsers, newUser]);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRole('atendente');
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = (id: string) => {
+    setTeamUsers(teamUsers.filter(user => user.id !== id));
+  };
+
+  const toggleUserStatus = (id: string) => {
+    setTeamUsers(teamUsers.map(user => 
+      user.id === id 
+        ? { ...user, status: user.status === 'ativo' ? 'inativo' : 'ativo' as 'ativo' | 'inativo' }
+        : user
+    ));
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    return role === 'tecnico' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+  };
+
+  const getStatusBadgeColor = (status: string) => {
+    return status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
   };
 
   const messageVariants = {
@@ -94,13 +166,188 @@ export default function Settings() {
             <Settings2 className="w-8 h-8 text-blue-600" />
             Configurações
           </h1>
-          <p className="text-gray-600 mt-2">Gerencie suas mensagens rápidas personalizadas</p>
+          <p className="text-gray-600 mt-2">Gerencie suas configurações e equipe</p>
         </motion.div>
 
+        {/* Seção de Gerenciamento de Usuários */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
+        >
+          <Card className="bg-white shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Gerenciamento de Usuários da Equipe
+                </div>
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Button
+                    onClick={() => setIsAddingUser(!isAddingUser)}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Adicionar Usuário
+                  </Button>
+                </motion.div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <AnimatePresence>
+                {isAddingUser && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                  >
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Nome Completo
+                          </label>
+                          <Input
+                            value={newUserName}
+                            onChange={(e) => setNewUserName(e.target.value)}
+                            placeholder="Ex: João Silva"
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            E-mail
+                          </label>
+                          <Input
+                            type="email"
+                            value={newUserEmail}
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                            placeholder="joao@empresa.com"
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Função
+                        </label>
+                        <Select value={newUserRole} onValueChange={(value: 'tecnico' | 'atendente') => setNewUserRole(value)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecione a função" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="atendente">Atendente</SelectItem>
+                            <SelectItem value="tecnico">Técnico</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex gap-2">
+                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                          <Button onClick={handleAddUser} size="sm">
+                            Salvar Usuário
+                          </Button>
+                        </motion.div>
+                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                          <Button 
+                            onClick={() => setIsAddingUser(false)} 
+                            variant="outline" 
+                            size="sm"
+                          >
+                            Cancelar
+                          </Button>
+                        </motion.div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+                className="space-y-3"
+              >
+                <AnimatePresence>
+                  {teamUsers.map((user) => (
+                    <motion.div
+                      key={user.id}
+                      variants={messageVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      layout
+                      className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h4 className="font-medium text-gray-900">{user.name}</h4>
+                            <Badge className={getRoleBadgeColor(user.role)}>
+                              {user.role === 'tecnico' ? 'Técnico' : 'Atendente'}
+                            </Badge>
+                            <Badge className={getStatusBadgeColor(user.status)}>
+                              {user.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <p><strong>E-mail:</strong> {user.email}</p>
+                            <p><strong>Cadastrado em:</strong> {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+                            <Button
+                              onClick={() => toggleUserStatus(user.id)}
+                              variant="outline"
+                              size="sm"
+                              className={user.status === 'ativo' ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
+                            >
+                              {user.status === 'ativo' ? 'Desativar' : 'Ativar'}
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+                            <Button
+                              onClick={() => handleDeleteUser(user.id)}
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </motion.div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+
+              {teamUsers.length === 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center py-8 text-gray-500"
+                >
+                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>Nenhum usuário cadastrado</p>
+                  <p className="text-sm">Clique em "Adicionar Usuário" para começar</p>
+                </motion.div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Seção de Mensagens Rápidas */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
         >
           <Card className="bg-white shadow-sm">
             <CardHeader>
