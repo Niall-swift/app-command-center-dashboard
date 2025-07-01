@@ -2,6 +2,7 @@
 import React from 'react';
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from './AppSidebar';
+import { UserMenu } from '../auth/UserMenu';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <h1 className="text-2xl font-bold text-gray-900">Dashboard de Controle</h1>
               <p className="text-gray-600">Gerencie seu aplicativo de forma centralizada</p>
             </div>
+            <UserMenu />
           </header>
           <div className="flex-1 p-6">
             {children}
