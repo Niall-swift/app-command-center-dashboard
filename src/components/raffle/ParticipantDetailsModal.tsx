@@ -22,10 +22,10 @@ export default function ParticipantDetailsModal({ isOpen, onClose, participant }
   if (!participant) return null;
 
   const sendWhatsApp = () => {
-    const message = `Olá ${participant.name}! Como você está?`;
+    const message = `Olá ${participant.name}! obrigado por participar do nosso sorteio. desejamos boa sorte! 🎉`;
     const phoneNumber = participant.phone?.replace(/\D/g, '') || '';
     const whatsappUrl = `https://wa.me/55${phoneNumber}?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
+    window.open(whatsappUrl);
   };
 
   return (

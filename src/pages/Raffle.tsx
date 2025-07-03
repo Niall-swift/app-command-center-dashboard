@@ -13,60 +13,6 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 // Mock data for clients with additional fields
-const mockClients: Client[] = [
-  {
-    id: '1',
-    name: 'João Silva',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-    lastMessage: 'Olá!',
-    lastMessageTime: new Date(),
-    unreadCount: 0,
-    isOnline: true,
-    email: 'joao.silva@email.com',
-    phone: '11987654321',
-    cpf: '123.456.789-00',
-    cep: '01234-567'
-  },
-  {
-    id: '2',
-    name: 'Maria Santos',
-    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612345c?w=100&h=100&fit=crop&crop=face',
-    lastMessage: 'Oi!',
-    lastMessageTime: new Date(),
-    unreadCount: 0,
-    isOnline: false,
-    email: 'maria.santos@email.com',
-    phone: '11876543210',
-    cpf: '987.654.321-00',
-    cep: '54321-098'
-  },
-  {
-    id: '3',
-    name: 'Pedro Costa',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-    lastMessage: 'Bom dia!',
-    lastMessageTime: new Date(),
-    unreadCount: 0,
-    isOnline: true,
-    email: 'pedro.costa@email.com',
-    phone: '11765432109',
-    cpf: '456.789.123-00',
-    cep: '98765-432'
-  },
-  {
-    id: '4',
-    name: 'Ana Oliveira',
-    avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
-    lastMessage: 'Obrigada!',
-    lastMessageTime: new Date(),
-    unreadCount: 0,
-    isOnline: true,
-    email: 'ana.oliveira@email.com',
-    phone: '11654321098',
-    cpf: '789.123.456-00',
-    cep: '13579-246'
-  }
-];
 
 const prizes = [
   'liquidificador',
@@ -100,7 +46,7 @@ export default function Raffle() {
         return {
           id: doc.id,
           name: data.name,
-          whatsApp: data.whatsApp || '',
+          phone: data.whatsapp || '',
           cep: data.cep || '',
           cpf: data.cpf || '',
           instagram: data.instagram || '',

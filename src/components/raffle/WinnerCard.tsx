@@ -14,6 +14,7 @@ interface WinnerCardProps {
 
 export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  console.log(winner)
 
   const generateCardImage = async (): Promise<string | null> => {
     const canvas = document.createElement('canvas');
