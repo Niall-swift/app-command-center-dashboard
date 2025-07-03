@@ -6,17 +6,17 @@ import type { ClientData } from '@/types/dashboard';
 
 export default function Analytics() {
   const clientData: ClientData[] = [
-    { month: 'Jan', clients: 1200, active: 980 },
-    { month: 'Fev', clients: 1450, active: 1200 },
-    { month: 'Mar', clients: 1800, active: 1500 },
-    { month: 'Abr', clients: 2100, active: 1800 },
-    { month: 'Mai', clients: 2500, active: 2100 },
-    { month: 'Jun', clients: 2847, active: 2400 }
+    { month: 'Jan', clients: 10, active: 10 },
+    { month: 'Fev', clients: 70, active: 68 },
+    { month: 'Mar', clients: 230, active: 165 },
+    { month: 'Abr', clients: 250, active: 215 },
+    { month: 'Mai', clients: 390, active: 369 },
+    { month: 'Jun', clients: 457, active: 430 }
   ];
 
   const deviceData = [
-    { name: 'Android', value: 1820, color: '#3B82F6' },
-    { name: 'iOS', value: 927, color: '#10B981' },
+    { name: 'Android', value: 487, color: '#3B82F6' },
+    { name: 'iOS', value: 50, color: '#10B981' },
     { name: 'Web', value: 100, color: '#F59E0B' }
   ];
 

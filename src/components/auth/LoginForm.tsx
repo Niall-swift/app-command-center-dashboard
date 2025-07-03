@@ -131,7 +131,7 @@ export const LoginForm = () => {
             </div>
           </div>
 
-          <Button
+          {/* <Button
             type="button"
             variant="outline"
             onClick={handleGoogleAuth}
@@ -140,9 +140,9 @@ export const LoginForm = () => {
           >
             <Chrome className="mr-2 h-4 w-4" />
             Entrar com Google
-          </Button>
+          </Button> */}
 
-          <div className="text-center">
+          {/* <div className="text-center">
             <button
               type="button"
               onClick={() => setIsSignUp(!isSignUp)}
@@ -153,7 +153,7 @@ export const LoginForm = () => {
                 : 'Não tem uma conta? Criar conta'
               }
             </button>
-          </div>
+          </div> */}
         </CardContent>
       </Card>
     </div>

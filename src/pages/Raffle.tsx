@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect} from 'react';
 import PageTransition from '@/components/PageTransition';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import ClientList from '@/components/raffle/ClientList';
 import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/config/firebase';
 
 // Mock data for clients with additional fields
 const mockClients: Client[] = [
@@ -67,12 +69,18 @@ const mockClients: Client[] = [
 ];
 
 const prizes = [
-  'iPhone 15 Pro Max',
-  'PlayStation 5',
-  'Vale Compras R$ 1.000',
-  'Notebook Gamer',
-  'Smart TV 55"',
-  'Fone AirPods Pro'
+  'liquidificador',
+  'fritadeira elétrica',
+  'conjunto de panelas',
+  'aspirador de pó',
+  'caixa de som bluetooth',
+  'kit de ferramentas',
+  'prancha de cabelo',
+  'kit de maquiagem',
+  'ventilador',
+  'batedeira',
+  'micro-ondas',
+  'pix de R$100,00',
 ];
 
 export default function Raffle() {
@@ -81,6 +89,32 @@ export default function Raffle() {
   const [winner, setWinner] = useState<Client | null>(null);
   const [selectedPrize, setSelectedPrize] = useState(prizes[0]);
   const [showWinnerCard, setShowWinnerCard] = useState(false);
+  const [usersPremix, setUsersPremix] = useState<Client[]>([]);
+
+
+   useEffect(() => {
+    const fetchClients = async () => {
+      const querySnapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
+      const users = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name,
+          whatsApp: data.whatsApp || '',
+          cep: data.cep || '',
+          cpf: data.cpf || '',
+          instagram: data.instagram || '',
+          avatar: data.imageUrl || '',
+          lastMessage: '',
+          lastMessageTime: new Date(),
+          unreadCount: 0,
+          isOnline: false,
+        } as Client;
+      });
+      setUsersPremix(users);
+    };
+    fetchClients();
+  }, []);
 
   const handleClientToggle = (client: Client) => {
     setSelectedClients(prev => {
@@ -94,7 +128,7 @@ export default function Raffle() {
   };
 
   const handleSelectAll = () => {
-    setSelectedClients(mockClients);
+    setSelectedClients(usersPremix);
   };
 
   const handleDeselectAll = () => {
@@ -191,7 +225,7 @@ export default function Raffle() {
             transition={{ duration: 0.5, delay: 0.3 }}
           >
             <ClientList
-              clients={mockClients}
+              clients={usersPremix}
               selectedClients={selectedClients}
               onClientToggle={handleClientToggle}
               onSelectAll={handleSelectAll}
