@@ -75,6 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signInWithEmail = async (email: string, password: string) => {
+    console.log(email)
     await signInWithEmailAndPassword(auth, email, password);
   };
 
