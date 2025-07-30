@@ -10,48 +10,26 @@ import PredefinedMessages from '@/components/PredefinedMessages';
 import PageTransition from '@/components/PageTransition';
 import { useToast } from "@/hooks/use-toast";
 import type { Message, Client } from '@/types/dashboard';
+import { db } from '@/config/firebase';
+import { collection, onSnapshot } from "firebase/firestore";
 
 export default function Chat() {
-  const [clients] = useState<Client[]>([
-    {
-      id: '1',
-      name: 'João Silva',
-      avatar: 'JS',
-      lastMessage: 'Olá, preciso de ajuda com minha conta',
-      lastMessageTime: new Date(Date.now() - 300000),
-      unreadCount: 2,
-      isOnline: true
-    },
-    {
-      id: '2',
-      name: 'Maria Santos',
-      avatar: 'MS',
-      lastMessage: 'Quando será lançada a nova funcionalidade?',
-      lastMessageTime: new Date(Date.now() - 120000),
-      unreadCount: 1,
-      isOnline: false
-    },
-    {
-      id: '3',
-      name: 'Pedro Costa',
-      avatar: 'PC',
-      lastMessage: 'Obrigado pela ajuda!',
-      lastMessageTime: new Date(Date.now() - 600000),
-      unreadCount: 0,
-      isOnline: true
-    },
-    {
-      id: '4',
-      name: 'Ana Lima',
-      avatar: 'AL',
-      lastMessage: 'Está funcionando perfeitamente agora',
-      lastMessageTime: new Date(Date.now() - 900000),
-      unreadCount: 0,
-      isOnline: false
-    }
-  ]);
 
+  const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(clients[0]);
+  console.log(clients)
+
+  useEffect(() => {
+    const ref = collection(db, "chat");
+    const unsubscribe = onSnapshot(ref, (snapshot) => {
+      setClients(snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })));
+    });
+    return unsubscribe; // Correto: remove o listener ao desmontar
+  }, []);
+
   
   // Mensagens específicas por cliente
   const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({
@@ -143,17 +121,6 @@ export default function Chat() {
     };
 
     audioRef.current = { play: createNotificationSound } as any;
-  }, []);
-
-  // Simular recebimento de mensagem em tempo real (Firebase)
-  useEffect(() => {
-    const simulateFirebaseMessage = () => {
-      // Aqui você integraria com o Firebase para escutar novas mensagens
-      // Por agora, vamos simular
-      console.log('Listening for Firebase real-time messages...');
-    };
-
-    simulateFirebaseMessage();
   }, []);
 
   const playNotificationSound = () => {
