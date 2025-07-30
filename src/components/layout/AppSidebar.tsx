@@ -16,51 +16,51 @@ import {
 } from "@/components/ui/sidebar";
 
 const menuItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: Home,
-  },
+  // {
+  //   title: "Dashboard",
+  //   url: "/",
+  //   icon: Home,
+  // },
   {
     title: "Chat",
     url: "/chat",
     icon: MessageSquare,
   },
-  {
-    title: "Solicitações",
-    url: "/requests",
-    icon: FileText,
-  },
-  {
-    title: "Suporte Técnico",
-    url: "/technical-support",
-    icon: Wrench,
-  },
-  {
-    title: "Mapa da Rede",
-    url: "/network-map",
-    icon: Map,
-  },
-  {
-    title: "Gráficos",
-    url: "/analytics",
-    icon: BarChart3,
-  },
-  {
-    title: "Criar Bots",
-    url: "/bots",
-    icon: Bot,
-  },
+  // {
+  //   title: "Solicitações",
+  //   url: "/requests",
+  //   icon: FileText,
+  // },
+  // {
+  //   title: "Suporte Técnico",
+  //   url: "/technical-support",
+  //   icon: Wrench,
+  // },
+  // {
+  //   title: "Mapa da Rede",
+  //   url: "/network-map",
+  //   icon: Map,
+  // },
+  // {
+  //   title: "Gráficos",
+  //   url: "/analytics",
+  //   icon: BarChart3,
+  // },
+  // {
+  //   title: "Criar Bots",
+  //   url: "/bots",
+  //   icon: Bot,
+  // },
   {
     title: "Sorteio",
     url: "/raffle",
     icon: Gift,
   },
-  {
-    title: "Configurações",
-    url: "/settings",
-    icon: Settings,
-  },
+  // {
+  //   title: "Configurações",
+  //   url: "/settings",
+  //   icon: Settings,
+  // },
 ];
 
 export function AppSidebar() {
