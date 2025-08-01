@@ -51,6 +51,7 @@ export default function Chat() {
     useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const { toast } = useToast();
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const {
     isSupported,
     permission,
@@ -243,7 +244,17 @@ export default function Chat() {
 
   // Buscar mensagens do cliente selecionado
   useEffect(() => {
-    if (!selectedClient) return;
+    // Limpar listener anterior se existir
+    if (unsubscribeRef.current) {
+      console.log("Limpando listener anterior...");
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+
+    if (!selectedClient) {
+      console.log("Nenhum cliente selecionado, pulando busca de mensagens");
+      return;
+    }
 
     console.log(`Buscando mensagens do cliente: ${selectedClient.id}`);
 
@@ -256,6 +267,8 @@ export default function Chat() {
       );
       const q = query(mensagensRef, orderBy("timestamp", "asc"));
 
+      console.log("Query criada para mensagens:", q);
+
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
@@ -266,6 +279,7 @@ export default function Chat() {
 
           const messages = snapshot.docs.map((doc) => {
             const data = doc.data();
+            console.log("Dados da mensagem:", doc.id, data);
             return {
               id: doc.id,
               user: data.user,
@@ -276,6 +290,8 @@ export default function Chat() {
             };
           });
 
+          console.log("Mensagens processadas:", messages);
+
           // Verificar se há novas mensagens (não do admin)
           const currentMessages = clientMessages[selectedClient.id] || [];
           const newMessages = messages.filter(
@@ -283,6 +299,8 @@ export default function Chat() {
               !msg.isAdmin &&
               !currentMessages.some((existing) => existing.id === msg.id)
           );
+
+          console.log("Novas mensagens detectadas:", newMessages.length);
 
           // Se há novas mensagens, tocar som de notificação
           if (newMessages.length > 0 && isEnabled) {
@@ -310,10 +328,14 @@ export default function Chat() {
             });
           }
 
-          setClientMessages((prev) => ({
-            ...prev,
-            [selectedClient.id]: messages,
-          }));
+          setClientMessages((prev) => {
+            const updated = {
+              ...prev,
+              [selectedClient.id]: messages,
+            };
+            console.log("Estado de mensagens atualizado:", updated);
+            return updated;
+          });
 
           console.log("Mensagens processadas:", messages);
         },
@@ -327,18 +349,19 @@ export default function Chat() {
         }
       );
 
-      return unsubscribe;
+      // Armazenar a função de unsubscribe
+      unsubscribeRef.current = unsubscribe;
+
+      return () => {
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
+      };
     } catch (error) {
       console.error("Erro ao configurar listener de mensagens:", error);
     }
-  }, [
-    selectedClient,
-    toast,
-    isEnabled,
-    isPageVisible,
-    playNotificationSound,
-    showChatNotification,
-  ]);
+  }, [selectedClient, toast, isEnabled, isPageVisible]);
 
   // Configurar notificação quando o estado mudar
   useEffect(() => {
@@ -415,6 +438,12 @@ export default function Chat() {
   const currentMessages = selectedClient
     ? clientMessages[selectedClient.id] || []
     : [];
+
+  // Debug: Log das mensagens atuais
+  console.log("Debug - selectedClient:", selectedClient?.id);
+  console.log("Debug - clientMessages:", clientMessages);
+  console.log("Debug - currentMessages:", currentMessages);
+  console.log("Debug - currentMessages.length:", currentMessages.length);
 
   const messageVariants = {
     hidden: { opacity: 0, y: 20, scale: 0.95 },
@@ -538,6 +567,54 @@ export default function Chat() {
                     >
                       🔄
                     </motion.div>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      console.log("Verificando dados no Firebase...");
+                      if (selectedClient) {
+                        const mensagensRef = collection(
+                          db,
+                          "chat",
+                          selectedClient.id,
+                          "mensagens"
+                        );
+                        getDocs(mensagensRef).then((snapshot) => {
+                          console.log(
+                            "Dados encontrados no Firebase:",
+                            snapshot.docs.length
+                          );
+                          snapshot.docs.forEach((doc) => {
+                            console.log("Documento:", doc.id, doc.data());
+                          });
+                        });
+                      }
+                    }}
+                    className="p-2"
+                    title="Verificar dados no Firebase"
+                  >
+                    🔍
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      console.log("Forçando carregamento de mensagens...");
+                      if (selectedClient) {
+                        // Forçar recriação do listener
+                        if (unsubscribeRef.current) {
+                          unsubscribeRef.current();
+                          unsubscribeRef.current = null;
+                        }
+                        // Forçar re-render
+                        setClientMessages((prev) => ({ ...prev }));
+                      }
+                    }}
+                    className="p-2"
+                    title="Forçar carregamento de mensagens"
+                  >
+                    📥
                   </Button>
                   {!isPageVisible && (
                     <motion.div
@@ -729,67 +806,74 @@ export default function Chat() {
             <CardContent className="p-0 flex-1 max-h-[700px] flex flex-col">
               <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[500px]">
                 {selectedClient ? (
-                  <AnimatePresence>
-                    {currentMessages.map((message, index) => (
-                      <motion.div
-                        key={message.id}
-                        variants={messageVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit="exit"
-                        transition={{ delay: index * 0.1 }}
-                        className={`flex gap-3 ${
-                          message.isAdmin ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        {!message.isAdmin && (
-                          <Avatar className="w-8 h-8">
-                            <AvatarFallback className="bg-blue-100 text-blue-600">
-                              {message.avatar || message.user.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
+                  <>
+                    {/* Debug: Mostrar informações das mensagens */}
+                    <div className="text-xs text-gray-500 mb-2">
+                      Debug: {currentMessages.length} mensagens para{" "}
+                      {selectedClient.name}
+                    </div>
+                    <AnimatePresence>
+                      {currentMessages.map((message, index) => (
                         <motion.div
-                          className={`max-w-md ${
-                            message.isAdmin ? "order-first" : ""
+                          key={message.id}
+                          variants={messageVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                          transition={{ delay: index * 0.1 }}
+                          className={`flex gap-3 ${
+                            message.isAdmin ? "justify-end" : "justify-start"
                           }`}
-                          whileHover={{ scale: 1.02 }}
-                          transition={{ duration: 0.2 }}
                         >
+                          {!message.isAdmin && (
+                            <Avatar className="w-8 h-8">
+                              <AvatarFallback className="bg-blue-100 text-blue-600">
+                                {message.avatar || message.user.charAt(0)}
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
                           <motion.div
-                            className={`p-3 rounded-lg ${
-                              message.isAdmin
-                                ? "bg-blue-600 text-white"
-                                : "bg-gray-100 text-gray-900"
+                            className={`max-w-md ${
+                              message.isAdmin ? "order-first" : ""
                             }`}
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ duration: 0.3 }}
+                            whileHover={{ scale: 1.02 }}
+                            transition={{ duration: 0.2 }}
                           >
-                            <p className="text-sm">{message.content}</p>
+                            <motion.div
+                              className={`p-3 rounded-lg ${
+                                message.isAdmin
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-gray-100 text-gray-900"
+                              }`}
+                              initial={{ scale: 0.9, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ duration: 0.3 }}
+                            >
+                              <p className="text-sm">{message.content}</p>
+                            </motion.div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-gray-500">
+                                {message.user}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {message.timestamp.toLocaleTimeString("pt-BR", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
                           </motion.div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">
-                              {message.user}
-                            </span>
-                            <span className="text-xs text-gray-400">
-                              {message.timestamp.toLocaleTimeString("pt-BR", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
+                          {message.isAdmin && (
+                            <Avatar className="w-8 h-8">
+                              <AvatarFallback className="bg-blue-600 text-white">
+                                A
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
                         </motion.div>
-                        {message.isAdmin && (
-                          <Avatar className="w-8 h-8">
-                            <AvatarFallback className="bg-blue-600 text-white">
-                              A
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                      ))}
+                    </AnimatePresence>
+                  </>
                 ) : (
                   <motion.div
                     className="flex items-center justify-center h-full"
