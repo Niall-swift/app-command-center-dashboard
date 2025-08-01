@@ -1,14 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Search, MessageCircle, Volume2 } from "lucide-react";
+import {
+  Send,
+  Search,
+  MessageCircle,
+  Volume2,
+  Bell,
+  BellOff,
+  Settings,
+  Bug,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import PredefinedMessages from "@/components/PredefinedMessages";
 import PageTransition from "@/components/PageTransition";
+import NotificationSettings from "@/components/NotificationSettings";
+import DebugPanel from "@/components/DebugPanel";
 import { useToast } from "@/hooks/use-toast";
+import { useNotifications } from "@/hooks/use-notifications";
 import type { Message, Client } from "@/types/dashboard";
 import { db } from "@/config/firebase";
 import {
@@ -35,18 +47,31 @@ export default function Chat() {
   >({});
   const [newMessage, setNewMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [showNotificationSettings, setShowNotificationSettings] =
+    useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   const { toast } = useToast();
+  const {
+    isSupported,
+    permission,
+    isEnabled,
+    isPageVisible,
+    requestPermission,
+    playNotificationSound,
+    showChatNotification,
+    testNotification,
+    toggleNotifications,
+  } = useNotifications();
 
   // Função para criar dados de exemplo se a collection estiver vazia
-  const createSampleData = async () => {
+  const createSampleData = useCallback(async () => {
     try {
       console.log("Criando dados de exemplo...");
       const sampleClients = [
         {
           id: "cliente1",
-          name: "João Silva",
-          avatar: "JS",
+          name: "usuario de teste",
+          avatar: "UT",
           lastMessage: "Olá, preciso de ajuda com minha conta",
           lastMessageTime: new Date(),
           unreadCount: 2,
@@ -134,7 +159,7 @@ export default function Chat() {
         variant: "destructive",
       });
     }
-  };
+  }, [toast]);
 
   // Buscar clientes da collection 'chat'
   useEffect(() => {
@@ -214,7 +239,7 @@ export default function Chat() {
       setError(error instanceof Error ? error.message : "Erro desconhecido");
       setLoading(false);
     }
-  }, [selectedClient, toast]);
+  }, [selectedClient, toast, createSampleData]);
 
   // Buscar mensagens do cliente selecionado
   useEffect(() => {
@@ -260,11 +285,29 @@ export default function Chat() {
           );
 
           // Se há novas mensagens, tocar som de notificação
-          if (newMessages.length > 0 && notificationEnabled) {
+          if (newMessages.length > 0 && isEnabled) {
             console.log(
               `Nova(s) mensagem(ns) recebida(s): ${newMessages.length}`
             );
+
+            // Sempre tocar som para novas mensagens
             playNotificationSound();
+
+            // Mostrar notificação do navegador para TODAS as novas mensagens
+            // (sempre mostrar, independente se a página está visível ou não)
+            newMessages.forEach((message, index) => {
+              // Pequeno delay para evitar sobreposição de notificações
+              setTimeout(() => {
+                showChatNotification(selectedClient.name, message.content);
+              }, index * 500); // 500ms de delay entre notificações
+            });
+
+            // Mostrar toast de notificação na tela também
+            toast({
+              title: `Nova mensagem de ${selectedClient.name}`,
+              description: newMessages[0].content,
+              duration: 4000,
+            });
           }
 
           setClientMessages((prev) => ({
@@ -288,38 +331,33 @@ export default function Chat() {
     } catch (error) {
       console.error("Erro ao configurar listener de mensagens:", error);
     }
-  }, [selectedClient, toast, notificationEnabled, clientMessages]);
+  }, [
+    selectedClient,
+    toast,
+    isEnabled,
+    isPageVisible,
+    playNotificationSound,
+    showChatNotification,
+  ]);
 
   // Configurar notificação quando o estado mudar
   useEffect(() => {
-    // notificationSound.setEnabled(notificationEnabled); // Removed as per edit hint
-  }, [notificationEnabled]);
-
-  const playNotificationSound = () => {
-    if (notificationEnabled) {
-      try {
-        console.log("Tocando som de notificação...");
-        // notificationSound.playNotification(); // Removed as per edit hint
-        toast({
-          title: "Nova mensagem!",
-          description: "Você recebeu uma nova mensagem",
-          duration: 3000,
-        });
-      } catch (error) {
-        console.error("Erro ao reproduzir som de notificação:", error);
-      }
+    // Solicitar permissão de notificação quando o componente carregar
+    if (isSupported && permission === "default") {
+      requestPermission();
     }
-  };
+  }, [isSupported, permission, requestPermission]);
 
   // Função para testar o som de notificação
   const testNotificationSound = () => {
     console.log("Testando som de notificação...");
-    // notificationSound.playNotification(); // Removed as per edit hint
-    toast({
-      title: "Teste de Som",
-      description: "Som de notificação testado com sucesso",
-      duration: 2000,
+    console.log("Status das notificações:", {
+      isEnabled,
+      isSupported,
+      permission,
+      isPageVisible,
     });
+    testNotification();
   };
 
   const handleClientSelect = (client: Client) => {
@@ -408,18 +446,6 @@ export default function Chat() {
     },
   };
 
-  const toggleNotifications = () => {
-    setNotificationEnabled(!notificationEnabled);
-    toast({
-      title: notificationEnabled
-        ? "Notificações desativadas"
-        : "Notificações ativadas",
-      description: notificationEnabled
-        ? "Você não receberá sons de notificação"
-        : "Você receberá sons para novas mensagens",
-    });
-  };
-
   return (
     <PageTransition>
       <div className="h-full flex gap-6">
@@ -452,6 +478,7 @@ export default function Chat() {
                     size="sm"
                     onClick={testNotificationSound}
                     className="text-xs"
+                    title="Testar som de notificação"
                   >
                     Testar Som
                   </Button>
@@ -460,11 +487,66 @@ export default function Chat() {
                     size="sm"
                     onClick={toggleNotifications}
                     className={`p-2 ${
-                      notificationEnabled ? "text-green-600" : "text-gray-400"
+                      isEnabled ? "text-green-600" : "text-gray-400"
                     }`}
+                    title={
+                      isEnabled
+                        ? "Desativar notificações"
+                        : "Ativar notificações"
+                    }
                   >
-                    <Volume2 className="w-4 h-4" />
+                    {isEnabled ? (
+                      <Bell className="w-4 h-4" />
+                    ) : (
+                      <BellOff className="w-4 h-4" />
+                    )}
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setShowNotificationSettings(!showNotificationSettings)
+                    }
+                    className="p-2"
+                    title="Configurações de notificação"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowDebugPanel(!showDebugPanel)}
+                    className="p-2"
+                    title="Painel de debug"
+                  >
+                    <Bug className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      console.log("Forçando atualização das mensagens...");
+                      // Forçar re-render das mensagens
+                      setClientMessages((prev) => ({ ...prev }));
+                    }}
+                    className="p-2"
+                    title="Atualizar mensagens"
+                  >
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    >
+                      🔄
+                    </motion.div>
+                  </Button>
+                  {!isPageVisible && (
+                    <motion.div
+                      className="w-2 h-2 bg-orange-500 rounded-full"
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                      title="Página em segundo plano"
+                    />
+                  )}
                 </div>
               </CardTitle>
               <motion.div
@@ -766,6 +848,63 @@ export default function Chat() {
             client={selectedClient}
             onSelectMessage={handlePredefinedMessage}
           />
+        )}
+
+        {/* Configurações de Notificação */}
+        {showNotificationSettings && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowNotificationSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <NotificationSettings
+                isEnabled={isEnabled}
+                isSupported={isSupported}
+                permission={permission}
+                isPageVisible={isPageVisible}
+                onToggleNotifications={toggleNotifications}
+                onRequestPermission={requestPermission}
+                onTestNotification={testNotification}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Painel de Debug */}
+        {showDebugPanel && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDebugPanel(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <DebugPanel
+                isEnabled={isEnabled}
+                isSupported={isSupported}
+                permission={permission}
+                isPageVisible={isPageVisible}
+                selectedClient={selectedClient}
+                clientMessages={clientMessages}
+                onTestSound={testNotificationSound}
+                onTestNotification={testNotification}
+              />
+            </motion.div>
+          </motion.div>
         )}
       </div>
     </PageTransition>
