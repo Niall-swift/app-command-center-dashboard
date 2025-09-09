@@ -21,6 +21,7 @@ import NotificationSettings from "@/components/NotificationSettings";
 import DebugPanel from "@/components/DebugPanel";
 import { useToast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
+import { useChatNotifications } from "@/contexts/ChatNotificationContext";
 import type { Message, Client } from "@/types/dashboard";
 import { db } from "@/config/firebase";
 import {
@@ -52,6 +53,8 @@ export default function Chat() {
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const { toast } = useToast();
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { unreadMessages } = useChatNotifications();
   const {
     isSupported,
     permission,
@@ -292,7 +295,7 @@ export default function Chat() {
 
           console.log("Mensagens processadas:", messages);
 
-          // Verificar se há novas mensagens (não do admin)
+          // Verificar se há novas mensagens (não do admin) - notificações agora são globais
           const currentMessages = clientMessages[selectedClient.id] || [];
           const newMessages = messages.filter(
             (msg) =>
@@ -301,32 +304,6 @@ export default function Chat() {
           );
 
           console.log("Novas mensagens detectadas:", newMessages.length);
-
-          // Se há novas mensagens, tocar som de notificação
-          if (newMessages.length > 0 && isEnabled) {
-            console.log(
-              `Nova(s) mensagem(ns) recebida(s): ${newMessages.length}`
-            );
-
-            // Sempre tocar som para novas mensagens
-            playNotificationSound();
-
-            // Mostrar notificação do navegador para TODAS as novas mensagens
-            // (sempre mostrar, independente se a página está visível ou não)
-            newMessages.forEach((message, index) => {
-              // Pequeno delay para evitar sobreposição de notificações
-              setTimeout(() => {
-                showChatNotification(selectedClient.name, message.content);
-              }, index * 500); // 500ms de delay entre notificações
-            });
-
-            // Mostrar toast de notificação na tela também
-            toast({
-              title: `Nova mensagem de ${selectedClient.name}`,
-              description: newMessages[0].content,
-              duration: 4000,
-            });
-          }
 
           setClientMessages((prev) => {
             const updated = {
@@ -370,6 +347,7 @@ export default function Chat() {
       requestPermission();
     }
   }, [isSupported, permission, requestPermission]);
+
 
   // Função para testar o som de notificação
   const testNotificationSound = () => {
@@ -438,6 +416,13 @@ export default function Chat() {
   const currentMessages = selectedClient
     ? clientMessages[selectedClient.id] || []
     : [];
+
+  // Auto-scroll para o final das mensagens quando novas mensagens chegam
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [currentMessages]);
 
   // Debug: Log das mensagens atuais
   console.log("Debug - selectedClient:", selectedClient?.id);
@@ -873,6 +858,8 @@ export default function Chat() {
                         </motion.div>
                       ))}
                     </AnimatePresence>
+                    {/* Elemento para auto-scroll */}
+                    <div ref={messagesEndRef} />
                   </>
                 ) : (
                   <motion.div
