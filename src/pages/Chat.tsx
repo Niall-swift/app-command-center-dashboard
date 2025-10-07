@@ -13,6 +13,8 @@ import {
   BellOff,
   Settings,
   Bug,
+  Mic,
+  Camera,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import PredefinedMessages from "@/components/PredefinedMessages";
@@ -37,6 +39,8 @@ import {
   collectionGroup,
   where,
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/config/firebase";
 
 export default function Chat() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -51,6 +55,18 @@ export default function Chat() {
   const [showNotificationSettings, setShowNotificationSettings] =
     useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showMediaModal, setShowMediaModal] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showRecordingUI, setShowRecordingUI] = useState(false);
+  const [canRecord, setCanRecord] = useState(true);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [currentPlayingAudio, setCurrentPlayingAudio] = useState<string | null>(null);
   const { toast } = useToast();
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -136,6 +152,26 @@ export default function Chat() {
             timestamp: new Date(client.lastMessageTime.getTime() - 60000),
             isAdmin: true,
           },
+          {
+            id: "msg3",
+            user: "Admin",
+            content: "📎 Imagem enviada",
+            timestamp: new Date(client.lastMessageTime.getTime() - 120000),
+            isAdmin: true,
+            mediaType: 'image',
+            mediaUrl: 'https://picsum.photos/300/200?random=1',
+            mediaName: 'imagem_exemplo.jpg',
+          },
+          {
+            id: "msg4",
+            user: "Admin",
+            content: "🎵 Áudio enviado",
+            timestamp: new Date(client.lastMessageTime.getTime() - 180000),
+            isAdmin: true,
+            mediaType: 'audio',
+            mediaUrl: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav',
+            mediaName: 'audio_exemplo.wav',
+          },
         ];
 
         for (const message of sampleMessages) {
@@ -145,6 +181,9 @@ export default function Chat() {
             timestamp: message.timestamp,
             avatar: message.avatar,
             isAdmin: message.isAdmin || false,
+            mediaType: message.mediaType,
+            mediaUrl: message.mediaUrl,
+            mediaName: message.mediaName,
           });
         }
       }
@@ -290,6 +329,9 @@ export default function Chat() {
               timestamp: data.timestamp?.toDate() || new Date(),
               avatar: data.avatar,
               isAdmin: data.isAdmin || false,
+              mediaType: data.mediaType,
+              mediaUrl: data.mediaUrl,
+              mediaName: data.mediaName,
             };
           });
 
@@ -409,6 +451,171 @@ export default function Chat() {
     setNewMessage(message);
   };
 
+  const uploadFile = async (file: File, type: 'audio' | 'image'): Promise<string> => {
+    const fileRef = ref(storage, `chat/${selectedClient?.id}/${Date.now()}_${file.name}`);
+    await uploadBytes(fileRef, file);
+    return await getDownloadURL(fileRef);
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      sendMediaMessage('image', file);
+      setShowMediaModal(false);
+    }
+  };
+
+  const startRecording = async () => {
+    // Prevenir cliques múltiplos
+    if (!canRecord) {
+      console.log("Aguarde, operação em andamento...");
+      return;
+    }
+
+    setCanRecord(false);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      setMediaRecorder(recorder);
+      setRecordedChunks([]);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          setRecordedChunks((prev) => [...prev, event.data]);
+        }
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setShowRecordingUI(true);
+      setRecordingTime(0);
+
+      // Timer para contar o tempo
+      const interval = setInterval(() => {
+        setRecordingTime(prev => {
+          if (prev >= 59) { // Máximo 60 segundos
+            clearInterval(interval);
+            stopRecording();
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+
+      setTimeout(() => setCanRecord(true), 500);
+    } catch (error) {
+      console.error("Erro ao iniciar gravação:", error);
+      setCanRecord(true);
+      toast({
+        title: "Erro ao gravar áudio",
+        description: "Não foi possível acessar o microfone",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setShowRecordingUI(false);
+      setRecordingTime(0);
+    }
+    setCanRecord(true);
+  };
+
+  const sendMediaMessage = async (mediaType: 'image' | 'audio', file: File) => {
+    if (!selectedClient) return;
+
+    try {
+      const mediaUrl = await uploadFile(file, mediaType);
+      const message = {
+        user: "Admin",
+        content: mediaType === 'audio' ? "🎵 Áudio enviado" : "📎 Imagem enviada",
+        timestamp: new Date(),
+        isAdmin: true,
+        mediaType,
+        mediaUrl,
+        mediaName: file.name,
+      };
+
+      await addDoc(
+        collection(db, "chat", selectedClient.id, "mensagens"),
+        message
+      );
+
+      await setDoc(
+        doc(db, "chat", selectedClient.id),
+        {
+          lastMessage: message.content,
+          lastMessageTime: new Date(),
+        },
+        { merge: true }
+      );
+
+      setSelectedFile(null);
+    } catch (error) {
+      console.error("Erro ao enviar mídia:", error);
+      toast({
+        title: "Erro ao enviar mídia",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Função para expandir imagem
+  const expandImage = (imageUrl: string) => {
+    setSelectedImageUrl(imageUrl);
+    setShowImageModal(true);
+  };
+
+  // Função para reproduzir áudio
+  const playAudio = async (audioUrl: string) => {
+    try {
+      // Se já está tocando outro áudio, parar primeiro
+      if (currentPlayingAudio && currentPlayingAudio !== audioUrl) {
+        await stopAudio();
+      }
+
+      const audio = new Audio(audioUrl);
+      audio.play();
+      setCurrentPlayingAudio(audioUrl);
+      setIsPlayingAudio(true);
+
+      audio.onended = () => {
+        setIsPlayingAudio(false);
+        setCurrentPlayingAudio(null);
+      };
+    } catch (error) {
+      console.error("Erro ao reproduzir áudio:", error);
+      setIsPlayingAudio(false);
+      setCurrentPlayingAudio(null);
+    }
+  };
+
+  // Função para parar áudio
+  const stopAudio = async () => {
+    try {
+      // Para todos os elementos de áudio
+      const audioElements = document.querySelectorAll('audio');
+      audioElements.forEach(audio => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+
+      setIsPlayingAudio(false);
+      setCurrentPlayingAudio(null);
+    } catch (error) {
+      console.error("Erro ao parar áudio:", error);
+    }
+  };
+
   const filteredClients = clients.filter((client) =>
     client.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -423,6 +630,16 @@ export default function Chat() {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [currentMessages]);
+
+  // Processar áudio gravado
+  useEffect(() => {
+    if (recordedChunks.length > 0 && !isRecording) {
+      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const file = new File([blob], `audio_${Date.now()}.webm`, { type: 'audio/webm' });
+      sendMediaMessage('audio', file);
+      setRecordedChunks([]);
+    }
+  }, [recordedChunks, isRecording, selectedClient]);
 
   // Debug: Log das mensagens atuais
   console.log("Debug - selectedClient:", selectedClient?.id);
@@ -834,7 +1051,37 @@ export default function Chat() {
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ duration: 0.3 }}
                             >
-                              <p className="text-sm">{message.content}</p>
+                              {message.mediaType === 'audio' && message.mediaUrl ? (
+                                <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                                  <button
+                                    onClick={() => currentPlayingAudio === message.mediaUrl ? stopAudio() : playAudio(message.mediaUrl!)}
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                      currentPlayingAudio === message.mediaUrl ? 'bg-blue-600' : 'bg-gray-600'
+                                    } text-white`}
+                                  >
+                                    {currentPlayingAudio === message.mediaUrl ? '⏸️' : '▶️'}
+                                  </button>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">
+                                      {currentPlayingAudio === message.mediaUrl ? "🎵 Tocando áudio..." : "🎵 Mensagem de voz"}
+                                    </p>
+                                    {currentPlayingAudio === message.mediaUrl && (
+                                      <div className="w-full bg-gray-200 rounded-full h-1 mt-1">
+                                        <div className="bg-blue-600 h-1 rounded-full w-1/3"></div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : message.mediaType === 'image' && message.mediaUrl ? (
+                                <img
+                                  src={message.mediaUrl}
+                                  alt={message.mediaName || "Imagem"}
+                                  className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => expandImage(message.mediaUrl!)}
+                                />
+                              ) : (
+                                <p className="text-sm">{message.content}</p>
+                              )}
                             </motion.div>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-xs text-gray-500">
@@ -886,6 +1133,14 @@ export default function Chat() {
                   transition={{ duration: 0.3, delay: 0.2 }}
                 >
                   <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowMediaModal(true)}
+                      title="Anexar mídia"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </Button>
                     <Input
                       placeholder="Digite sua mensagem..."
                       value={newMessage}
@@ -902,6 +1157,7 @@ export default function Chat() {
                       <Button
                         onClick={handleSendMessage}
                         className="bg-blue-600 hover:bg-blue-700"
+                        disabled={!newMessage.trim()}
                       >
                         <Send className="w-4 h-4" />
                       </Button>
@@ -975,6 +1231,143 @@ export default function Chat() {
                 onTestNotification={testNotification}
               />
             </motion.div>
+          </motion.div>
+        )}
+
+        {/* Modal para seleção de mídia */}
+        {showMediaModal && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowMediaModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 mx-4 w-80"
+            >
+              <p className="text-lg font-bold text-gray-800 mb-4 text-center">
+                Anexar Mídia
+              </p>
+              <div className="space-y-4">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  style={{ display: 'none' }}
+                  id="photo-input-modal"
+                />
+                <Button
+                  onClick={() => document.getElementById('photo-input-modal')?.click()}
+                  className="w-full items-center gap-3 h-12"
+                  variant="outline"
+                >
+                  <Camera className="w-5 h-5" />
+                  Selecionar Foto
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowMediaModal(false);
+                    startRecording();
+                  }}
+                  className="w-full items-center gap-3 h-12 bg-red-500 hover:bg-red-600"
+                  disabled={!canRecord}
+                >
+                  <Mic className="w-5 h-5" />
+                  Gravar Áudio
+                </Button>
+              </div>
+              <Button
+                onClick={() => setShowMediaModal(false)}
+                className="w-full mt-4"
+                variant="ghost"
+              >
+                Cancelar
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Modal para expandir imagem */}
+        {showImageModal && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowImageModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative"
+            >
+              <Button
+                onClick={() => setShowImageModal(false)}
+                className="absolute top-4 right-4 z-10 bg-black bg-opacity-50 hover:bg-opacity-70 text-white"
+                size="sm"
+              >
+                ✕
+              </Button>
+              {selectedImageUrl && (
+                <img
+                  src={selectedImageUrl}
+                  alt="Imagem expandida"
+                  className="max-w-full max-h-[80vh] object-contain rounded-lg"
+                />
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Interface de gravação estilo WhatsApp */}
+        {showRecordingUI && (
+          <motion.div
+            className="fixed bottom-20 left-4 right-4 bg-gray-800 rounded-2xl p-4 flex-row items-center justify-between shadow-lg border border-red-500 z-50"
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+          >
+            <div className="flex items-center flex-1">
+              <div className="w-12 h-12 bg-red-500 rounded-full items-center justify-center mr-3 animate-pulse">
+                <Mic className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-white font-medium">Gravando áudio...</p>
+                <p className="text-red-400 text-sm font-mono">
+                  {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
+                </p>
+              </div>
+            </div>
+            <div className="flex">
+              <Button
+                onClick={() => {
+                  setShowRecordingUI(false);
+                  setIsRecording(false);
+                  setRecordingTime(0);
+                  if (mediaRecorder) {
+                    mediaRecorder.stop();
+                  }
+                }}
+                className="w-10 h-10 bg-gray-600 hover:bg-gray-700 rounded-full mr-2"
+                size="sm"
+              >
+                ✕
+              </Button>
+              <Button
+                onClick={stopRecording}
+                className="w-12 h-12 bg-red-500 hover:bg-red-600 rounded-full border-2 border-red-300"
+                size="sm"
+              >
+                ■
+              </Button>
+            </div>
           </motion.div>
         )}
       </div>

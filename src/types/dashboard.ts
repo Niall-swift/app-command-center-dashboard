@@ -5,6 +5,9 @@ export interface Message {
   timestamp: Date;
   avatar?: string;
   isAdmin?: boolean;
+  mediaType?: 'image' | 'audio';
+  mediaUrl?: string;
+  mediaName?: string;
 }
 
 export interface UserDetails {
