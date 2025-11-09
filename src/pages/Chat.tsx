@@ -347,6 +347,25 @@ export default function Chat() {
 
           console.log("Novas mensagens detectadas:", newMessages.length);
 
+          // Mostrar notificações para novas mensagens
+          if (newMessages.length > 0 && !isPageVisible) {
+            newMessages.forEach((msg) => {
+              // Notificação nativa do sistema
+              showNativeNotification(
+                `Nova mensagem de ${msg.user}`,
+                msg.content.length > 50 ? msg.content.substring(0, 50) + "..." : msg.content,
+                "/favicon.ico"
+              );
+
+              // Notificação da aplicação (toast)
+              toast({
+                title: `Nova mensagem de ${msg.user}`,
+                description: msg.content,
+                duration: 5000,
+              });
+            });
+          }
+
           setClientMessages((prev) => {
             const updated = {
               ...prev,
@@ -390,6 +409,40 @@ export default function Chat() {
     }
   }, [isSupported, permission, requestPermission]);
 
+  // Função para mostrar notificação nativa do sistema
+  const showNativeNotification = (title: string, body: string, icon?: string) => {
+    if (!isSupported || permission !== "granted") {
+      console.log("Notificações nativas não suportadas ou não permitidas");
+      return;
+    }
+
+    try {
+      const notification = new Notification(title, {
+        body,
+        icon: icon || "/favicon.ico",
+        badge: "/favicon.ico",
+        tag: "chat-message", // Agrupa notificações similares
+        requireInteraction: false, // Fecha automaticamente
+        silent: false,
+      });
+
+      // Auto-fechar após 5 segundos
+      setTimeout(() => {
+        notification.close();
+      }, 5000);
+
+      // Focar na janela quando clicar na notificação
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      return notification;
+    } catch (error) {
+      console.error("Erro ao criar notificação nativa:", error);
+    }
+  };
+
 
   // Função para testar o som de notificação
   const testNotificationSound = () => {
@@ -401,6 +454,13 @@ export default function Chat() {
       isPageVisible,
     });
     testNotification();
+
+    // Testar também notificação nativa
+    showNativeNotification(
+      "Teste de Notificação",
+      "Esta é uma notificação de teste do sistema",
+      "/favicon.ico"
+    );
   };
 
   const handleClientSelect = async (client: Client) => {
