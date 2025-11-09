@@ -403,9 +403,25 @@ export default function Chat() {
     testNotification();
   };
 
-  const handleClientSelect = (client: Client) => {
+  const handleClientSelect = async (client: Client) => {
     setSelectedClient(client);
     console.log("Cliente selecionado:", client.name);
+
+    // Zerar contador de mensagens não lidas quando o cliente é selecionado
+    if (client.unreadCount > 0) {
+      try {
+        await setDoc(
+          doc(db, "chat", client.id),
+          {
+            unreadCount: 0,
+          },
+          { merge: true }
+        );
+        console.log(`Contador de mensagens não lidas zerado para ${client.name}`);
+      } catch (error) {
+        console.error("Erro ao zerar contador de mensagens não lidas:", error);
+      }
+    }
   };
 
   const handleSendMessage = async () => {
