@@ -591,6 +591,73 @@ export interface FirebaseCollections {
     updatedBy: string;
   };
 
+  // ========== COLEÇÃO PRINCIPAL: MOVIES ==========
+  movies: {
+    id: string;
+    title: string;
+    overview: string;
+    poster_path: string;
+    backdrop_path: string;
+    movie_url: string;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+
+  // ========== COLEÇÃO PRINCIPAL: SERIES ==========
+  series: {
+    id: string;
+    title: string;
+    overview: string;
+    poster_path: string;
+    backdrop_path: string;
+    releaseDate: Date;
+    status: 'ongoing' | 'completed' | 'cancelled';
+    genres: string[];
+    createdAt: Date;
+    updatedAt: Date;
+    
+    // SUBCOLEÇÃO: seasons (temporadas)
+    seasons?: {
+      [seasonId: string]: {
+        id: string;
+        seasonNumber: number;
+        title: string;
+        overview: string;
+        poster_path: string;
+        airDate: Date;
+        episodeCount: number;
+        createdAt: Date;
+        
+        // SUBCOLEÇÃO: episodes (episódios)
+        episodes?: {
+          [episodeId: string]: {
+            id: string;
+            episodeNumber: number;
+            title: string;
+            overview: string;
+            runtime: number; // em minutos
+            airDate: Date;
+            thumbnail_path: string;
+            video_url: string;
+            createdAt: Date;
+          };
+        };
+      };
+    };
+  };
+
+  // ========== COLEÇÃO PRINCIPAL: ADERES_MOVIE ==========
+  aderes_movie: {
+    id: string;
+    title: string;
+    overview: string;
+    poster_path: string;
+    backdrop_path: string;
+    movie_url: string;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+
   // ========== COLEÇÃO PRINCIPAL: AUDIT_LOGS ==========
   auditLogs: {
     id: string;

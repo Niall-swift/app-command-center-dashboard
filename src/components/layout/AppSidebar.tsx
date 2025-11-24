@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MessageSquare, FileText, BarChart3, Bot, Home, Settings, Gift, Wrench, Map, Film } from 'lucide-react';
+import { MessageSquare, FileText, BarChart3, Bot, Home, Settings, Gift, Wrench, Map, Film, Tv } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -60,6 +60,11 @@ const menuItems = [
     title: "Filmes",
     url: "/movies",
     icon: Film,
+  },
+  {
+    title: "Séries",
+    url: "/series",
+    icon: Tv,
   },
   // {
   //   title: "Configurações",

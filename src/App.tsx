@@ -19,6 +19,7 @@ import Raffle from "./pages/Raffle";
 import TechnicalSupport from "./pages/TechnicalSupport";
 import NetworkMap from "./pages/NetworkMap";
 import Movies from "./pages/Movies";
+import Series from "./pages/Series";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ function AnimatedRoutes() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/raffle" element={<Raffle />} />
         <Route path="/movies" element={<Movies />} />
+        <Route path="/series" element={<Series />} />
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
         <Route path="*" element={<NotFound />} />

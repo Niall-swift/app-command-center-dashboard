@@ -99,28 +99,6 @@ export default function Chat() {
           email: "joao@email.com",
           phone: "(11) 99999-9999",
         },
-        {
-          id: "cliente2",
-          name: "Maria Santos",
-          avatar: "MS",
-          lastMessage: "Quando será lançada a nova funcionalidade?",
-          lastMessageTime: new Date(Date.now() - 3600000),
-          unreadCount: 0,
-          isOnline: false,
-          email: "maria@email.com",
-          phone: "(11) 88888-8888",
-        },
-        {
-          id: "cliente3",
-          name: "Pedro Costa",
-          avatar: "PC",
-          lastMessage: "Preciso alterar meus dados",
-          lastMessageTime: new Date(Date.now() - 7200000),
-          unreadCount: 1,
-          isOnline: true,
-          email: "pedro@email.com",
-          phone: "(11) 77777-7777",
-        },
       ];
 
       for (const client of sampleClients) {
