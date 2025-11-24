@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, getDoc, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, orderBy, limit, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useState, useEffect } from 'react';
 
@@ -246,6 +246,50 @@ export const searchSeries = async (searchTerm: string): Promise<Series[]> => {
   }
 };
 
+// Função para adicionar episódio a uma temporada existente
+export const addEpisodeToSeason = async (
+  seriesId: string, 
+  seasonId: string, 
+  episode: Omit<Episode, 'id'>
+) => {
+  try {
+    const episodeData = {
+      ...episode,
+      createdAt: new Date()
+    };
+    
+    const docRef = await addDoc(
+      collection(db, `series/${seriesId}/seasons/${seasonId}/episodes`),
+      episodeData
+    );
+    
+    return docRef.id;
+  } catch (error) {
+    console.error('Erro ao adicionar episódio:', error);
+    throw error;
+  }
+};
+
+// Função para atualizar contagem de episódios de uma temporada
+export const updateSeasonEpisodeCount = async (seriesId: string, seasonId: string) => {
+  try {
+    const episodesSnapshot = await getDocs(
+      collection(db, `series/${seriesId}/seasons/${seasonId}/episodes`)
+    );
+    
+    const episodeCount = episodesSnapshot.size;
+    
+    await updateDoc(doc(db, `series/${seriesId}/seasons/${seasonId}`), {
+      episodeCount
+    });
+    
+    return episodeCount;
+  } catch (error) {
+    console.error('Erro ao atualizar contagem de episódios:', error);
+    throw error;
+  }
+};
+
 // Hook personalizado para React (exemplo de uso em componentes)
 export const useSeriesData = () => {
   const [series, setSeries] = useState<Series[]>([]);
@@ -270,4 +314,61 @@ export const useSeriesData = () => {
   }, []);
 
   return { series, loading, error, refetch: loadSeries };
+};
+
+// Hook para gerenciar episódios de uma temporada específica
+export const useSeasonEpisodes = (seriesId: string, seasonId: string) => {
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadEpisodes = async () => {
+    if (!seriesId || !seasonId) return;
+    
+    try {
+      setLoading(true);
+      const episodesSnapshot = await getDocs(
+        collection(db, `series/${seriesId}/seasons/${seasonId}/episodes`)
+      );
+      
+      const episodesData = episodesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Episode[];
+      
+      setEpisodes(episodesData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addEpisode = async (episodeData: Omit<Episode, 'id'>) => {
+    try {
+      const episodeId = await addEpisodeToSeason(seriesId, seasonId, episodeData);
+      await updateSeasonEpisodeCount(seriesId, seasonId);
+      
+      // Reload episodes
+      await loadEpisodes();
+      
+      return episodeId;
+    } catch (error) {
+      console.error('Erro ao adicionar episódio:', error);
+      throw error;
+    }
+  };
+
+  useEffect(() => {
+    loadEpisodes();
+  }, [seriesId, seasonId]);
+
+  return { 
+    episodes, 
+    loading, 
+    error, 
+    addEpisode, 
+    refetch: loadEpisodes 
+  };
 };

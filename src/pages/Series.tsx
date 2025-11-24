@@ -11,6 +11,8 @@ import { Progress } from '../components/ui/progress';
 import { useToast } from '../hooks/use-toast';
 import { Upload, Play, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import AddEpisodeToExistingSeries from '../components/AddEpisodeToExistingSeries';
 
 interface Episode {
   id?: string;
@@ -410,13 +412,21 @@ export default function Series() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Gerenciar Séries</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upload Form */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Adicionar Nova Série</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Tabs defaultValue="add-series" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="add-series">Adicionar Nova Série</TabsTrigger>
+          <TabsTrigger value="add-episode">Adicionar Episódio</TabsTrigger>
+          <TabsTrigger value="list-series">Listar Séries</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="add-series">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Upload Form */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Adicionar Nova Série</CardTitle>
+              </CardHeader>
+              <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="title">Título da Série</Label>
@@ -795,6 +805,133 @@ export default function Series() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </TabsContent>
+
+    <TabsContent value="add-episode">
+      <AddEpisodeToExistingSeries />
+    </TabsContent>
+
+    <TabsContent value="list-series">
+      <Card>
+        <CardHeader>
+          <CardTitle>Séries Cadastradas ({series.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {loading ? (
+              <p className="text-center text-gray-500">Carregando séries...</p>
+            ) : (
+              series.map((serie) => (
+                <div key={serie.id} className="border rounded-lg p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg">{serie.title}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{serie.overview}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                          {serie.status === 'ongoing' ? 'Em andamento' : 
+                           serie.status === 'completed' ? 'Concluída' : 'Cancelada'}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {serie.seasons?.length || 0} temporadas
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {serie.genres?.join(', ')}
+                        </span>
+                      </div>
+                      {serie.poster_path && (
+                        <img
+                          src={serie.poster_path}
+                          alt={serie.title}
+                          className="w-20 h-28 object-cover rounded mt-2"
+                        />
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          // Expand/collapse seasons
+                          if (serie.seasons && serie.seasons.length > 0) {
+                            const firstSeason = serie.seasons[0];
+                            if (firstSeason.episodes && firstSeason.episodes.length > 0) {
+                              window.open(firstSeason.episodes[0].video_url, '_blank');
+                            }
+                          }
+                        }}
+                      >
+                        <Play className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => serie.id && deleteSeries(serie.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Seasons and Episodes Accordion */}
+                  {serie.seasons && serie.seasons.length > 0 && (
+                    <div className="mt-4">
+                      <Accordion type="multiple" className="w-full">
+                        {serie.seasons.map((season) => (
+                          <AccordionItem key={season.id} value={`season-${season.seasonNumber}`}>
+                            <AccordionTrigger>
+                              <div className="flex items-center justify-between w-full mr-4">
+                                <span>Temporada {season.seasonNumber}: {season.title}</span>
+                                <span className="text-sm text-gray-500">
+                                  {season.episodes?.length || 0} episódios
+                                </span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-2">
+                                {season.episodes?.map((episode) => (
+                                  <div key={episode.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                    <div>
+                                      <span className="font-medium">
+                                        {episode.episodeNumber}. {episode.title}
+                                      </span>
+                                      <p className="text-sm text-gray-600">{episode.overview}</p>
+                                      <span className="text-xs text-gray-500">
+                                        {episode.runtime} min
+                                      </span>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => window.open(episode.video_url, '_blank')}
+                                    >
+                                      <Play className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ))}
+                                {(!season.episodes || season.episodes.length === 0) && (
+                                  <p className="text-center text-gray-500 py-4">
+                                    Nenhum episódio adicionado ainda.
+                                  </p>
+                                )}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            {series.length === 0 && !loading && (
+              <p className="text-center text-gray-500">Nenhuma série cadastrada ainda.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </TabsContent>
+  </Tabs>
+  </div>
   );
 }
