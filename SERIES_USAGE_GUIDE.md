@@ -4,6 +4,36 @@
 
 A estrutura de séries implementada permite gerenciar séries de TV de forma hierárquica e organizada, com suporte a temporadas e episódios em subcoleções do Firestore para melhor performance.
 
+## 🆕 Nova Funcionalidade: Adicionar Episódios a Séries Existentes
+
+Agora é possível adicionar episódios a temporadas de séries já existentes! A interface está organizada em abas:
+
+1. **Adicionar Nova Série** - Criar séries completas com temporadas e episódios
+2. **Adicionar Episódio** - Adicionar episódios a temporadas de séries existentes
+3. **Listar Séries** - Visualizar todas as séries cadastradas
+
+### Como Usar a Nova Funcionalidade:
+
+1. Acesse a aba **"Adicionar Episódio"**
+2. Selecione a série desejada
+3. Escolha a temporada
+4. Preencha os dados do novo episódio:
+   - Número do episódio (definido automaticamente)
+   - Título
+   - Descrição
+   - Duração
+   - Data de exibição
+   - Thumbnail
+   - Arquivo de vídeo
+5. Veja a pré-visualização antes de enviar
+6. Clique em "Adicionar Episódio"
+
+O sistema会自动:
+- Definir o próximo número do episódio
+- Fazer upload dos arquivos
+- Atualizar a contagem de episódios da temporada
+- Recarregar os dados
+
 ## 🗂️ Estrutura do Banco de Dados
 
 ```
@@ -166,6 +196,70 @@ const filteredSearch = series.filter(serie =>
   serie.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
   serie.overview.toLowerCase().includes(searchTerm.toLowerCase())
 );
+```
+
+### 8. Adicionar Episódio a Temporada Existente
+
+```typescript
+// Adicionar episódio a uma temporada específica
+import { addEpisodeToSeason, updateSeasonEpisodeCount } from '../utils/seriesUtils';
+
+const addNewEpisode = async (seriesId: string, seasonId: string) => {
+  const episodeData = {
+    episodeNumber: 5, // Será calculado automaticamente
+    title: "Novo Episódio",
+    overview: "Descrição do episódio...",
+    runtime: 45,
+    airDate: new Date("2024-01-15"),
+    thumbnail_path: "https://...",
+    video_url: "https://..."
+  };
+  
+  try {
+    // Adicionar episódio
+    const episodeId = await addEpisodeToSeason(seriesId, seasonId, episodeData);
+    
+    // Atualizar contagem de episódios da temporada
+    await updateSeasonEpisodeCount(seriesId, seasonId);
+    
+    console.log(`Episódio adicionado com ID: ${episodeId}`);
+  } catch (error) {
+    console.error('Erro ao adicionar episódio:', error);
+  }
+};
+
+// Usar hook para gerenciar episódios de uma temporada
+import { useSeasonEpisodes } from '../utils/seriesUtils';
+
+const EpisodeManager = ({ seriesId, seasonId }) => {
+  const { episodes, addEpisode, loading } = useSeasonEpisodes(seriesId, seasonId);
+  
+  const handleAddEpisode = async () => {
+    const newEpisode = {
+      episodeNumber: episodes.length + 1,
+      title: "Episódio Novo",
+      overview: "Descrição...",
+      runtime: 45,
+      airDate: new Date(),
+      thumbnail_path: "",
+      video_url: ""
+    };
+    
+    await addEpisode(newEpisode);
+  };
+  
+  return (
+    <div>
+      <h3>Episódios ({episodes.length})</h3>
+      <Button onClick={handleAddEpisode} disabled={loading}>
+        Adicionar Episódio
+      </Button>
+      {episodes.map(episode => (
+        <div key={episode.id}>{episode.title}</div>
+      ))}
+    </div>
+  );
+};
 ```
 
 ## 🎨 Exemplos de Componentes React
