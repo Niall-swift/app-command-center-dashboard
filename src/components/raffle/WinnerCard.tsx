@@ -6,6 +6,12 @@ import { Download, X, Trophy, Star, Sparkles, MessageCircle } from 'lucide-react
 import { motion } from 'framer-motion';
 import type { Client } from '@/types/dashboard';
 
+declare global {
+  interface Window {
+    whatsappWindowRef?: Window;
+  }
+}
+
 interface WinnerCardProps {
   winner: Client;
   prize: string;
@@ -126,11 +132,22 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
     ctx.font = 'bold 32px Arial';
     ctx.fillText(prize, 300, 600);
 
+    // Address (if available)
+    if (winner.address || winner.city || winner.state) {
+      ctx.font = '18px Arial';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      const addressParts = [winner.address, winner.city, winner.state].filter(Boolean);
+      const addressText = addressParts.join(', ');
+      if (addressText) {
+        ctx.fillText(`📍 ${addressText}`, 300, 650);
+      }
+    }
+
     // Date
     const now = new Date();
     ctx.font = '18px Arial';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fillText(now.toLocaleDateString('pt-BR'), 300, 700);
+    ctx.fillText(now.toLocaleDateString('pt-BR'), 300, 720);
 
     return canvas.toDataURL('image/png');
   };
@@ -147,18 +164,28 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
 
   const sendCardToWinner = async () => {
     const dataUrl = await generateCardImage();
-    if (!dataUrl) return;
+    if (!dataUrl) {
+      alert('Erro ao gerar o card. Tente novamente.');
+      return;
+    }
 
     // Convert data URL to blob
     const response = await fetch(dataUrl);
     const blob = await response.blob();
-    
+
     // Create file from blob
     const file = new File([blob], `vencedor_${winner.name.replace(' ', '_')}.png`, { type: 'image/png' });
-    
+
     // Create congratulations message
     const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ Obrigado por participar! ✨`;
-    
+
+    const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
+
+    if (!phoneNumber) {
+      alert('Telefone não cadastrado para este participante.');
+      return;
+    }
+
     // Check if Web Share API is available and supports files
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -170,61 +197,52 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
         return;
       } catch (error) {
         console.log('Erro ao compartilhar via Web Share API:', error);
+        // Continue to fallback
       }
     }
 
-    // Fallback: Open WhatsApp Web with the image as base64 data
-    const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
-    
-    // Try to use WhatsApp Web API with image
-    const imageData = dataUrl.split(',')[1]; // Remove data:image/png;base64, prefix
+    // Fallback: Open WhatsApp Web
     const whatsappMessage = `${congratsMessage}\n\n📸 Seu card de vencedor está anexado!`;
-    
-    // Create a temporary form to send the image via WhatsApp Web
-    const tempForm = document.createElement('form');
-    tempForm.style.display = 'none';
-    tempForm.method = 'POST';
-    tempForm.action = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
-    
-    const imageInput = document.createElement('input');
-    imageInput.type = 'file';
-    imageInput.files = new DataTransfer().files;
-    
-    // Add the file to a DataTransfer object
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    imageInput.files = dt.files;
-    
-    tempForm.appendChild(imageInput);
-    document.body.appendChild(tempForm);
-    
-    // Open WhatsApp Web in a new window/tab
     const whatsappUrl = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
-    const whatsappWindow = window.open(whatsappUrl, '_blank', 'width=800,height=600');
-    
-    // Copy image to clipboard as fallback
+
+    // Reuse existing WhatsApp window if available
+    let whatsappWindow = window.whatsappWindowRef;
+    if (whatsappWindow && !whatsappWindow.closed) {
+      whatsappWindow.location.href = whatsappUrl;
+      whatsappWindow.focus();
+    } else {
+      whatsappWindow = window.open(whatsappUrl, 'whatsappSender', 'width=800,height=600');
+      window.whatsappWindowRef = whatsappWindow;
+    }
+
+    if (!whatsappWindow) {
+      alert('Não foi possível abrir o WhatsApp. Verifique se pop-ups estão bloqueados.');
+      return;
+    }
+
+    // Copy image to clipboard as additional fallback
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
           'image/png': blob
         })
       ]);
-      
+
       // Show instruction to paste the image
       setTimeout(() => {
         if (whatsappWindow && !whatsappWindow.closed) {
-          alert('A imagem foi copiada para a área de transferência. Cole ela no WhatsApp (Ctrl+V ou Cmd+V)');
+          alert('A imagem foi copiada para a área de transferência. Cole ela no WhatsApp (Ctrl+V ou Cmd+V) se não foi anexada automaticamente.');
         }
-      }, 2000);
+      }, 3000);
     } catch (clipboardError) {
       console.log('Erro ao copiar para área de transferência:', clipboardError);
-      // If clipboard fails, just open WhatsApp with the message
+      // If clipboard fails, show message about manual attachment
+      setTimeout(() => {
+        if (whatsappWindow && !whatsappWindow.closed) {
+          alert('Abra o WhatsApp e anexe a imagem manualmente se necessário.');
+        }
+      }, 3000);
     }
-    
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(tempForm);
-    }, 1000);
   };
 
   return (

@@ -59,4 +59,8 @@ export interface Client {
   phone?: string;
   cpf?: string;
   cep?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  instagram?: string;
 }
