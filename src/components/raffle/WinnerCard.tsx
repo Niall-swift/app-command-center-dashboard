@@ -5,6 +5,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Download, X, Trophy, Star, Sparkles, MessageCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Client } from '@/types/dashboard';
+import { WHATSAPP_API_KEY, WHATSAPP_API_URL } from '@/config/firebase';
 
 declare global {
   interface Window {
@@ -163,6 +164,37 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
   };
 
   const sendCardToWinner = async () => {
+    const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
+
+    if (!phoneNumber) {
+      alert('Telefone não cadastrado para este participante.');
+      return;
+    }
+
+    // Create congratulations message
+    const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ Obrigado por participar! ✨`;
+
+    // Try CallMeBot API first if API key is configured
+    if (WHATSAPP_API_KEY) {
+      try {
+        const apiMessage = `${congratsMessage}\n\n📸 Card de vencedor gerado!`;
+        const apiUrl = `${WHATSAPP_API_URL}?phone=55${phoneNumber}&text=${encodeURIComponent(apiMessage)}&apikey=${WHATSAPP_API_KEY}`;
+
+        const response = await fetch(apiUrl);
+        if (response.ok) {
+          alert('Mensagem enviada com sucesso via WhatsApp API!');
+          return;
+        } else {
+          console.log('Erro na API do WhatsApp:', response.status);
+          // Continue to fallback
+        }
+      } catch (error) {
+        console.log('Erro ao enviar via API:', error);
+        // Continue to fallback
+      }
+    }
+
+    // Generate card image for fallback methods
     const dataUrl = await generateCardImage();
     if (!dataUrl) {
       alert('Erro ao gerar o card. Tente novamente.');
@@ -175,16 +207,6 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
 
     // Create file from blob
     const file = new File([blob], `vencedor_${winner.name.replace(' ', '_')}.png`, { type: 'image/png' });
-
-    // Create congratulations message
-    const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ Obrigado por participar! ✨`;
-
-    const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
-
-    if (!phoneNumber) {
-      alert('Telefone não cadastrado para este participante.');
-      return;
-    }
 
     // Check if Web Share API is available and supports files
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {

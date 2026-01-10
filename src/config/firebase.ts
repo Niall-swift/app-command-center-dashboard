@@ -23,5 +23,9 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
+// WhatsApp API configuration (CallMeBot)
+export const WHATSAPP_API_KEY = import.meta.env.VITE_WHATSAPP_API_KEY || '';
+export const WHATSAPP_API_URL = 'https://api.callmebot.com/whatsapp.php';
+
 export default {db, auth, storage, googleProvider};
 //         <div className="flex items-center justify-between">
