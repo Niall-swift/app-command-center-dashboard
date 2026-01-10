@@ -33,7 +33,7 @@ export default function ClientList({
 
   // Filter clients based on search term
   const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchTerm.toLowerCase())
+    client.name && client.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleSelectAll = () => {
@@ -72,6 +72,7 @@ export default function ClientList({
     }
   };
 
+  console.log('ClientList rendering', clients.length);
   return (
     <>
       <Card className="bg-white shadow-lg h-full">
@@ -121,29 +122,16 @@ export default function ClientList({
             />
           </div>
 
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="space-y-3 max-h-96 overflow-y-auto"
-          >
-            <AnimatePresence>
-              {filteredClients.map((client) => (
-                <motion.div
-                  key={client.id}
-                  variants={itemVariants}
-                  whileHover={{ 
-                    scale: 1.02,
-                    backgroundColor: isSelected(client) ? "rgba(147, 51, 234, 0.1)" : "rgba(59, 130, 246, 0.05)",
-                    transition: { duration: 0.2 }
-                  }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-300 ${
-                    isSelected(client)
-                      ? 'border-purple-500 bg-purple-50 shadow-lg'
-                      : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
-                  }`}
-                >
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {filteredClients.map((client) => (
+              <div
+                key={client.id}
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-300 ${
+                  isSelected(client)
+                    ? 'border-purple-500 bg-purple-50 shadow-lg'
+                    : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                }`}
+              >
                   <div className="flex items-center justify-between">
                     <div 
                       className="flex items-center gap-3 flex-1"
@@ -151,9 +139,9 @@ export default function ClientList({
                     >
                       <div className="relative">
                         <Avatar className="w-12 h-12">
-                          <AvatarImage src={client.avatar} alt={client.name} />
+                          <AvatarImage src={client.avatar} alt={client.name || 'Unknown'} />
                           <AvatarFallback className="bg-blue-100 text-blue-600 font-semibold">
-                            {client.name.charAt(0)}
+                            {client.name ? client.name.charAt(0) : '?'}
                           </AvatarFallback>
                         </Avatar>
                         {client.isOnline && (
@@ -165,8 +153,8 @@ export default function ClientList({
                         )}
                       </div>
                       <div>
-                        <p className="font-semibold text-gray-900">{client.name}</p>
-                        <p className="text-sm text-gray-500">@{client.name.toLowerCase().replace(' ', '')}</p>
+                        <p className="font-semibold text-gray-900">{client.name || 'Unknown'}</p>
+                        <p className="text-sm text-gray-500">@{client.name ? client.name.toLowerCase().replace(' ', '') : 'unknown'}</p>
                       </div>
                     </div>
                     
@@ -198,10 +186,9 @@ export default function ClientList({
                       </AnimatePresence>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               ))}
-            </AnimatePresence>
-          </motion.div>
+          </div>
           
           <motion.div
             initial={{ opacity: 0 }}
