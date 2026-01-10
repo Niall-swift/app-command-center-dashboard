@@ -31,27 +31,27 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
                   <motion.div
                     key={client.id}
                     className="absolute"
-                    initial={{ 
-                      x: Math.random() * 200,
-                      y: Math.random() * 150,
-                      scale: 0.5,
-                      rotate: 0
+                    initial={{
+                    x: (index * 50) % 200,
+                    y: (index * 30) % 150,
+                    scale: 0.5,
+                    rotate: 0
                     }}
                     animate={{
-                      x: [
-                        Math.random() * 200,
-                        Math.random() * 200,
-                        Math.random() * 200,
-                        Math.random() * 200
-                      ],
-                      y: [
-                        Math.random() * 150,
-                        Math.random() * 150,
-                        Math.random() * 150,
-                        Math.random() * 150
-                      ],
-                      scale: [0.5, 0.8, 0.6, 0.7],
-                      rotate: [0, 180, 360, 540]
+                    x: [
+                    (index * 50) % 200,
+                    ((index * 50) + 50) % 200,
+                    ((index * 50) + 100) % 200,
+                    (index * 50) % 200
+                    ],
+                    y: [
+                    (index * 30) % 150,
+                    ((index * 30) + 40) % 150,
+                    ((index * 30) + 80) % 150,
+                    (index * 30) % 150
+                    ],
+                    scale: [0.5, 0.8, 0.6, 0.7],
+                    rotate: [0, 180, 360, 540]
                     }}
                     transition={{
                       duration: 2,
@@ -126,8 +126,8 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
                       scale: 0
                     }}
                     animate={{
-                      x: `${Math.random() * 100}%`,
-                      y: `${Math.random() * 100}%`,
+                      x: `${((i * 5) + 20) % 100}%`,
+                      y: `${((i * 7) + 30) % 100}%`,
                       scale: [0, 1, 0],
                       rotate: [0, 360]
                     }}

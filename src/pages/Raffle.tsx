@@ -39,28 +39,75 @@ export default function Raffle() {
 
 
    useEffect(() => {
-    const fetchClients = async () => {
-      const querySnapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
-      const users = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          name: data.name,
-          phone: data.whatsapp || '',
-          cep: data.cep || '',
-          cpf: data.cpf || '',
-          instagram: data.instagram || '',
-          avatar: data.imageUrl || '',
-          lastMessage: '',
-          lastMessageTime: new Date(),
-          unreadCount: 0,
-          isOnline: false,
-        } as Client;
-      });
-      setUsersPremix(users);
-    };
-    fetchClients();
-  }, []);
+     const fetchClients = async () => {
+       try {
+         const querySnapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
+         const users = querySnapshot.docs.map(doc => {
+           const data = doc.data();
+           return {
+             id: doc.id,
+             name: data.name || 'Nome não informado',
+             phone: data.whatsapp || '',
+             cep: data.cep || '',
+             cpf: data.cpf || '',
+             instagram: data.instagram || '',
+             avatar: data.imageUrl || '',
+             lastMessage: '',
+             lastMessageTime: new Date(),
+             unreadCount: 0,
+             isOnline: false,
+           } as Client;
+         });
+         setUsersPremix(users);
+       } catch (error) {
+         console.error('Erro ao buscar usuários do Firebase:', error);
+         // Fallback para dados mock
+         const mockUsers: Client[] = [
+           {
+             id: '1',
+             name: 'João Silva',
+             phone: '5511999999999',
+             cep: '01234567',
+             cpf: '12345678901',
+             instagram: 'joao_silva',
+             avatar: '',
+             lastMessage: '',
+             lastMessageTime: new Date(),
+             unreadCount: 0,
+             isOnline: false,
+           },
+           {
+             id: '2',
+             name: 'Maria Santos',
+             phone: '5511988888888',
+             cep: '01234567',
+             cpf: '12345678902',
+             instagram: 'maria_santos',
+             avatar: '',
+             lastMessage: '',
+             lastMessageTime: new Date(),
+             unreadCount: 0,
+             isOnline: false,
+           },
+           {
+             id: '3',
+             name: 'Pedro Oliveira',
+             phone: '5511977777777',
+             cep: '01234567',
+             cpf: '12345678903',
+             instagram: 'pedro_oliveira',
+             avatar: '',
+             lastMessage: '',
+             lastMessageTime: new Date(),
+             unreadCount: 0,
+             isOnline: false,
+           },
+         ];
+         setUsersPremix(mockUsers);
+       }
+     };
+     fetchClients();
+   }, []);
 
   const handleClientToggle = (client: Client) => {
     setSelectedClients(prev => {
@@ -108,6 +155,7 @@ export default function Raffle() {
     setSelectedClients([]);
   };
 
+  console.log('Raffle rendering', usersPremix.length);
   return (
     <PageTransition>
       <div className="space-y-6">
@@ -216,28 +264,24 @@ export default function Raffle() {
             </Card>
 
             {/* Raffle Animation */}
-            <AnimatePresence>
-              {(isRaffling || winner) && (
-                <RaffleAnimation
-                  isRaffling={isRaffling}
-                  winner={winner}
-                  selectedClients={selectedClients}
-                />
-              )}
-            </AnimatePresence>
+            {(isRaffling || winner) && (
+              <RaffleAnimation
+                isRaffling={isRaffling}
+                winner={winner}
+                selectedClients={selectedClients}
+              />
+            )}
           </motion.div>
         </div>
 
         {/* Winner Card */}
-        <AnimatePresence>
-          {showWinnerCard && winner && (
-            <WinnerCard
-              winner={winner}
-              prize={selectedPrize}
-              onClose={() => setShowWinnerCard(false)}
-            />
-          )}
-        </AnimatePresence>
+        {showWinnerCard && winner && (
+          <WinnerCard
+            winner={winner}
+            prize={selectedPrize}
+            onClose={() => setShowWinnerCard(false)}
+          />
+        )}
       </div>
     </PageTransition>
   );
