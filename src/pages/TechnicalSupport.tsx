@@ -318,7 +318,7 @@ ${mapsUrl}
 
                   <div className="space-y-2">
                     <Label htmlFor="priority">Prioridade</Label>
-                    <Select value={newCall.priority} onValueChange={(value: any) => setNewCall({...newCall, priority: value})}>
+                    <Select value={newCall.priority} onValueChange={(value: string) => setNewCall({...newCall, priority: value})}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>

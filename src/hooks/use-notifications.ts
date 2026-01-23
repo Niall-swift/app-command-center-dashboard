@@ -41,7 +41,7 @@ export const useNotifications = () => {
   useEffect(() => {
     if (typeof window !== "undefined") {
       audioContextRef.current = new (window.AudioContext ||
-        (window as any).webkitAudioContext)();
+        (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
     }
   }, []);
 

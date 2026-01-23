@@ -130,7 +130,7 @@ export interface FirebaseCollections {
         description: string;
         timestamp: Date;
         performedBy: string;
-        metadata?: Record<string, any>;
+        metadata?: Record<string, unknown>;
       };
     };
   };
@@ -378,7 +378,7 @@ export interface FirebaseCollections {
         attachments?: string[];
         actions?: {
           type: 'transfer_to_human' | 'create_ticket' | 'schedule_call' | 'send_email';
-          data?: Record<string, any>;
+          data?: Record<string, unknown>;
         }[];
         conditions?: {
           userType?: 'new' | 'existing' | 'premium';
@@ -666,8 +666,8 @@ export interface FirebaseCollections {
     action: string; // 'create', 'update', 'delete', 'login', 'logout', etc.
     resource: string; // 'user', 'request', 'technical_call', etc.
     resourceId?: string;
-    oldValues?: Record<string, any>;
-    newValues?: Record<string, any>;
+    oldValues?: Record<string, unknown>;
+    newValues?: Record<string, unknown>;
     ipAddress: string;
     userAgent: string;
     timestamp: Date;
@@ -935,11 +935,11 @@ export const firestoreIndexes = [
 // Funções utilitárias para trabalhar com o Firebase
 export const firebaseUtils = {
   // Converter timestamp do Firebase para Date
-  timestampToDate: (timestamp: any): Date => {
-    if (timestamp?.toDate) {
-      return timestamp.toDate();
+  timestampToDate: (timestamp: unknown): Date => {
+    if ((timestamp as { toDate?: () => Date })?.toDate) {
+      return (timestamp as { toDate: () => Date }).toDate();
     }
-    return new Date(timestamp);
+    return new Date(timestamp as string | number | Date);
   },
   
   // Converter Date para timestamp do Firebase
@@ -953,16 +953,18 @@ export const firebaseUtils = {
   },
   
   // Validar estrutura de endereço
-  validateAddress: (address: any): boolean => {
-    return !!(address?.street && address?.city && address?.state && address?.zipCode);
+  validateAddress: (address: unknown): boolean => {
+    const addr = address as { street?: unknown; city?: unknown; state?: unknown; zipCode?: unknown };
+    return !!(addr?.street && addr?.city && addr?.state && addr?.zipCode);
   },
   
   // Sanitizar dados do usuário antes de salvar
-  sanitizeUserData: (userData: any) => {
+  sanitizeUserData: (userData: unknown) => {
+    const data = userData as Record<string, unknown>;
     return {
-      ...userData,
-      cpf: userData.cpf?.replace(/\D/g, ''),
-      phone: userData.phone?.replace(/\D/g, ''),
+      ...data,
+      cpf: (data.cpf as string)?.replace(/\D/g, ''),
+      phone: (data.phone as string)?.replace(/\D/g, ''),
       createdAt: new Date(),
       updatedAt: new Date(),
       isActive: true,

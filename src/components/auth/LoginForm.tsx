@@ -35,10 +35,11 @@ export const LoginForm = () => {
           description: "Bem-vindo de volta.",
         });
       }
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ocorreu um erro. Tente novamente.";
       toast({
         title: "Erro na autenticação",
-        description: error.message || "Ocorreu um erro. Tente novamente.",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -54,10 +55,11 @@ export const LoginForm = () => {
         title: "Login realizado com sucesso!",
         description: "Bem-vindo ao sistema.",
       });
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ocorreu um erro. Tente novamente.";
       toast({
         title: "Erro no login com Google",
-        description: error.message || "Ocorreu um erro. Tente novamente.",
+        description: message,
         variant: "destructive",
       });
     } finally {

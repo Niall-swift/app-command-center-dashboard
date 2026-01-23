@@ -163,7 +163,7 @@ export default function Series() {
     setExpandedSeasons(prev => new Set([...prev, newSeason.seasonNumber]));
   };
 
-  const updateSeason = (index: number, field: keyof Season, value: any) => {
+  const updateSeason = (index: number, field: keyof Season, value: unknown) => {
     const updatedSeasons = [...seasons];
     updatedSeasons[index] = { ...updatedSeasons[index], [field]: value };
     setSeasons(updatedSeasons);
@@ -187,7 +187,7 @@ export default function Series() {
     setSeasons(updatedSeasons);
   };
 
-  const updateEpisode = (seasonIndex: number, episodeIndex: number, field: keyof Episode, value: any) => {
+  const updateEpisode = (seasonIndex: number, episodeIndex: number, field: keyof Episode, value: unknown) => {
     const updatedSeasons = [...seasons];
     updatedSeasons[seasonIndex].episodes[episodeIndex] = { 
       ...updatedSeasons[seasonIndex].episodes[episodeIndex], 

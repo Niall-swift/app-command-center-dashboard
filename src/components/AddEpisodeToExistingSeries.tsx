@@ -61,7 +61,7 @@ export default function AddEpisodeToExistingSeries() {
       const seriesData: Series[] = [];
       
       for (const docSnap of seriesSnapshot.docs) {
-        const seriesInfo = { id: docSnap.id, ...docSnap.data() } as any;
+        const seriesInfo = { id: docSnap.id, ...docSnap.data() } as Series;
         
         // Load seasons for this series
         const seasonsSnapshot = await getDocs(collection(db, `series/${docSnap.id}/seasons`));

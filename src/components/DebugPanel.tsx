@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Bug, Volume2, Bell, Eye, EyeOff } from "lucide-react";
+import { Client, Message } from "@/types/dashboard";
 
 interface DebugPanelProps {
   isEnabled: boolean;
   isSupported: boolean;
   permission: NotificationPermission;
   isPageVisible: boolean;
-  selectedClient: any;
-  clientMessages: any;
+  selectedClient: Client | null;
+  clientMessages: Record<string, Message[]>;
   onTestSound: () => void;
   onTestNotification: () => void;
 }
