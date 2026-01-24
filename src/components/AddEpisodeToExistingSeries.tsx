@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { storage, db } from '../config/firebase';
@@ -51,32 +51,28 @@ export default function AddEpisodeToExistingSeries() {
   const [currentUploadStep, setCurrentUploadStep] = useState('');
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadSeries();
-  }, []);
-
-  const loadSeries = async () => {
+  const loadSeries = useCallback(async () => {
     try {
       const seriesSnapshot = await getDocs(collection(db, 'series'));
       const seriesData: Series[] = [];
-      
+
       for (const docSnap of seriesSnapshot.docs) {
         const seriesInfo = { id: docSnap.id, ...docSnap.data() } as Series;
-        
+
         // Load seasons for this series
         const seasonsSnapshot = await getDocs(collection(db, `series/${docSnap.id}/seasons`));
         const seasons: Season[] = seasonsSnapshot.docs.map(seasonDoc => ({
           id: seasonDoc.id,
           ...seasonDoc.data()
         })) as Season[];
-        
+
         seriesData.push({
           id: docSnap.id,
           title: seriesInfo.title,
           seasons: seasons
         });
       }
-      
+
       setSeries(seriesData);
     } catch (error) {
       console.error('Erro ao carregar séries:', error);
@@ -86,7 +82,11 @@ export default function AddEpisodeToExistingSeries() {
         variant: "destructive",
       });
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadSeries();
+  }, [loadSeries]);
 
   const uploadFile = async (file: File, path: string): Promise<string> => {
     return new Promise((resolve, reject) => {

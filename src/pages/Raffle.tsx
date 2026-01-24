@@ -46,7 +46,7 @@ export default function Raffle() {
            const data = doc.data();
            return {
              id: doc.id,
-             name: data.name || 'Nome não informado',
+             name: data.name || data.nome,
              phone: data.whatsapp || '',
              cep: data.cep || '',
              cpf: data.cpf || '',

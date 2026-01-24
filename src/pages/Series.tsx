@@ -685,6 +685,10 @@ export default function Series() {
           </CardContent>
         </Card>
 
+        <TabsContent value="add-episode">
+          <AddEpisodeToExistingSeries />
+        </TabsContent>
+
         {/* Series List */}
         <Card>
           <CardHeader>
