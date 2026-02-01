@@ -20,6 +20,9 @@ import TechnicalSupport from "./pages/TechnicalSupport";
 import NetworkMap from "./pages/NetworkMap";
 import Movies from "./pages/Movies";
 import Series from "./pages/Series";
+import IXCConsulta from "./pages/IXCConsulta";
+import IXCFinanceiro from "./pages/IXCFinanceiro";
+import IXCTickets from "./pages/IXCTickets";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +44,9 @@ function AnimatedRoutes() {
         <Route path="/series" element={<Series />} />
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
+        <Route path="/ixc/consulta" element={<IXCConsulta />} />
+        <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
+        <Route path="/ixc/tickets" element={<IXCTickets />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>

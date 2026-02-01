@@ -22,25 +22,15 @@ import {
   Loader2,
   ExternalLink,
   Copy,
-  Download
+  Download,
+  Database,
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ixcService, IXCClienteData } from '@/services/ixc/ixcService';
 import { 
   IXCSearchState, 
-  IXCClienteData, 
   IXCSearchType 
 } from '@/types/ixc';
-
-interface IXCSearchState {
-  loading: boolean;
-  error: string | null;
-  results: IXCClienteData[];
-  searchType: IXCSearchType;
-  searchValue: string;
-  totalResults: number;
-  currentPage: number;
-}
 
 const IXCConsulta: React.FC = () => {
   const [searchState, setSearchState] = useState<IXCSearchState>({
@@ -224,35 +214,48 @@ const IXCConsulta: React.FC = () => {
 
   return (
     <PageTransition>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between"
+          className="space-y-2"
         >
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Consulta IXC</h1>
-            <p className="text-gray-600 mt-2">
-              Busque informações de clientes na base de dados IXC
-            </p>
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Database className="w-4 h-4" />
+            <span>Sistema IXC</span>
+            <span>/</span>
+            <span className="text-gray-900 font-medium">Consulta de Clientes</span>
           </div>
-          
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                  <User className="w-6 h-6 text-white" />
+                </div>
+                Consulta IXC
+              </h1>
+              <p className="text-gray-600 mt-2">
+                Busque informações de clientes na base de dados IXC
+              </p>
+            </div>
+            
             <div className="flex items-center gap-2">
-              <div 
-                className={`w-3 h-3 rounded-full ${
-                  connectionStatus === 'connected' ? 'bg-green-500' :
-                  connectionStatus === 'disconnected' ? 'bg-red-500' :
-                  connectionStatus === 'testing' ? 'bg-yellow-500 animate-pulse' :
-                  'bg-gray-400'
-                }`}
-              />
-              <span className="text-sm text-gray-600">
-                {connectionStatus === 'connected' && 'Conectado'}
-                {connectionStatus === 'disconnected' && 'Desconectado'}
-                {connectionStatus === 'testing' && 'Testando...'}
-                {!connectionStatus && 'Não testado'}
-              </span>
+              <div className="flex items-center gap-2">
+                <div 
+                  className={`w-3 h-3 rounded-full ${
+                    connectionStatus === 'connected' ? 'bg-green-500' :
+                    connectionStatus === 'disconnected' ? 'bg-red-500' :
+                    connectionStatus === 'testing' ? 'bg-yellow-500 animate-pulse' :
+                    'bg-gray-400'
+                  }`}
+                />
+                <span className="text-sm text-gray-600">
+                  {connectionStatus === 'connected' && 'Conectado'}
+                  {connectionStatus === 'disconnected' && 'Desconectado'}
+                  {connectionStatus === 'testing' && 'Testando...'}
+                  {!connectionStatus && 'Não testado'}
+                </span>
+              </div>
             </div>
           </div>
         </motion.div>

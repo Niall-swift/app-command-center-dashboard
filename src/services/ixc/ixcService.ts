@@ -1,5 +1,12 @@
 import axios, { AxiosInstance } from 'axios';
-import https from 'https';
+import type { 
+  IXCContratoData, 
+  IXCFaturaData, 
+  IXCTicketData, 
+  IXCPlanoData, 
+  IXCEquipamentoData, 
+  IXCConexaoData 
+} from '@/types/ixc';
 
 export interface IXCParams {
   qtype: string;
@@ -47,18 +54,25 @@ class IXCService {
   private encodedToken: string;
 
   constructor() {
-    // Configuração da API
+    // Validar configuração
+    const host = import.meta.env.VITE_IXC_HOST;
+    const token = import.meta.env.VITE_IXC_TOKEN;
+
+    if (!host || !token) {
+      throw new Error('Configuração IXC incompleta. Verifique as variáveis VITE_IXC_HOST e VITE_IXC_TOKEN no arquivo .env.local');
+    }
+
+    // Configuração da API para browser
+    // Nota: httpsAgent não é necessário no browser, apenas no Node.js
     this.client = axios.create({
-      baseURL: 'https://coopertecisp.com.br/webservice/v1',
+      baseURL: host,
       timeout: 15000,
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Token da API - pode ser movido para variáveis de ambiente
-    const token = '29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94';
+    // Codificar token para autenticação
     this.encodedToken = this.stringToBase64(token);
   }
 
@@ -269,6 +283,300 @@ class IXCService {
       console.error('Erro ao testar conexão com IXC:', error);
       return false;
     }
+  }
+
+  // ==================== MÉTODOS DE CONTRATOS ====================
+
+  // Buscar contratos por cliente
+  async getContratosByCliente(idCliente: string): Promise<IXCContratoData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente_contrato.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'cliente_contrato.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/cliente_contrato', data);
+    return response.registros || [];
+  }
+
+  // Buscar contrato por ID
+  async getContratoById(id: string): Promise<IXCContratoData | null> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente_contrato.id',
+      query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+      sortname: 'cliente_contrato.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/cliente_contrato', data);
+    
+    if (!response.registros || response.registros.length === 0) {
+      return null;
+    }
+
+    return response.registros[0];
+  }
+
+  // Buscar contratos ativos
+  async getContratosAtivos(): Promise<IXCContratoData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente_contrato.status',
+      query: 'A',
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'cliente_contrato.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/cliente_contrato', data);
+    return response.registros || [];
+  }
+
+  // ==================== MÉTODOS DE FATURAS ====================
+
+  // Buscar faturas por cliente
+  async getFaturasByCliente(idCliente: string): Promise<IXCFaturaData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'fn_areceber.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'fn_areceber.data_vencimento',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
+    return response.registros || [];
+  }
+
+  // Buscar faturas abertas (não pagas)
+  async getFaturasAbertas(idCliente?: string): Promise<IXCFaturaData[]> {
+    const data: Partial<IXCParams> = idCliente ? {
+      qtype: 'fn_areceber.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'fn_areceber.data_vencimento',
+      sortorder: 'asc',
+    } : {
+      qtype: 'fn_areceber.status',
+      query: 'A',
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'fn_areceber.data_vencimento',
+      sortorder: 'asc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
+    
+    // Filtrar apenas faturas abertas
+    const faturas = response.registros || [];
+    return faturas.filter((f: IXCFaturaData) => !f.data_pagamento);
+  }
+
+  // Buscar fatura por ID
+  async getFaturaById(id: string): Promise<IXCFaturaData | null> {
+    const data: Partial<IXCParams> = {
+      qtype: 'fn_areceber.id',
+      query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+      sortname: 'fn_areceber.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
+    
+    if (!response.registros || response.registros.length === 0) {
+      return null;
+    }
+
+    return response.registros[0];
+  }
+
+  // Buscar faturas vencidas
+  async getFaturasVencidas(): Promise<IXCFaturaData[]> {
+    const hoje = new Date().toISOString().split('T')[0];
+    
+    const data: Partial<IXCParams> = {
+      qtype: 'fn_areceber.data_vencimento',
+      query: hoje,
+      oper: '<',
+      page: '1',
+      rp: '1000',
+      sortname: 'fn_areceber.data_vencimento',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
+    
+    // Filtrar apenas faturas não pagas
+    const faturas = response.registros || [];
+    return faturas.filter((f: IXCFaturaData) => !f.data_pagamento);
+  }
+
+  // ==================== MÉTODOS DE TICKETS ====================
+
+  // Buscar tickets por cliente
+  async getTicketsByCliente(idCliente: string): Promise<IXCTicketData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'su_oss_chamado.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'su_oss_chamado.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/su_oss_chamado', data);
+    return response.registros || [];
+  }
+
+  // Buscar tickets abertos
+  async getTicketsAbertos(): Promise<IXCTicketData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'su_oss_chamado.status',
+      query: 'Aberto',
+      oper: 'LIKE',
+      page: '1',
+      rp: '1000',
+      sortname: 'su_oss_chamado.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/su_oss_chamado', data);
+    return response.registros || [];
+  }
+
+  // Buscar ticket por ID
+  async getTicketById(id: string): Promise<IXCTicketData | null> {
+    const data: Partial<IXCParams> = {
+      qtype: 'su_oss_chamado.id',
+      query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+      sortname: 'su_oss_chamado.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/su_oss_chamado', data);
+    
+    if (!response.registros || response.registros.length === 0) {
+      return null;
+    }
+
+    return response.registros[0];
+  }
+
+  // ==================== MÉTODOS DE PLANOS ====================
+
+  // Buscar todos os planos
+  async getAllPlanos(): Promise<IXCPlanoData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'produto.id',
+      query: '0',
+      oper: '>',
+      page: '1',
+      rp: '1000',
+      sortname: 'produto.descricao',
+      sortorder: 'asc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/produto', data);
+    return response.registros || [];
+  }
+
+  // Buscar plano por ID
+  async getPlanoById(id: string): Promise<IXCPlanoData | null> {
+    const data: Partial<IXCParams> = {
+      qtype: 'produto.id',
+      query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+      sortname: 'produto.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/produto', data);
+    
+    if (!response.registros || response.registros.length === 0) {
+      return null;
+    }
+
+    return response.registros[0];
+  }
+
+  // Buscar planos ativos
+  async getPlanosAtivos(): Promise<IXCPlanoData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'produto.ativo',
+      query: 'S',
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'produto.descricao',
+      sortorder: 'asc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/produto', data);
+    return response.registros || [];
+  }
+
+  // ==================== MÉTODOS DE EQUIPAMENTOS ====================
+
+  // Buscar equipamentos por cliente
+  async getEquipamentosByCliente(idCliente: string): Promise<IXCEquipamentoData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'equipamento.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'equipamento.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/equipamento', data);
+    return response.registros || [];
+  }
+
+  // Buscar conexões ativas
+  async getConexoesAtivas(idCliente?: string): Promise<IXCConexaoData[]> {
+    const data: Partial<IXCParams> = idCliente ? {
+      qtype: 'radpopconexao.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'radpopconexao.id',
+      sortorder: 'desc',
+    } : {
+      qtype: 'radpopconexao.id',
+      query: '0',
+      oper: '>',
+      page: '1',
+      rp: '1000',
+      sortname: 'radpopconexao.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse>('/radpopconexao', data);
+    return response.registros || [];
   }
 }
 

@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      '/api/ixc': {
+        target: 'https://coopertecisp.com.br',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ixc/, '/webservice/v1'),
+      },
+    },
   },
   plugins: [
     react(),
