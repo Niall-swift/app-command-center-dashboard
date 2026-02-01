@@ -27,11 +27,41 @@ export default async function handler(req, res) {
       });
     }
 
+    // Função para converter string para Base64 (mesma do React Native)
+    function stringToBase64(str) {
+      const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      let result = "";
+
+      for (let i = 0; i < str.length; i += 3) {
+        const chunk =
+          (str.charCodeAt(i) << 16) |
+          (str.charCodeAt(i + 1) << 8) |
+          str.charCodeAt(i + 2);
+        result +=
+          base64Chars.charAt((chunk >> 18) & 0x3f) +
+          base64Chars.charAt((chunk >> 12) & 0x3f) +
+          base64Chars.charAt((chunk >> 6) & 0x3f) +
+          base64Chars.charAt(chunk & 0x3f);
+      }
+
+      const padding = str.length % 3;
+      if (padding === 1) {
+        result = result.slice(0, -2) + "==";
+      } else if (padding === 2) {
+        result = result.slice(0, -1) + "=";
+      }
+
+      return result;
+    }
+
+    // Codificar token
+    const encodedToken = stringToBase64(IXC_TOKEN);
+
     // Extrair o path da requisição (ex: /api/ixc/cliente -> /cliente)
     const path = req.url.replace('/api/ixc', '');
     const url = `${IXC_HOST}${path}`;
 
-    // Fazer requisição para o IXC
+    // Fazer requisição para o IXC (formato React Native)
     const response = await axios({
       method: req.method,
       url: url,
@@ -39,7 +69,8 @@ export default async function handler(req, res) {
       params: req.query,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${IXC_TOKEN}`,
+        'Authorization': `Basic ${encodedToken}`,
+        'ixcsoft': 'listar',
       },
       // Importante para certificados auto-assinados
       httpsAgent: new (require('https').Agent)({

@@ -109,11 +109,10 @@ class IXCService {
     data: Partial<IXCParams>
   ): Promise<T> {
     try {
-      const response = await this.client.post<T>(endpoint, {
-        ...data,
+      const response = await this.client.post<T>(endpoint, data, {
         headers: {
-          Authorization: `Basic ${this.encodedToken}`,
-          ixcsoft: 'listar',
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ixcsoft': 'listar',
         },
       });
 
