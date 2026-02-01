@@ -58,8 +58,8 @@ class IXCService {
     const host = import.meta.env.VITE_IXC_HOST;
     const token = import.meta.env.VITE_IXC_TOKEN;
 
-    if (!host || !token) {
-      throw new Error('Configuração IXC incompleta. Verifique as variáveis VITE_IXC_HOST e VITE_IXC_TOKEN no arquivo .env.local');
+    if (!host) {
+      throw new Error('Configuração IXC incompleta. Verifique a variável VITE_IXC_HOST no arquivo .env.local');
     }
 
     // Configuração da API para browser
@@ -72,8 +72,9 @@ class IXCService {
       },
     });
 
-    // Codificar token para autenticação
-    this.encodedToken = this.stringToBase64(token);
+    // Codificar token para autenticação (se fornecido)
+    // Em produção com serverless function, o token fica no servidor
+    this.encodedToken = token ? this.stringToBase64(token) : '';
   }
 
   private stringToBase64(str: string): string {

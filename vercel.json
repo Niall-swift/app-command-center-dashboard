@@ -1,0 +1,8 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/ixc/:path*",
+            "destination": "/api/ixc"
+        }
+    ]
+}
