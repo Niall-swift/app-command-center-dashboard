@@ -1,5 +1,5 @@
 // Script de teste para API IXCSoft
-// Execute com: node test-ixc.js
+// Execute com: node test-ixc.cjs
 
 const axios = require('axios');
 const https = require('https');
@@ -39,10 +39,10 @@ function stringToBase64(str) {
 const encodedToken = stringToBase64(IXC_TOKEN);
 
 // Função para fazer requisição (formato React Native)
-async function makeRequest(endpoint, data = {}) {
+async function makeRequest(endpoint, data = {}, testName = '') {
   try {
-    console.log(`\n🔄 Testando: ${endpoint}`);
-    console.log('📤 Dados enviados:', JSON.stringify(data, null, 2));
+    console.log(`\n🔄 ${testName}`);
+    console.log('📤 Parâmetros:', JSON.stringify(data, null, 2));
     
     const options = {
       method: 'POST',
@@ -61,8 +61,17 @@ async function makeRequest(endpoint, data = {}) {
     const response = await axios(options);
     
     console.log('✅ Sucesso!');
-    console.log('📥 Total de registros:', response.data.total || response.data.registros?.length || 0);
-    console.log('📥 Primeiros registros:', JSON.stringify(response.data.registros?.slice(0, 2) || response.data, null, 2));
+    console.log('📊 Total:', response.data.total || 0);
+    console.log('📊 Página:', response.data.page || 'N/A');
+    
+    if (response.data.registros && response.data.registros.length > 0) {
+      console.log('📋 Primeiros 3 clientes:');
+      response.data.registros.slice(0, 3).forEach((cliente, index) => {
+        console.log(`   ${index + 1}. ID: ${cliente.id} | Nome: ${cliente.razao || cliente.nome} | CPF/CNPJ: ${cliente.cnpj_cpf || 'N/A'}`);
+      });
+    } else {
+      console.log('⚠️  Nenhum cliente encontrado com esses parâmetros');
+    }
     
     return response.data;
   } catch (error) {
@@ -79,43 +88,104 @@ async function makeRequest(endpoint, data = {}) {
 
 // Testes
 async function runTests() {
-  console.log('🧪 Iniciando testes da API IXCSoft...\n');
+  console.log('🧪 Testando diferentes formas de consulta...\n');
   console.log('🌐 Host:', IXC_HOST);
-  console.log('🔑 Token:', IXC_TOKEN.substring(0, 10) + '...');
-  console.log('🔐 Token codificado:', encodedToken.substring(0, 20) + '...\n');
+  console.log('🔑 Token:', IXC_TOKEN.substring(0, 10) + '...\n');
   
-  try {
-    // Teste 1: Buscar todos os clientes (limitado a 5)
-    console.log('\n═══════════════════════════════════════');
-    console.log('📋 TESTE 1: Listar Clientes (5 primeiros)');
-    console.log('═══════════════════════════════════════');
-    await makeRequest('/cliente', {
-      qtype: 'cliente.id',
-      query: '*',
-      oper: '=',
-      page: '1',
-      rp: '5',
-      sortname: 'cliente.id',
-      sortorder: 'desc'
-    });
+  const tests = [
+    {
+      name: 'Teste 1: Buscar TODOS os clientes (sem filtro)',
+      params: {
+        qtype: 'cliente.id',
+        query: '',
+        oper: 'LIKE',
+        page: '1',
+        rp: '10',
+        sortname: 'cliente.id',
+        sortorder: 'desc'
+      }
+    },
+    {
+      name: 'Teste 2: Buscar por ID maior que 0',
+      params: {
+        qtype: 'cliente.id',
+        query: '0',
+        oper: '>',
+        page: '1',
+        rp: '10',
+        sortname: 'cliente.id',
+        sortorder: 'desc'
+      }
+    },
+    {
+      name: 'Teste 3: Buscar clientes ativos',
+      params: {
+        qtype: 'cliente.ativo',
+        query: 'S',
+        oper: '=',
+        page: '1',
+        rp: '10',
+        sortname: 'cliente.id',
+        sortorder: 'desc'
+      }
+    },
+    {
+      name: 'Teste 4: Buscar por razão social (LIKE %)',
+      params: {
+        qtype: 'cliente.razao',
+        query: '%',
+        oper: 'LIKE',
+        page: '1',
+        rp: '10',
+        sortname: 'cliente.id',
+        sortorder: 'desc'
+      }
+    },
+    {
+      name: 'Teste 5: Sem parâmetros de filtro',
+      params: {
+        page: '1',
+        rp: '10',
+        sortname: 'cliente.id',
+        sortorder: 'desc'
+      }
+    }
+  ];
 
-    console.log('\n\n✅ ═══════════════════════════════════════');
-    console.log('✅ TODOS OS TESTES PASSARAM COM SUCESSO!');
-    console.log('✅ ═══════════════════════════════════════\n');
-    console.log('🚀 A API está funcionando corretamente!');
-    console.log('🎉 Você pode fazer deploy para produção com segurança!\n');
+  let successCount = 0;
+  let foundClients = false;
 
-  } catch (error) {
-    console.log('\n\n❌ ═══════════════════════════════════════');
-    console.log('❌ FALHA NOS TESTES!');
-    console.log('❌ ═══════════════════════════════════════\n');
-    console.log('⚠️  Verifique:');
-    console.log('   1. Se o host está correto');
-    console.log('   2. Se o token está válido');
-    console.log('   3. Se o servidor IXC está acessível');
-    console.log('   4. Se há clientes cadastrados no sistema\n');
-    process.exit(1);
+  for (const test of tests) {
+    try {
+      console.log('\n═══════════════════════════════════════');
+      const result = await makeRequest('/cliente', test.params, test.name);
+      successCount++;
+      
+      if (result.total > 0) {
+        foundClients = true;
+        console.log(`\n✅ ENCONTROU ${result.total} CLIENTES!`);
+        break; // Para no primeiro que encontrar
+      }
+    } catch (error) {
+      console.log(`\n⚠️  ${test.name} falhou`);
+    }
   }
+
+  console.log('\n\n═══════════════════════════════════════');
+  console.log(`📊 Resumo: ${successCount}/${tests.length} testes executados com sucesso`);
+  
+  if (foundClients) {
+    console.log('✅ CLIENTES ENCONTRADOS!');
+    console.log('🎉 A consulta está funcionando!');
+  } else {
+    console.log('⚠️  NENHUM CLIENTE ENCONTRADO');
+    console.log('\n💡 Possíveis causas:');
+    console.log('   1. Não há clientes cadastrados no sistema');
+    console.log('   2. Os clientes estão em outra base de dados');
+    console.log('   3. Há filtros adicionais no servidor');
+    console.log('   4. Verifique no painel IXC se há clientes cadastrados');
+  }
+  console.log('═══════════════════════════════════════\n');
 }
 
 // Executar testes

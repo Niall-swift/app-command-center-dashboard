@@ -186,14 +186,14 @@ class IXCService {
   // Buscar todos os clientes (com paginação)
   async getAllClientes(
     page: number = 1,
-    rp: number = 100,
+    rp: number = 1000,
     sortname: string = 'cliente.id',
     sortorder: 'asc' | 'desc' = 'desc'
   ): Promise<IXCApiResponse> {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.id',
-      query: '0',
-      oper: '>',
+      query: '', // Query vazia para buscar todos
+      oper: 'LIKE', // LIKE funciona melhor que = para buscar todos
       page: page.toString(),
       rp: rp.toString(),
       sortname,
