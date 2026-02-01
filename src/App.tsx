@@ -23,6 +23,7 @@ import Series from "./pages/Series";
 import IXCConsulta from "./pages/IXCConsulta";
 import IXCFinanceiro from "./pages/IXCFinanceiro";
 import IXCTickets from "./pages/IXCTickets";
+import WhatsAppBulkSender from "./pages/WhatsAppBulkSender";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -47,6 +48,7 @@ function AnimatedRoutes() {
         <Route path="/ixc/consulta" element={<IXCConsulta />} />
         <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
         <Route path="/ixc/tickets" element={<IXCTickets />} />
+        <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>

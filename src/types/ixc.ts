@@ -1,7 +1,9 @@
 
 export interface IXCContactData {
+  id?: string; // ID do cliente
   principal?: 'S' | 'N'; // S = Sim, N = Não
   nome: string; // OBRIGATÓRIO
+  razao?: string; // Razão social (para pessoa jurídica)
   tipo_pessoa: 'F' | 'J'; // F = Física, J = Jurídica
   cnpj_cpf?: string;
   fone_residencial?: string;
@@ -15,6 +17,7 @@ export interface IXCContactData {
   obs?: string;
   lead: 'S' | 'N'; // S = Sim, N = Não
   ativo: 'S' | 'N'; // S = Ativo, N = Inativo
+  [key: string]: unknown; // Permite campos adicionais da API
 }
 
 export interface IXCPreRegistrationFormData {
