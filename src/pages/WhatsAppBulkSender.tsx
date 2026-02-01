@@ -88,9 +88,9 @@ export default function WhatsAppBulkSender() {
         fatura: {
           id: fatura.id || '',
           valor: parseFloat(fatura.valor || '0'),
-          dataVencimento: fatura.data_vencimento,
+          dataVencimento: (fatura.data_vencimento as string) || '',
           diasAtraso,
-          linkBoleto: fatura.url_boleto,
+          linkBoleto: (fatura.url_boleto as string | undefined),
         },
       };
 
