@@ -1,5 +1,3 @@
-import axios from 'axios';
-
 export default async function handler(req, res) {
   // Configuração CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -16,21 +14,26 @@ export default async function handler(req, res) {
     return;
   }
 
-  try {
-    // Pegar variáveis de ambiente do Vercel
-    const IXC_HOST = process.env.IXC_HOST || 'https://coopertecisp.com.br/webservice/v1';
-    const IXC_TOKEN = process.env.IXC_TOKEN;
+  // Variáveis de ambiente
+  const IXC_HOST = process.env.IXC_HOST || 'https://coopertecisp.com.br/webservice/v1';
+  const IXC_TOKEN = process.env.IXC_TOKEN;
 
+  try {
     if (!IXC_TOKEN) {
       return res.status(500).json({ 
-        error: 'Token IXC não configurado nas variáveis de ambiente da Vercel' 
+        error: 'Configuration Error',
+        message: 'IXC_TOKEN is missing in Vercel environment variables',
+        debug: {
+           host: IXC_HOST,
+           hasToken: false
+        }
       });
     }
 
     // Codificar token usando Buffer (padrão Node.js)
     const encodedToken = Buffer.from(IXC_TOKEN).toString('base64');
 
-    // Extrair o path da requisição (ex: /api/ixc/cliente -> /cliente)
+    // Extrair o path da requisição
     const path = req.url.replace('/api/ixc', '');
     const url = `${IXC_HOST}${path}`;
 
@@ -45,31 +48,35 @@ export default async function handler(req, res) {
         'Authorization': `Basic ${encodedToken}`,
         'ixcsoft': 'listar',
       },
-      // Importante para certificados auto-assinados
       httpsAgent: new (require('https').Agent)({
         rejectUnauthorized: false
       })
     });
 
-    // Retornar resposta do IXC
     res.status(response.status).json(response.data);
   } catch (error) {
-    console.error('Erro no proxy IXC:');
+    console.error('Erro no proxy IXC:', error.message);
+    
+    const errorResponse = {
+        error: 'Proxy Error',
+        message: error.message,
+        debug: {
+            host: IXC_HOST,
+            url: error.config?.url,
+            hasToken: !!IXC_TOKEN,
+            status: error.response?.status,
+            data: error.response?.data
+        }
+    };
+
     if (error.response) {
-      console.error('Status:', error.response.status);
-      console.error('Dados:', JSON.stringify(error.response.data));
-      // Erro da API IXC
       res.status(error.response.status).json({
-        error: 'Erro na API IXC',
-        message: error.response.data || error.message
+          ...errorResponse,
+          error: 'Upstream API Error', 
+          message: JSON.stringify(error.response.data) || error.message
       });
     } else {
-      console.error('Mensagem:', error.message);
-      // Erro de rede ou outro
-      res.status(500).json({
-        error: 'Erro Interno no Proxy',
-        message: error.message
-      });
+      res.status(500).json(errorResponse);
     }
   }
 }
