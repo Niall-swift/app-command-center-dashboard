@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, ixcsoft'
   );
 
   // Handle preflight
@@ -27,41 +27,14 @@ export default async function handler(req, res) {
       });
     }
 
-    // Função para converter string para Base64 (mesma do React Native)
-    function stringToBase64(str) {
-      const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-      let result = "";
-
-      for (let i = 0; i < str.length; i += 3) {
-        const chunk =
-          (str.charCodeAt(i) << 16) |
-          (str.charCodeAt(i + 1) << 8) |
-          str.charCodeAt(i + 2);
-        result +=
-          base64Chars.charAt((chunk >> 18) & 0x3f) +
-          base64Chars.charAt((chunk >> 12) & 0x3f) +
-          base64Chars.charAt((chunk >> 6) & 0x3f) +
-          base64Chars.charAt(chunk & 0x3f);
-      }
-
-      const padding = str.length % 3;
-      if (padding === 1) {
-        result = result.slice(0, -2) + "==";
-      } else if (padding === 2) {
-        result = result.slice(0, -1) + "=";
-      }
-
-      return result;
-    }
-
-    // Codificar token
-    const encodedToken = stringToBase64(IXC_TOKEN);
+    // Codificar token usando Buffer (padrão Node.js)
+    const encodedToken = Buffer.from(IXC_TOKEN).toString('base64');
 
     // Extrair o path da requisição (ex: /api/ixc/cliente -> /cliente)
     const path = req.url.replace('/api/ixc', '');
     const url = `${IXC_HOST}${path}`;
 
-    // Fazer requisição para o IXC (formato React Native)
+    // Fazer requisição para o IXC
     const response = await axios({
       method: req.method,
       url: url,
@@ -81,18 +54,20 @@ export default async function handler(req, res) {
     // Retornar resposta do IXC
     res.status(response.status).json(response.data);
   } catch (error) {
-    console.error('Erro no proxy IXC:', error.message);
-    
+    console.error('Erro no proxy IXC:');
     if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Dados:', JSON.stringify(error.response.data));
       // Erro da API IXC
       res.status(error.response.status).json({
         error: 'Erro na API IXC',
         message: error.response.data || error.message
       });
     } else {
+      console.error('Mensagem:', error.message);
       // Erro de rede ou outro
       res.status(500).json({
-        error: 'Erro no proxy',
+        error: 'Erro Interno no Proxy',
         message: error.message
       });
     }
