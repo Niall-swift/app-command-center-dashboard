@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 export default async function handler(req, res) {
   // Configuração CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
