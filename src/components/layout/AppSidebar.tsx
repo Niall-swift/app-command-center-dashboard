@@ -3,6 +3,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   MessageSquare,
+  Send,
   FileText,
   BarChart3,
   Bot,
@@ -41,6 +42,11 @@ const menuItems = [
     title: "Chat",
     url: "/chat",
     icon: MessageSquare,
+  },
+  {
+    title: "Envio em Massa",
+    url: "/whatsapp/bulk",
+    icon: Send,
   },
   // {
   //   title: "Solicitações",

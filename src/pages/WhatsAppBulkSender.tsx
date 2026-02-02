@@ -1,50 +1,89 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Users, AlertCircle, CheckCircle, Clock, Database } from 'lucide-react';
+import { Send, Users, AlertCircle, CheckCircle, Clock, Database, Search, Filter } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { ixcService, type IXCClienteData } from '@/services/ixc/ixcService';
+import { ixcService } from '@/services/ixc/ixcService';
+import type { IXCClienteData } from '@/types/ixc';
 import { whapiService } from '@/services/whapi/whapiService';
-import { calculateDaysOverdue } from '@/services/whapi/messageTemplates';
-import type { IXCFaturaData } from '@/types/ixc';
+import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency } from '@/services/whapi/messageTemplates';
+import type { IXCFaturaData, IXCContratoData } from '@/types/ixc';
 import type { WhapiBulkRecipient, GroupedClients, VencimentoGroup, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 import PageTransition from '@/components/PageTransition';
 
 export default function WhatsAppBulkSender() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<{ clientes: IXCClienteData[], faturas: IXCFaturaData[], blockedContracts: IXCContratoData[] }>({ clientes: [], faturas: [], blockedContracts: [] });
   const [groupedClients, setGroupedClients] = useState<GroupedClients[]>([]);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
   const [logs, setLogs] = useState<WhapiSendLog[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<Set<VencimentoGroup>>(new Set());
+  
+  // Preview
+  const [previewGroup, setPreviewGroup] = useState<GroupedClients | null>(null);
+  const [previewMessage, setPreviewMessage] = useState<string>('');
 
   // Carregar dados ao montar
   useEffect(() => {
     loadData();
   }, []);
 
+  // Reagrudar quando mudar filtros ou dados
+  useEffect(() => {
+    if (data.clientes.length > 0) {
+      const grouped = groupClientsByDueDate(data.clientes, data.faturas);
+      setGroupedClients(grouped);
+    }
+  }, [data]);
+
+  // Estado de carregamento com mensagem
+  const [loadingMessage, setLoadingMessage] = useState<string>('');
+
   const loadData = async () => {
     setLoading(true);
+    setLoadingMessage('Iniciando carregamento...');
     try {
-      // 1. Buscar clientes ativos
-      const clientes = await ixcService.getClientesAtivos();
+      // 1. Buscar TODOS os clientes (recursivo)
+      setLoadingMessage('Buscando clientes ativos... (0)');
+      const clientes = await ixcService.fetchAllClientesAtivos((total) => {
+        setLoadingMessage(`Buscando clientes ativos... (${total})`);
+      });
       
-      // 2. Buscar faturas em aberto
-      const faturas = await ixcService.getFaturasAbertas();
+      // 2. Buscar TODAS as faturas em aberto (recursivo)
+      setLoadingMessage('Buscando faturas em aberto... (0)');
+      const faturas = await ixcService.fetchAllFaturasAbertas((total) => {
+        setLoadingMessage(`Buscando faturas em aberto... (${total})`);
+      });
       
-      // 3. Agrupar por data de vencimento
-      const grouped = groupClientsByDueDate(clientes, faturas);
-      setGroupedClients(grouped);
+      // 3. Buscar contratos BLOQUEADOS (status_internet = 'BA')
+      setLoadingMessage('Buscando clientes bloqueados... (BA)');
+      const blockedContracts = await ixcService.fetchAllContratosBloqueados((total) => {
+        setLoadingMessage(`Buscando bloqueados... (${total})`);
+      });
+      
+      setData({ clientes, faturas, blockedContracts });
       
       toast({
-        title: 'Dados carregados',
-        description: `${clientes.length} clientes e ${faturas.length} faturas encontradas`,
+        title: 'Dados carregados com sucesso',
+        description: `${clientes.length} clientes, ${faturas.length} faturas, ${blockedContracts.length} bloqueados`,
       });
     } catch (error) {
+      console.error(error);
       toast({
         title: 'Erro ao carregar dados',
         description: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -52,6 +91,7 @@ export default function WhatsAppBulkSender() {
       });
     } finally {
       setLoading(false);
+      setLoadingMessage('');
     }
   };
 
@@ -59,128 +99,115 @@ export default function WhatsAppBulkSender() {
     clientes: IXCClienteData[],
     faturas: IXCFaturaData[]
   ): GroupedClients[] => {
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
+    
+    // Objeto para agrupar por data de vencimento (YYYY-MM-DD -> Clientes)
+    const groups: Record<string, WhapiBulkRecipient[]> = {};
 
-    const groups: Record<VencimentoGroup, WhapiBulkRecipient[]> = {
-      vencidas_1_7: [],
-      vencidas_8_15: [],
-      vencidas_16_30: [],
-      vencidas_30_plus: [],
-      vencendo_hoje: [],
-      vencendo_3_dias: [],
-      futuras: [],
-    };
+    const today = new Date();
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
 
-    // Mapear faturas por cliente
+    // Mapear faturas por cliente e agrupar por data
     faturas.forEach((fatura) => {
-      const cliente = clientes.find((c) => c.id === (fatura.id_cliente || fatura.cliente_id));
-      if (!cliente || !cliente.fone_celular) return;
+      // Filtro de valor mínimo removido conforme solicitado
+      const valor = parseFloat(fatura.valor || '0');
+      
+      const cliente = clientes.find((c) => String(c.id) === String(fatura.id_cliente || fatura.cliente_id));
+      
+      // 1. Filtro de Cliente (apenas ativos e com telefone)
+      if (!cliente || !cliente.telefone_celular || cliente.ativo !== 'S') return;
 
-      const vencimento = new Date(fatura.data_vencimento);
-      vencimento.setHours(0, 0, 0, 0);
-      const diasAtraso = calculateDaysOverdue(fatura.data_vencimento);
+      // 2. Filtro de Mês Atual (apenas faturas deste mês)
+      const dataVencimento = fatura.data_vencimento as string;
+      if (!dataVencimento) return;
+      
+      // Comparar mês e ano (usando UTC para segurança com datas YYYY-MM-DD)
+      const [ano, mes] = dataVencimento.split('-').map(Number);
+      if (mes - 1 !== currentMonth || ano !== currentYear) return;
 
       const recipient: WhapiBulkRecipient = {
         clienteId: cliente.id || '',
         nome: cliente.razao || cliente.nome || 'Cliente',
-        telefone: cliente.fone_celular,
+        telefone: cliente.telefone_celular,
         fatura: {
           id: fatura.id || '',
-          valor: parseFloat(fatura.valor || '0'),
-          dataVencimento: (fatura.data_vencimento as string) || '',
-          diasAtraso,
+          valor: valor,
+          dataVencimento: dataVencimento,
+          diasAtraso: calculateDaysOverdue(dataVencimento),
           linkBoleto: (fatura.url_boleto as string | undefined),
         },
       };
 
-      // Classificar em grupos
-      if (diasAtraso > 0) {
-        if (diasAtraso <= 7) groups.vencidas_1_7.push(recipient);
-        else if (diasAtraso <= 15) groups.vencidas_8_15.push(recipient);
-        else if (diasAtraso <= 30) groups.vencidas_16_30.push(recipient);
-        else groups.vencidas_30_plus.push(recipient);
-      } else if (diasAtraso === 0) {
-        groups.vencendo_hoje.push(recipient);
-      } else if (diasAtraso >= -3) {
-        groups.vencendo_3_dias.push(recipient);
-      } else {
-        groups.futuras.push(recipient);
+      // Agrupar pela data de vencimento
+      if (!groups[dataVencimento]) {
+        groups[dataVencimento] = [];
       }
+      groups[dataVencimento].push(recipient);
     });
 
-    // Converter para array de GroupedClients
-    return [
-      {
-        group: 'vencidas_1_7',
-        label: '1-7 dias de atraso',
-        count: groups.vencidas_1_7.length,
-        clients: groups.vencidas_1_7,
-        color: 'bg-red-500',
-        icon: '🔴',
-      },
-      {
-        group: 'vencidas_8_15',
-        label: '8-15 dias de atraso',
-        count: groups.vencidas_8_15.length,
-        clients: groups.vencidas_8_15,
-        color: 'bg-red-600',
-        icon: '🔴',
-      },
-      {
-        group: 'vencidas_16_30',
-        label: '16-30 dias de atraso',
-        count: groups.vencidas_16_30.length,
-        clients: groups.vencidas_16_30,
-        color: 'bg-red-700',
-        icon: '🔴',
-      },
-      {
-        group: 'vencidas_30_plus',
-        label: 'Mais de 30 dias',
-        count: groups.vencidas_30_plus.length,
-        clients: groups.vencidas_30_plus,
-        color: 'bg-red-900',
-        icon: '🔴',
-      },
-      {
-        group: 'vencendo_hoje',
-        label: 'Vencendo Hoje',
-        count: groups.vencendo_hoje.length,
-        clients: groups.vencendo_hoje,
-        color: 'bg-yellow-500',
-        icon: '🟡',
-      },
-      {
-        group: 'vencendo_3_dias',
-        label: 'Vencendo em 3 dias',
-        count: groups.vencendo_3_dias.length,
-        clients: groups.vencendo_3_dias,
-        color: 'bg-green-500',
-        icon: '🟢',
-      },
-      {
-        group: 'futuras',
-        label: 'Futuras',
-        count: groups.futuras.length,
-        clients: groups.futuras,
-        color: 'bg-blue-500',
-        icon: '🔵',
-      },
-    ].filter((g) => g.count > 0); // Remover grupos vazios
+    // Converter para array de GroupedClients e ordenar por data
+    const sortedGroups = Object.entries(groups)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // Ordenar datas (mais antigas primeiro)
+      .map(([date, clients]) => {
+        const diasAtraso = calculateDaysOverdue(date);
+        
+        let label = `Vencimento: ${new Date(date).toLocaleDateString('pt-BR')}`;
+        let color = 'bg-blue-500';
+        let icon = '🔵';
+
+        // Definir cor e ícone baseados no atraso
+        if (diasAtraso > 0) {
+          color = 'bg-red-500';
+          icon = '🔴';
+          label += ` (${diasAtraso} dias de atraso)`;
+        } else if (diasAtraso === 0) {
+          color = 'bg-yellow-500';
+          icon = '🟡';
+          label += ` (Vence Hoje)`;
+        } else {
+          color = 'bg-green-500';
+          icon = '🟢';
+          label += ` (Em dia)`;
+        }
+
+        return {
+          group: date, // A chave do grupo agora é a própria data (YYYY-MM-DD)
+          label,
+          count: clients.length,
+          clients,
+          color,
+          icon,
+        };
+      });
+
+    return sortedGroups;
   };
 
-  const toggleGroup = (group: VencimentoGroup) => {
-    const newSelected = new Set(selectedGroups);
-    if (newSelected.has(group)) {
-      newSelected.delete(group);
-    } else {
-      newSelected.add(group);
-    }
-    setSelectedGroups(newSelected);
+  const handlePreview = (group: GroupedClients) => {
+    if (group.clients.length === 0) return;
+    
+    // Gerar preview com o primeiro cliente
+    const recipient = group.clients[0];
+    const templateData = {
+      nome: recipient.nome,
+      valor: formatCurrency(recipient.fatura.valor),
+      data_vencimento: new Date(recipient.fatura.dataVencimento).toLocaleDateString('pt-BR'),
+      dias_atraso: recipient.fatura.diasAtraso.toString(),
+      link_boleto: recipient.fatura.linkBoleto || 'https://seu-provedor.com/fatura/...'
+    };
+    
+    const template = getTemplateForGroup(group.group);
+    const messageBody = fillTemplate(template, templateData);
+    
+    setPreviewMessage(messageBody);
+    setPreviewGroup(group);
   };
 
-  const sendToGroup = async (group: GroupedClients) => {
+  const confirmSend = async () => {
+    if (!previewGroup) return;
+    
+    const group = previewGroup;
+    setPreviewGroup(null);
     setSending(true);
     setProgress({ total: group.count, sent: 0, failed: 0 });
     setLogs([]);
@@ -209,24 +236,182 @@ export default function WhatsAppBulkSender() {
     }
   };
 
+  // Estado para controlar envio individual e bloqueio 24h
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [sentMap, setSentMap] = useState<Record<string, number>>({});
+
+  // Carregar histórico de envios do localStorage ao iniciar
+  useEffect(() => {
+    const saved = localStorage.getItem('ixc_blocked_sent_map');
+    if (saved) {
+      try {
+        setSentMap(JSON.parse(saved));
+      } catch (e) {
+        console.error('Erro ao carregar histórico de envios', e);
+      }
+    }
+  }, []);
+
+  const saveSentTimestamp = (contractId: string | undefined) => {
+    if (!contractId) return;
+    try {
+        const id = String(contractId);
+        const newMap = { ...sentMap, [id]: Date.now() };
+        setSentMap(newMap);
+        localStorage.setItem('ixc_blocked_sent_map', JSON.stringify(newMap));
+    } catch (error) {
+        console.error('Erro ao salvar timestamp', error);
+    }
+  };
+
+  const isBlocked24h = (contractId: string | undefined) => {
+    if (!contractId) return false;
+    try {
+        const id = String(contractId);
+        const lastSent = sentMap[id];
+        if (!lastSent) return false;
+        const hours24 = 24 * 60 * 60 * 1000;
+        return (Date.now() - lastSent) < hours24;
+    } catch (error) {
+        console.error('Erro ao verificar bloqueio 24h', error);
+        return false;
+    }
+  };
+
+  const handleResolveBlocked = async (contract: IXCContratoData) => {
+    if (isBlocked24h(contract.id)) return;
+
+    const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
+    
+    if (!cliente || !cliente.telefone_celular) {
+      toast({
+        title: 'Erro ao notificar',
+        description: 'Cliente não encontrado ou sem telefone cadastrado.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Buscar fatura vencida mais antiga
+    const faturasCliente = data.faturas.filter(f => String(f.id_cliente) === String(cliente.id));
+    // Ordenar por data de vencimento (mais antiga primeiro)
+    faturasCliente.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
+    
+    const faturaVencida = faturasCliente[0];
+    const dataVencimento = faturaVencida 
+      ? new Date(faturaVencida.data_vencimento).toLocaleDateString('pt-BR') 
+      : 'data não identificada';
+
+    setResolvingId(contract.id || null);
+
+    try {
+      const messageBody = `Olá ${cliente.razao || cliente.nome}, identificamos que houve um bloqueio na sua conexão devido à fatura com vencimento em *${dataVencimento}* que consta em aberto.\n\nPara regularizar e desbloquear o acesso, por favor responda a esta mensagem.`;
+
+      const result = await whapiService.sendMessage({
+        to: cliente.telefone_celular,
+        body: messageBody,
+        typing_time: 2
+      });
+
+      if (result.sent) {
+        toast({
+          title: 'Notificação Enviada',
+          description: `Mensagem de desbloqueio enviada para ${cliente.nome}`,
+        });
+        if (contract.id) saveSentTimestamp(contract.id);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+       toast({
+        title: 'Falha no Envio',
+        description: error instanceof Error ? error.message : 'Erro ao enviar mensagem',
+        variant: 'destructive'
+       });
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
   return (
     <PageTransition>
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold">Envio em Massa - WhatsApp</h1>
             <p className="text-muted-foreground">
               Envie notificações de cobrança para clientes com faturas em aberto
             </p>
           </div>
-          <Button onClick={loadData} disabled={loading} variant="outline">
+          <Button onClick={loadData} disabled={loading} variant="outline" className="min-w-[160px]">
             <Database className="mr-2 h-4 w-4" />
-            {loading ? 'Carregando...' : 'Atualizar Dados'}
+            {loading ? (loadingMessage || 'Carregando...') : 'Atualizar Dados'}
           </Button>
         </div>
 
         {/* Grupos de Vencimento */}
+        {groupedClients.length === 0 && !loading && (
+          <div className="text-center py-12 bg-muted/20 rounded-lg">
+            <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium">Nenhum cliente encontrado</h3>
+            <p className="text-muted-foreground">Tente ajustar os filtros ou clique em Atualizar Dados</p>
+          </div>
+        )}
+        {/* Seção de Clientes Bloqueados Automaticamente (Agrupada no Topo) */}
+        {data.blockedContracts.length > 0 && (
+          <div className="w-full mb-6">
+            <Card className="border-red-200 bg-red-50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-red-700">
+                  <AlertCircle className="w-6 h-6" />
+                  Clientes Bloqueados / Cancelamento Automático ({data.blockedContracts.length})
+                </CardTitle>
+                <CardDescription>
+                  Contratos com status de internet <strong>CA</strong> (Cancelamento Automático). Estes clientes não aparecem na lista normal de cobrança.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2">
+                  {data.blockedContracts.map(contract => {
+                     const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
+                     return (
+                       <div key={contract.id} className="flex items-center justify-between p-3 bg-white rounded shadow-sm border border-red-100">
+                          <div>
+                            <p className="font-semibold text-gray-800">{cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
+                            <p className="text-sm text-gray-500">Contrato: {contract.id} | Status: {contract.status_internet}</p>
+                            {cliente?.telefone_celular && <p className="text-xs text-gray-400">{cliente.telefone_celular}</p>}
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className={`${
+                                isBlocked24h(contract.id) 
+                                    ? 'text-gray-400 border-gray-200 bg-gray-50' 
+                                    : 'text-red-600 border-red-200 hover:bg-red-50'
+                            }`}
+                            disabled={resolvingId === contract.id || isBlocked24h(contract.id)}
+                            onClick={() => handleResolveBlocked(contract)}
+                          >
+                            {resolvingId === contract.id ? (
+                                <Clock className="w-4 h-4 animate-spin mr-2" />
+                            ) : isBlocked24h(contract.id) ? (
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                            ) : (
+                                <Send className="w-4 h-4 mr-2" />
+                            )}
+                            <span>{isBlocked24h(contract.id) ? 'Enviado' : 'Resolver'}</span>
+                          </Button>
+                       </div>
+                     );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Seção de Clientes Bloqueados Automaticamente (Agrupada no Topo) */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {groupedClients.map((group) => (
             <motion.div
@@ -234,10 +419,13 @@ export default function WhatsAppBulkSender() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <Card className="hover:shadow-lg transition-shadow">
+              <Card 
+                className="hover:shadow-lg transition-shadow h-full flex flex-col cursor-pointer active:scale-95 transition-transform"
+                onClick={() => handlePreview(group)}
+              >
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-2 text-base">
                       <span>{group.icon}</span>
                       <span>{group.label}</span>
                     </span>
@@ -247,9 +435,9 @@ export default function WhatsAppBulkSender() {
                     {group.count} cliente{group.count !== 1 ? 's' : ''}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="mt-auto">
                   <Button
-                    onClick={() => sendToGroup(group)}
+                    onClick={() => handlePreview(group)}
                     disabled={sending || group.count === 0}
                     className="w-full"
                   >
@@ -264,29 +452,29 @@ export default function WhatsAppBulkSender() {
 
         {/* Progresso de Envio */}
         {progress && (
-          <Card>
+          <Card className="border-primary/50 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 animate-spin" />
+                <Clock className="h-5 w-5 animate-spin text-primary" />
                 Enviando mensagens...
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <div className="flex justify-between text-sm mb-2">
+                <div className="flex justify-between text-sm mb-2 font-medium">
                   <span>Progresso</span>
                   <span>
                     {progress.sent} / {progress.total}
                   </span>
                 </div>
-                <Progress value={(progress.sent / progress.total) * 100} />
+                <Progress value={(progress.sent / progress.total) * 100} className="h-2" />
               </div>
               {progress.current && (
-                <p className="text-sm text-muted-foreground">
-                  Enviando para: {progress.current}
+                <p className="text-sm text-foreground/80">
+                  Enviando para: <span className="font-semibold">{progress.current}</span>
                 </p>
               )}
-              <div className="flex gap-4 text-sm">
+              <div className="flex gap-4 text-sm font-medium">
                 <span className="flex items-center gap-1 text-green-600">
                   <CheckCircle className="h-4 w-4" />
                   {progress.sent - progress.failed} enviadas
@@ -308,25 +496,27 @@ export default function WhatsAppBulkSender() {
               <CardDescription>Últimas {logs.length} mensagens</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
                 {logs.slice(-20).reverse().map((log, index) => (
                   <div
                     key={index}
-                    className={`flex items-center justify-between p-2 rounded ${
-                      log.status === 'success' ? 'bg-green-50' : 'bg-red-50'
+                    className={`flex items-center justify-between p-3 rounded-md border ${
+                      log.status === 'success' ? 'bg-green-50/50 border-green-100' : 'bg-red-50/50 border-red-100'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       {log.status === 'success' ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
                       ) : (
-                        <AlertCircle className="h-4 w-4 text-red-600" />
+                        <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
                       )}
-                      <span className="text-sm font-medium">{log.clienteNome}</span>
-                      <span className="text-xs text-muted-foreground">{log.telefone}</span>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">{log.clienteNome}</span>
+                        <span className="text-xs text-muted-foreground">{log.telefone}</span>
+                      </div>
                     </div>
                     {log.error && (
-                      <span className="text-xs text-red-600">{log.error}</span>
+                      <span className="text-xs text-red-600 font-medium">{log.error}</span>
                     )}
                   </div>
                 ))}
@@ -335,6 +525,52 @@ export default function WhatsAppBulkSender() {
           </Card>
         )}
       </div>
+
+      {/* Dialog de Preview */}
+      <Dialog open={!!previewGroup} onOpenChange={(open) => !open && setPreviewGroup(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Confirmar Envio ({previewGroup?.count} clientes)</DialogTitle>
+            <DialogDescription>
+              Grupo: <span className="font-semibold text-foreground">{previewGroup?.label}</span>
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto min-h-[200px] border rounded-md p-2 space-y-2">
+            <h4 className="text-sm font-medium sticky top-0 bg-background pb-2 border-b">Lista de Destinatários:</h4>
+            {previewGroup?.clients.map((client, idx) => (
+              <div key={`${client.clienteId}-${idx}`} className="flex items-center justify-between text-sm p-2 hover:bg-muted rounded">
+                <div className="flex flex-col">
+                  <span className="font-medium">{client.nome}</span>
+                  <span className="text-xs text-muted-foreground">{client.telefone}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="font-medium">R$ {client.fatura.valor.toFixed(2)}</span>
+                  <span className={`text-xs ${client.fatura.diasAtraso > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                    Vence: {new Date(client.fatura.dataVencimento).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-muted p-4 rounded-md mt-2">
+            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Modelo da Mensagem (Primeiro Cliente):</h4>
+            <pre className="whitespace-pre-wrap text-sm font-sans text-foreground/90 leading-relaxed max-h-32 overflow-y-auto">
+              {previewMessage}
+            </pre>
+          </div>
+
+      {/* Preview Dialog */}
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-2">
+            <Button variant="outline" onClick={() => setPreviewGroup(null)}>Cancelar</Button>
+            <Button onClick={confirmSend} className="gap-2">
+              <Send className="h-4 w-4" />
+              Confirmar e Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }

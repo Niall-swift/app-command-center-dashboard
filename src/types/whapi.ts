@@ -51,14 +51,9 @@ export interface MessageTemplate {
   variables: string[]; // Ex: ['nome', 'valor', 'data_vencimento']
 }
 
-export type VencimentoGroup = 
-  | 'vencidas_1_7'
-  | 'vencidas_8_15'
-  | 'vencidas_16_30'
-  | 'vencidas_30_plus'
-  | 'vencendo_hoje'
-  | 'vencendo_3_dias'
-  | 'futuras';
+
+export type VencimentoGroup = string;
+
 
 export interface GroupedClients {
   group: VencimentoGroup;

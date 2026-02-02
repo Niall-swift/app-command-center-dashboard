@@ -8,6 +8,7 @@ export interface IXCContactData {
   cnpj_cpf?: string;
   fone_residencial?: string;
   fone_celular?: string;
+  telefone_celular?: string;
   fone_whatsapp?: string;
   email?: string;
   endereco?: string;
@@ -19,6 +20,8 @@ export interface IXCContactData {
   ativo: 'S' | 'N'; // S = Ativo, N = Inativo
   [key: string]: unknown; // Permite campos adicionais da API
 }
+
+export type IXCClienteData = IXCContactData;
 
 export interface IXCPreRegistrationFormData {
   nome: string;
@@ -42,6 +45,8 @@ export interface IXCContratoData {
   descricao?: string;
   valor?: string;
   status?: 'A' | 'I' | 'C'; // Ativo, Inativo, Cancelado
+  status_internet?: string; // A, D, CA, CM, FA, BA, AA
+  bloqueio_automatico?: 'S' | 'N';
   data_inicio?: string;
   data_fim?: string;
   id_plano?: string;
@@ -138,7 +143,7 @@ export type IXCSearchType = 'cnpj_cpf' | 'nome' | 'id' | 'cidade' | 'email' | 'w
 export interface IXCSearchState {
   loading: boolean;
   error: string | null;
-  results: unknown[];
+  results: IXCClienteData[];
   searchType: IXCSearchType;
   searchValue: string;
   totalResults: number;

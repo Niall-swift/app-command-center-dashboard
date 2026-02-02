@@ -26,10 +26,11 @@ import {
   Database,
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { ixcService, IXCClienteData } from '@/services/ixc/ixcService';
+import { ixcService } from '@/services/ixc/ixcService';
 import { 
   IXCSearchState, 
-  IXCSearchType 
+  IXCSearchType,
+  IXCClienteData 
 } from '@/types/ixc';
 
 const IXCConsulta: React.FC = () => {
@@ -94,7 +95,7 @@ const IXCConsulta: React.FC = () => {
             searchState.searchValue,
             'LIKE'
           );
-          results = emailResults.registros;
+          results = emailResults.registros as IXCClienteData[];
           break;
         }
         case 'whatsapp': {
@@ -103,7 +104,7 @@ const IXCConsulta: React.FC = () => {
             searchState.searchValue,
             'LIKE'
           );
-          results = whatsappResults.registros;
+          results = whatsappResults.registros as IXCClienteData[];
           break;
         }
         default:
@@ -320,7 +321,7 @@ const IXCConsulta: React.FC = () => {
                   ) : (
                     <Search className="w-4 h-4 mr-2" />
                   )}
-                  Buscar
+                  <span>Buscar</span>
                 </Button>
               </div>
             </div>

@@ -5,7 +5,9 @@ import type {
   IXCTicketData, 
   IXCPlanoData, 
   IXCEquipamentoData, 
-  IXCConexaoData 
+  IXCConexaoData,
+  IXCClienteData,
+  IXCApiResponse
 } from '@/types/ixc';
 
 export interface IXCParams {
@@ -16,37 +18,6 @@ export interface IXCParams {
   rp: string;
   sortname: string;
   sortorder: 'asc' | 'desc';
-}
-
-export interface IXCClienteData {
-  id?: string;
-  nome?: string;
-  razao?: string;
-  cnpj_cpf?: string;
-  tipo_pessoa?: 'F' | 'J';
-  fone_residencial?: string;
-  fone_celular?: string;
-  fone_whatsapp?: string;
-  email?: string;
-  endereco?: string;
-  bairro?: string;
-  cep?: string;
-  cidade?: string;
-  estado?: string;
-  ativo?: 'S' | 'N';
-  lead?: 'S' | 'N';
-  obs?: string;
-  [key: string]: unknown; // Para campos adicionais da API
-}
-
-export interface IXCApiResponse {
-  registros: IXCClienteData[];
-  total: number;
-  page: number;
-  rp: number;
-  total_pages: number;
-  query?: string;
-  rows?: unknown[];
 }
 
 class IXCService {
@@ -63,7 +34,6 @@ class IXCService {
     }
 
     // Configuração da API para browser
-    // Nota: httpsAgent não é necessário no browser, apenas no Node.js
     this.client = axios.create({
       baseURL: host,
       timeout: 15000,
@@ -72,36 +42,8 @@ class IXCService {
       },
     });
 
-    // Codificar token para autenticação (se fornecido)
-    // Em produção com serverless function, o token fica no servidor
-    this.encodedToken = token ? this.stringToBase64(token) : '';
-  }
-
-  private stringToBase64(str: string): string {
-    const base64Chars =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    let result = '';
-
-    for (let i = 0; i < str.length; i += 3) {
-      const chunk =
-        (str.charCodeAt(i) << 16) |
-        (str.charCodeAt(i + 1) << 8) |
-        str.charCodeAt(i + 2);
-      result +=
-        base64Chars.charAt((chunk >> 18) & 0x3f) +
-        base64Chars.charAt((chunk >> 12) & 0x3f) +
-        base64Chars.charAt((chunk >> 6) & 0x3f) +
-        base64Chars.charAt(chunk & 0x3f);
-    }
-
-    const padding = str.length % 3;
-    if (padding === 1) {
-      result = result.slice(0, -2) + '==';
-    } else if (padding === 2) {
-      result = result.slice(0, -1) + '=';
-    }
-
-    return result;
+    // Codificar token para autenticação
+    this.encodedToken = token ? btoa(token) : '';
   }
 
   private async makeRequest<T>(
@@ -137,7 +79,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse>('/cliente', data);
+    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -247,7 +189,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse>('/cliente', data);
+    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
     return response.registros || [];
   }
 
@@ -271,7 +213,7 @@ class IXCService {
       sortorder,
     };
 
-    return await this.makeRequest<IXCApiResponse>('/cliente', data);
+    return await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
   }
 
   // Testar conexão com a API
@@ -354,7 +296,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
+    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
     return response.registros || [];
   }
 
@@ -551,7 +493,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse>('/equipamento', data);
+    const response = await this.makeRequest<IXCApiResponse<IXCEquipamentoData>>('/equipamento', data);
     return response.registros || [];
   }
 
@@ -575,8 +517,110 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse>('/radpopconexao', data);
+    const response = await this.makeRequest<IXCApiResponse<IXCConexaoData>>('/radpopconexao', data);
     return response.registros || [];
+  }
+  // ==================== MÉTODOS DE BUSCA TOTAL (PAGINAÇÃO AUTOMÁTICA) ====================
+
+  /**
+   * Método genérico para busca recursiva de todos os registros
+   */
+  private async fetchAllRecords<T>(
+    endpoint: string,
+    params: Partial<IXCParams>,
+    onProgress?: (total: number) => void
+  ): Promise<T[]> {
+    let allRecords: T[] = [];
+    let page = 1;
+    let hasMore = true;
+    const rp = 1000;
+
+    while (hasMore) {
+      const data: Partial<IXCParams> = {
+        ...params,
+        page: page.toString(),
+        rp: rp.toString(),
+      };
+
+      try {
+        const response = await this.makeRequest<IXCApiResponse<T>>(endpoint, data);
+        const registros = response.registros || [];
+        
+        allRecords = [...allRecords, ...registros];
+        
+        if (onProgress) {
+          onProgress(allRecords.length);
+        }
+
+        if (registros.length < rp) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } catch (error) {
+        console.error(`Erro ao buscar página ${page} de ${endpoint}:`, error);
+        hasMore = false;
+      }
+    }
+    return allRecords;
+  }
+
+  /**
+   * Busca TODOS os clientes ATIVOS recursivamente
+   * Filtra por cliente.ativo = 'S'
+   */
+  async fetchAllClientesAtivos(onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
+    return this.fetchAllRecords<IXCClienteData>(
+      '/cliente',
+      {
+        qtype: 'cliente.ativo',
+        query: 'S',
+        oper: '=',
+        sortname: 'cliente.id',
+        sortorder: 'desc',
+      },
+      onProgress
+    );
+  }
+
+  /**
+   * Busca TODAS as faturas em aberto recursivamente
+   */
+  async fetchAllFaturasAbertas(
+    onProgress?: (total: number) => void
+  ): Promise<IXCFaturaData[]> {
+    const faturas = await this.fetchAllRecords<IXCFaturaData>(
+      '/fn_areceber',
+      {
+        qtype: 'fn_areceber.status',
+        query: 'A', // Apenas abertas
+        oper: '=',
+        sortname: 'fn_areceber.data_vencimento',
+        sortorder: 'asc',
+      },
+      onProgress
+    );
+    // Filtrar localmente para garantir que não tem data de pagamento (garantia extra)
+    return faturas.filter(f => !f.data_pagamento);
+  }
+
+  /**
+   * Busca contratos com bloqueio automático (bloqueio_automatico = 'S')
+   */
+  async fetchAllContratosBloqueados(
+    onProgress?: (total: number) => void
+  ): Promise<IXCContratoData[]> {
+    return this.fetchAllRecords<IXCContratoData>(
+      '/cliente_contrato',
+      {
+        qtype: 'cliente_contrato.status_internet',
+        query: 'CA', // Status CA (Cancelamento Automático/Bloqueado)
+        oper: '=',
+        sortname: 'cliente_contrato.id',
+        sortorder: 'desc',
+      },
+      onProgress
+    );
   }
 }
 

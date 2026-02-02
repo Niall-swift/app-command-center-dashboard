@@ -196,7 +196,7 @@ const IXCTickets: React.FC = () => {
                   ) : (
                     <Search className="w-4 h-4 mr-2" />
                   )}
-                  Buscar
+                  <span>Buscar</span>
                 </Button>
               </div>
             </div>
