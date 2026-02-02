@@ -6,7 +6,7 @@ import type {
   WhapiSendProgress,
   WhapiSendLog
 } from '@/types/whapi';
-import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculateDaysOverdue } from './messageTemplates';
+import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculateDaysOverdue, calculateDaysRemaining } from './messageTemplates';
 
 export class WhapiService {
   private client: AxiosInstance;
@@ -45,11 +45,12 @@ export class WhapiService {
     const cleaned = phone.replace(/\D/g, '');
     
     // Se não começar com 55, adicionar
-    if (!cleaned.startsWith('55')) {
-      return '55' + cleaned;
+    let formatted = cleaned;
+    if (!formatted.startsWith('55')) {
+      formatted = '55' + formatted;
     }
     
-    return cleaned;
+    return formatted;
   }
 
   /**
@@ -66,11 +67,14 @@ export class WhapiService {
     try {
       const formattedPhone = this.formatPhoneNumber(message.to);
       
-      const response = await this.client.post('/messages/text', {
+      const payload = {
         to: formattedPhone,
-        body: message.body,
-        typing_time: message.typing_time || 0
-      });
+        body: message.body
+      };
+      
+      console.log('📦 Enviando para Whapi:', JSON.stringify(payload, null, 2));
+
+      const response = await this.client.post('/messages/text', payload);
 
       return {
         sent: true,
@@ -122,6 +126,7 @@ export class WhapiService {
         valor: formatCurrency(recipient.fatura.valor),
         data_vencimento: formatDate(recipient.fatura.dataVencimento),
         dias_atraso: recipient.fatura.diasAtraso.toString(),
+        dias_restantes: calculateDaysRemaining(recipient.fatura.dataVencimento).toString(),
         link_boleto: recipient.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento'
       };
 
@@ -130,10 +135,14 @@ export class WhapiService {
       const messageBody = fillTemplate(template, templateData);
 
       // Enviar mensagem
+      // Typing time calculado baseado no tamanho da mensagem (Simular humano)
+      // ~5 caracteres por segundo
+      const estimatedTypingTime = Math.min(Math.floor(messageBody.length / 5) * 1000, 10000); 
+      
       const result = await this.sendMessage({
         to: recipient.telefone,
         body: messageBody,
-        typing_time: 1000
+        typing_time: estimatedTypingTime
       });
 
       // Criar log
@@ -153,9 +162,13 @@ export class WhapiService {
         onLog(log);
       }
 
-      // Rate limiting - aguardar antes da próxima mensagem
+      // Rate limiting humanizado (Anti-Ban)
+      // Aguardar tempo base + tempo aleatório (jitter)
       if (i < recipients.length - 1) {
-        await this.sleep(delayBetweenMessages);
+        // Base: 10 a 25 segundos
+        const baseDelay = Math.floor(Math.random() * (25000 - 10000 + 1) + 10000);
+        console.log(`⏳ Aguardando ${baseDelay}ms para a próxima mensagem...`);
+        await this.sleep(baseDelay);
       }
     }
 
