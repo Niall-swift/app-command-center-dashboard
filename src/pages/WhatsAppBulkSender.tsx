@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Users, AlertCircle, CheckCircle, Clock, Database, Search, Filter } from 'lucide-react';
+import { Send, Users, AlertCircle, CheckCircle, Clock, Database, Search, Filter, Flame, PlayCircle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,10 +20,11 @@ import { useToast } from '@/hooks/use-toast';
 import { ixcService } from '@/services/ixc/ixcService';
 import type { IXCClienteData } from '@/types/ixc';
 import { whapiService } from '@/services/whapi/whapiService';
-import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency } from '@/services/whapi/messageTemplates';
+import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency, formatDate } from '@/services/whapi/messageTemplates';
 import type { IXCFaturaData, IXCContratoData } from '@/types/ixc';
 import type { WhapiBulkRecipient, GroupedClients, VencimentoGroup, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 import PageTransition from '@/components/PageTransition';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function WhatsAppBulkSender() {
   const { toast } = useToast();
@@ -33,10 +35,13 @@ export default function WhatsAppBulkSender() {
   const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
   const [logs, setLogs] = useState<WhapiSendLog[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<Set<VencimentoGroup>>(new Set());
+  const [warmupMode, setWarmupMode] = useState(false);
   
   // Preview
   const [previewGroup, setPreviewGroup] = useState<GroupedClients | null>(null);
+  const [filteredClients, setFilteredClients] = useState<WhapiBulkRecipient[]>([]);
   const [previewMessage, setPreviewMessage] = useState<string>('');
+  const [resumeMessage, setResumeMessage] = useState<string | null>(null);
 
   // Carregar dados ao montar
   useEffect(() => {
@@ -151,7 +156,7 @@ export default function WhatsAppBulkSender() {
       .map(([date, clients]) => {
         const diasAtraso = calculateDaysOverdue(date);
         
-        let label = `Vencimento: ${new Date(date).toLocaleDateString('pt-BR')}`;
+        let label = `Vencimento: ${formatDate(date)}`;
         let color = 'bg-blue-500';
         let icon = '🔵';
 
@@ -183,41 +188,96 @@ export default function WhatsAppBulkSender() {
     return sortedGroups;
   };
 
-  const handlePreview = (group: GroupedClients) => {
+  const handlePreview = async (group: GroupedClients) => {
     if (group.clients.length === 0) return;
     
-    // Gerar preview com o primeiro cliente
-    const recipient = group.clients[0];
-    const templateData = {
-      nome: recipient.nome,
-      valor: formatCurrency(recipient.fatura.valor),
-      data_vencimento: new Date(recipient.fatura.dataVencimento).toLocaleDateString('pt-BR'),
-      dias_atraso: recipient.fatura.diasAtraso.toString(),
-      link_boleto: recipient.fatura.linkBoleto || 'https://seu-provedor.com/fatura/...'
-    };
+    // Verificar progresso salvo
+    let clientsToSend = [...group.clients];
+    let msg = null;
+
+    try {
+      const lastClientId = await whapiService.getLastProgress(group.group);
+      if (lastClientId) {
+          const index = group.clients.findIndex(c => String(c.clienteId) === String(lastClientId));
+          
+          if (index !== -1) {
+             // Se encontrou, começar do PRÓXIMO
+             if (index < group.clients.length - 1) {
+                clientsToSend = group.clients.slice(index + 1);
+                msg = `Retomando envio a partir de onde parou. ${index + 1} clientes já foram processados anteriormente.`;
+             } else {
+                clientsToSend = [];
+                msg = `Todos os clientes deste grupo já foram processados!`;
+                
+                toast({
+                    title: 'Grupo já concluído',
+                    description: 'Todos os clientes deste grupo já receberam mensagem.',
+                    variant: 'default',
+                    className: 'bg-green-100 border-green-200'
+                });
+             }
+          }
+      }
+    } catch (e) {
+        console.error('Erro ao verificar progresso:', e);
+    }
     
-    const template = getTemplateForGroup(group.group);
-    const messageBody = fillTemplate(template, templateData);
-    
-    setPreviewMessage(messageBody);
+    setResumeMessage(msg);
+    setFilteredClients(clientsToSend);
     setPreviewGroup(group);
+
+    if (clientsToSend.length > 0) {
+        // Gerar preview com o primeiro cliente da lista FILTRADA
+        const recipient = clientsToSend[0];
+        const templateData = {
+          nome: recipient.nome,
+          valor: formatCurrency(recipient.fatura.valor),
+          data_vencimento: formatDate(recipient.fatura.dataVencimento),
+          dias_atraso: recipient.fatura.diasAtraso.toString(),
+          link_boleto: recipient.fatura.linkBoleto || 'https://seu-provedor.com/fatura/...'
+        };
+        
+        const template = getTemplateForGroup(warmupMode ? 'warmup' : group.group);
+        const messageBody = fillTemplate(template, templateData);
+        setPreviewMessage(messageBody);
+    } else {
+        setPreviewMessage("Todos os clientes já foram processados.");
+    }
   };
 
   const confirmSend = async () => {
-    if (!previewGroup) return;
+    if (!previewGroup || filteredClients.length === 0) return;
     
     const group = previewGroup;
+    const clients = filteredClients; // Usar a lista filtrada
+
     setPreviewGroup(null);
     setSending(true);
-    setProgress({ total: group.count, sent: 0, failed: 0 });
+    // Ajustar o total para mostrar apenas o que será enviado nesta sessão
+    setProgress({ total: clients.length, sent: 0, failed: 0 });
     setLogs([]);
 
     try {
       const groupLogs = await whapiService.sendBulkMessages(
-        group.clients,
-        group.group,
+        clients, // Enviar apenas os clientes filtrados
+        warmupMode ? 'warmup' : group.group,
         (prog) => setProgress(prog),
-        (log) => setLogs((prev) => [...prev, log])
+        (log) => setLogs((prev) => [...prev, log]),
+        async (recipient) => {
+          // No modo aquecimento, NÃO enviamos e-mail de cobrança
+          if (!warmupMode && recipient.fatura?.id) {
+             // Atualizar UI para mostrar que está enviando e-mail
+             setProgress(prev => prev ? { ...prev, current: `📧 Enviando E-mail para ${recipient.nome}...` } : prev);
+             
+             // Disparar e-mail pelo IXC
+             await ixcService.sendEmailFatura(recipient.fatura.id);
+             // Aguardar 2 segundos para garantir processamento/geração do link
+             await new Promise(r => setTimeout(r, 2000)); 
+          }
+          
+          // Atualizar UI para mostrar que está enviando WhatsApp
+          setProgress(prev => prev ? { ...prev, current: `📱 Enviando WhatsApp para ${recipient.nome}...` } : prev);
+        }
       );
 
       toast({
@@ -299,7 +359,7 @@ export default function WhatsAppBulkSender() {
     
     const faturaVencida = faturasCliente[0];
     const dataVencimento = faturaVencida 
-      ? new Date(faturaVencida.data_vencimento).toLocaleDateString('pt-BR') 
+      ? formatDate(faturaVencida.data_vencimento as string)
       : 'data não identificada';
 
     setResolvingId(contract.id || null);
@@ -344,10 +404,19 @@ export default function WhatsAppBulkSender() {
               Envie notificações de cobrança para clientes com faturas em aberto
             </p>
           </div>
-          <Button onClick={loadData} disabled={loading} variant="outline" className="min-w-[160px]">
-            <Database className="mr-2 h-4 w-4" />
-            {loading ? (loadingMessage || 'Carregando...') : 'Atualizar Dados'}
-          </Button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-lg border">
+              <Switch id="warmup" checked={warmupMode} onCheckedChange={setWarmupMode} />
+              <Label htmlFor="warmup" className="flex items-center gap-1 cursor-pointer font-medium">
+                <Flame className={`h-4 w-4 ${warmupMode ? 'text-orange-500 fill-orange-500' : 'text-muted-foreground'}`} />
+                Modo Aquecimento
+              </Label>
+            </div>
+            <Button onClick={loadData} disabled={loading} variant="outline" className="min-w-[160px]">
+              <Database className="mr-2 h-4 w-4" />
+              {loading ? (loadingMessage || 'Carregando...') : 'Atualizar Dados'}
+            </Button>
+          </div>
         </div>
 
         {/* Grupos de Vencimento */}
@@ -458,11 +527,14 @@ export default function WhatsAppBulkSender() {
                 <Clock className="h-5 w-5 animate-spin text-primary" />
                 Enviando mensagens...
               </CardTitle>
+              <CardDescription>
+                <strong>IMPORTANTE:</strong> Não feche esta aba enquanto o envio estiver em andamento.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <div className="flex justify-between text-sm mb-2 font-medium">
-                  <span>Progresso</span>
+                  <span>Progresso da Sessão</span>
                   <span>
                     {progress.sent} / {progress.total}
                   </span>
@@ -471,7 +543,7 @@ export default function WhatsAppBulkSender() {
               </div>
               {progress.current && (
                 <p className="text-sm text-foreground/80">
-                  Enviando para: <span className="font-semibold">{progress.current}</span>
+                  Atividade atual: <span className="font-semibold">{progress.current}</span>
                 </p>
               )}
               <div className="flex gap-4 text-sm font-medium">
@@ -528,17 +600,33 @@ export default function WhatsAppBulkSender() {
 
       {/* Dialog de Preview */}
       <Dialog open={!!previewGroup} onOpenChange={(open) => !open && setPreviewGroup(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-2xl max-h-[95vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Confirmar Envio ({previewGroup?.count} clientes)</DialogTitle>
+            <DialogTitle>Confirmar Envio ({filteredClients.length} clientes)</DialogTitle>
             <DialogDescription>
               Grupo: <span className="font-semibold text-foreground">{previewGroup?.label}</span>
             </DialogDescription>
           </DialogHeader>
+
+          {resumeMessage && (
+             <Alert className="bg-blue-50 border-blue-200">
+               <div className="flex items-start gap-2">
+                 <PlayCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                 <div>
+                    <AlertTitle className="text-blue-800 font-semibold mb-1">Recuperação de Sessão</AlertTitle>
+                    <AlertDescription className="text-blue-700">
+                      {resumeMessage}
+                    </AlertDescription>
+                 </div>
+               </div>
+             </Alert>
+          )}
           
-          <div className="flex-1 overflow-y-auto min-h-[200px] border rounded-md p-2 space-y-2">
-            <h4 className="text-sm font-medium sticky top-0 bg-background pb-2 border-b">Lista de Destinatários:</h4>
-            {previewGroup?.clients.map((client, idx) => (
+          <div className="flex-1 overflow-y-auto min-h-[150px] border rounded-md p-2 space-y-2">
+            <h4 className="text-sm font-medium sticky top-0 bg-background pb-2 border-b">
+                Lista de Destinatários ({filteredClients.length}):
+            </h4>
+            {filteredClients.map((client, idx) => (
               <div key={`${client.clienteId}-${idx}`} className="flex items-center justify-between text-sm p-2 hover:bg-muted rounded">
                 <div className="flex flex-col">
                   <span className="font-medium">{client.nome}</span>
@@ -547,7 +635,7 @@ export default function WhatsAppBulkSender() {
                 <div className="flex flex-col items-end">
                   <span className="font-medium">R$ {client.fatura.valor.toFixed(2)}</span>
                   <span className={`text-xs ${client.fatura.diasAtraso > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                    Vence: {new Date(client.fatura.dataVencimento).toLocaleDateString('pt-BR')}
+                    Vence: {formatDate(client.fatura.dataVencimento)}
                   </span>
                 </div>
               </div>
@@ -555,18 +643,17 @@ export default function WhatsAppBulkSender() {
           </div>
 
           <div className="bg-muted p-4 rounded-md mt-2">
-            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Modelo da Mensagem (Primeiro Cliente):</h4>
+            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Modelo da Mensagem (Exemplo):</h4>
             <pre className="whitespace-pre-wrap text-sm font-sans text-foreground/90 leading-relaxed max-h-32 overflow-y-auto">
               {previewMessage}
             </pre>
           </div>
 
-      {/* Preview Dialog */}
           <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-2">
             <Button variant="outline" onClick={() => setPreviewGroup(null)}>Cancelar</Button>
-            <Button onClick={confirmSend} className="gap-2">
+            <Button onClick={confirmSend} className="gap-2" disabled={filteredClients.length === 0}>
               <Send className="h-4 w-4" />
-              Confirmar e Enviar
+              {filteredClients.length === 0 ? 'Nada a enviar' : 'Confirmar e Enviar'}
             </Button>
           </DialogFooter>
         </DialogContent>

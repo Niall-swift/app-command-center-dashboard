@@ -4,8 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Copy, Download, Calendar, DollarSign } from 'lucide-react';
 import { IXCFaturaData } from '@/types/ixc';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { formatDate } from '@/utils/date';
 
 interface FaturaCardProps {
   fatura: IXCFaturaData;
@@ -20,10 +19,9 @@ export const FaturaCard: React.FC<FaturaCardProps> = ({ fatura, onCopyLinhaDigit
     }
     
     if (fatura.data_vencimento) {
-      const vencimento = new Date(fatura.data_vencimento);
-      const hoje = new Date();
-      
-      if (vencimento < hoje) {
+      // Comparação simples de string YYYY-MM-DD
+      const hoje = new Date().toISOString().split('T')[0];
+      if (fatura.data_vencimento < hoje) {
         return { label: 'Vencido', color: 'bg-red-100 text-red-800' };
       }
     }
@@ -46,11 +44,7 @@ export const FaturaCard: React.FC<FaturaCardProps> = ({ fatura, onCopyLinhaDigit
   // Formatar data
   const formatarData = (data?: string) => {
     if (!data) return 'Não informado';
-    try {
-      return format(new Date(data), 'dd/MM/yyyy', { locale: ptBR });
-    } catch {
-      return data;
-    }
+    return formatDate(data);
   };
 
   return (

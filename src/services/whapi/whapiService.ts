@@ -7,6 +7,9 @@ import type {
   WhapiSendLog
 } from '@/types/whapi';
 import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculateDaysOverdue, calculateDaysRemaining } from './messageTemplates';
+import { spin } from '@/utils/spintax';
+import { db } from '@/config/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export class WhapiService {
   private client: AxiosInstance;
@@ -61,6 +64,41 @@ export class WhapiService {
   }
 
   /**
+   * Salvar progresso no Firebase
+   */
+  async saveProgress(groupId: string, lastClientId: string, lastClientName: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'bulk_send_states', groupId);
+      await setDoc(docRef, {
+        lastClientId,
+        lastClientName,
+        timestamp: Date.now(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.error('Erro ao salvar progresso no Firebase:', error);
+    }
+  }
+
+  /**
+   * Ler último progresso do Firebase
+   */
+  async getLastProgress(groupId: string): Promise<string | null> {
+    try {
+      const docRef = doc(db, 'bulk_send_states', groupId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return docSnap.data().lastClientId as string;
+      }
+      return null;
+    } catch (error) {
+      console.error('Erro ao ler progresso do Firebase:', error);
+      return null;
+    }
+  }
+
+  /**
    * Enviar mensagem individual
    */
   async sendMessage(message: WhapiMessage): Promise<WhapiResponse> {
@@ -102,10 +140,13 @@ export class WhapiService {
     recipients: WhapiBulkRecipient[],
     group: string,
     onProgress?: (progress: WhapiSendProgress) => void,
-    onLog?: (log: WhapiSendLog) => void
+    onLog?: (log: WhapiSendLog) => void,
+    onBeforeSend?: (recipient: WhapiBulkRecipient) => Promise<void>
   ): Promise<WhapiSendLog[]> {
     const logs: WhapiSendLog[] = [];
-    const delayBetweenMessages = 1000 / this.rateLimit; // ms entre mensagens
+
+    // Variável para contar mensagens enviadas NESTA sessão para controlar os lotes de 5
+    let messagesSentInSession = 0;
 
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
@@ -120,6 +161,15 @@ export class WhapiService {
         });
       }
 
+      // Executar ação prévia (ex: enviar e-mail)
+      if (onBeforeSend) {
+        try {
+          await onBeforeSend(recipient);
+        } catch (error) {
+          console.error(`Erro na ação prévia para ${recipient.nome}:`, error);
+        }
+      }
+
       // Preparar dados para o template
       const templateData = {
         nome: recipient.nome,
@@ -132,7 +182,10 @@ export class WhapiService {
 
       // Obter template apropriado
       const template = getTemplateForGroup(group);
-      const messageBody = fillTemplate(template, templateData);
+      let messageBody = fillTemplate(template, templateData);
+      
+      // APLICAR SPINTAX (Variação de mensagem)
+      messageBody = spin(messageBody);
 
       // Enviar mensagem
       // Typing time calculado baseado no tamanho da mensagem (Simular humano)
@@ -162,13 +215,64 @@ export class WhapiService {
         onLog(log);
       }
 
+      // Salvar progresso após cada envio bem-sucedido (ou falha, para não repetir)
+      await this.saveProgress(group, recipient.clienteId, recipient.nome);
+
+      messagesSentInSession++;
+
       // Rate limiting humanizado (Anti-Ban)
-      // Aguardar tempo base + tempo aleatório (jitter)
       if (i < recipients.length - 1) {
-        // Base: 10 a 25 segundos
-        const baseDelay = Math.floor(Math.random() * (25000 - 10000 + 1) + 10000);
-        console.log(`⏳ Aguardando ${baseDelay}ms para a próxima mensagem...`);
-        await this.sleep(baseDelay);
+        
+        // SUPER BATCH PAUSE: A cada 50 mensagens (5 lotes de 10), fazer pausa de 30 minutos
+        if (messagesSentInSession > 0 && messagesSentInSession % 50 === 0) {
+           const longPause = 30 * 60 * 1000; // 30 minutos
+           
+           console.log(`☕ PAUSA LONGA (5 LOTES / 50 MSGS): Aguardando 30 minutos...`);
+           
+           // Timer regressivo no console/progresso
+           if (onProgress) {
+             for (let remaining = 30; remaining > 0; remaining--) {
+                onProgress({
+                    total: recipients.length,
+                    sent: i + 1,
+                    failed: logs.filter(l => l.status === 'failed').length,
+                    current: `PAUSA DE SEGURANÇA (30m): ${remaining} minutos restantes...`
+                });
+                await this.sleep(60000);
+             }
+           } else {
+             await this.sleep(longPause);
+           }
+
+        // BATCH PAUSE: A cada 10 mensagens, fazer uma pausa média e ALEATÓRIA (1 a 5 minutos)
+        } else if (messagesSentInSession > 0 && messagesSentInSession % 10 === 0) {
+           // Gera um tempo aleatório entre 60.000ms (1 min) e 300.000ms (5 min)
+           const minTime = 60000;
+           const maxTime = 300000;
+           const mediumPause = Math.floor(Math.random() * (maxTime - minTime + 1) + minTime); 
+           
+           const minutes = Math.floor(mediumPause / 60000);
+           const seconds = Math.floor((mediumPause % 60000) / 1000);
+
+           console.log(`☕ PAUSA ALEATÓRIA (LOTE DE 10): Aguardando ${minutes}m ${seconds}s...`);
+           
+           if (onProgress) {
+             onProgress({
+                total: recipients.length,
+                sent: i + 1,
+                failed: logs.filter(l => l.status === 'failed').length,
+                current: `PAUSA DE LOTE (${minutes}m ${seconds}s)...`
+             });
+           }
+           
+           await this.sleep(mediumPause);
+
+        } else {
+           // Pausa normal entre mensagens (15 a 35 segundos)
+           const baseDelay = Math.floor(Math.random() * (35000 - 15000 + 1) + 15000);
+           console.log(`⏳ Aguardando ${baseDelay}ms para a próxima mensagem...`);
+           await this.sleep(baseDelay);
+        }
       }
     }
 

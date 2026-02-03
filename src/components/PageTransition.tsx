@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { motion } from 'framer-motion';
 
 interface PageTransitionProps {
@@ -9,8 +8,8 @@ interface PageTransitionProps {
 const pageVariants = {
   initial: {
     opacity: 0,
-    x: -20,
-    scale: 0.98
+    x: -20, // Reduced distance
+    scale: 0.99 // Subtle scale
   },
   in: {
     opacity: 1,
@@ -19,28 +18,35 @@ const pageVariants = {
   },
   out: {
     opacity: 0,
-    x: 20,
-    scale: 0.98
+    x: 20, // Reduced distance
+    scale: 0.99
   }
 };
 
 const pageTransition = {
   type: "tween",
   ease: "anticipate",
-  duration: 0.4
+  duration: 0.3 // Slightly faster
 };
 
-export default function PageTransition({ children }: PageTransitionProps) {
-  return (
-    <motion.div
-      initial="initial"
-      animate="in"
-      exit="out"
-      variants={pageVariants}
-      transition={pageTransition}
-      className="w-full h-full"
-    >
-      {children}
-    </motion.div>
-  );
-}
+const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(
+  ({ children }, ref) => {
+    return (
+      <motion.div
+        ref={ref}
+        initial="initial"
+        animate="in"
+        exit="out"
+        variants={pageVariants}
+        transition={pageTransition}
+        className="w-full h-full"
+      >
+        {children}
+      </motion.div>
+    );
+  }
+);
+
+PageTransition.displayName = 'PageTransition';
+
+export default PageTransition;

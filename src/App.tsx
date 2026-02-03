@@ -9,6 +9,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Chat from "./pages/Chat";
 import Requests from "./pages/Requests";
@@ -65,7 +66,9 @@ const App = () => (
           <BrowserRouter>
             <ProtectedRoute>
               <DashboardLayout>
-                <AnimatedRoutes />
+                <ErrorBoundary>
+                  <AnimatedRoutes />
+                </ErrorBoundary>
               </DashboardLayout>
             </ProtectedRoute>
           </BrowserRouter>

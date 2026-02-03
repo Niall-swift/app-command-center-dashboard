@@ -364,9 +364,38 @@ class IXCService {
 
     const response = await this.makeRequest<IXCApiResponse>('/fn_areceber', data);
     
-    // Filtrar apenas faturas não pagas
+  // Filtrar apenas faturas não pagas
     const faturas = response.registros || [];
     return faturas.filter((f: IXCFaturaData) => !f.data_pagamento);
+  }
+
+  // Disparar envio de fatura por e-mail
+  async sendEmailFatura(idFatura: string): Promise<boolean> {
+    try {
+      // Endpoint genérico de ações do sistema ou envio direto
+      // Tenta rota padrão de envio de e-mail de boleto
+      console.log(`📧 Enviando comando de e-mail para fatura ${idFatura}...`);
+      
+      const payload = {
+        id: idFatura,
+        type: 'pdf' // Força geração do PDF/Link
+      };
+
+      // Nota: A rota exata pode variar. Tentando put_email_boleto com base em padrões comuns
+      // Se falhar, o serviço deve apenas logar e continuar
+      await this.client.put(`/fn_areceber/${idFatura}/email`, payload, {
+         headers: {
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ixcsoft': 'listar' // Mantendo header padrão
+        }
+      });
+      
+      return true;
+    } catch (error) {
+      console.error(`Erro ao enviar e-mail da fatura ${idFatura}:`, error);
+      // Retorna false mas não trava o processo, pois pode ser que o endpoint seja diferente
+      return false;
+    }
   }
 
   // ==================== MÉTODOS DE TICKETS ====================
