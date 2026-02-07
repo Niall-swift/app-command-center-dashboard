@@ -38,9 +38,9 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
 
     // Background gradient
     const gradient = ctx.createLinearGradient(0, 0, 600, 800);
-    gradient.addColorStop(0, '#C1FF72');
-    gradient.addColorStop(0.5, '#2E2E2E');
-    gradient.addColorStop(1, '#C1FF72');
+    gradient.addColorStop(0, '#9929EA');
+    gradient.addColorStop(0.5, '#FF2DD1');
+    gradient.addColorStop(1, '#FDFFB8');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 600, 800);
 

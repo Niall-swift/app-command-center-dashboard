@@ -10,9 +10,11 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '../config/firebase';
 import { SessionExpiredModal } from '../components/auth/SessionExpiredModal';
+import { pointsService } from '../services/pointsService';
 
 interface AuthContextType {
   user: User | null;
+  userData: any | null;
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
@@ -32,6 +34,7 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSessionExpired, setShowSessionExpired] = useState(false);
 
@@ -55,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       
       if (user) {
@@ -63,9 +66,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const expiryTime = new Date().getTime() + (7 * 24 * 60 * 60 * 1000); // 7 dias
         localStorage.setItem('firebase_user', JSON.stringify(user));
         localStorage.setItem('firebase_user_expiry', expiryTime.toString());
+
+        // Processar bônus de login e buscar dados do usuário
+        try {
+          // Dar bônus de primeiro login
+          await pointsService.giveFirstLoginBonus(user.uid);
+          
+          // Buscar dados atualizados do Firestore (incluindo pontos)
+          const points = await pointsService.getPointsBalance(user.uid);
+          setUserData({ ...user, points });
+        } catch (error) {
+          console.error("Erro ao processar dados do usuário:", error);
+        }
+
       } else {
         localStorage.removeItem('firebase_user');
         localStorage.removeItem('firebase_user_expiry');
+        setUserData(null);
       }
       
       setLoading(false);
@@ -91,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
     localStorage.removeItem('firebase_user');
     localStorage.removeItem('firebase_user_expiry');
+    setUserData(null);
   };
 
   const handleSessionExpiredClose = () => {
@@ -99,6 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const value = {
     user,
+    userData,
     loading,
     signInWithEmail,
     signUpWithEmail,

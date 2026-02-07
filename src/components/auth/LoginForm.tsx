@@ -133,7 +133,7 @@ export const LoginForm = () => {
             </div>
           </div>
 
-          {/* <Button
+          <Button
             type="button"
             variant="outline"
             onClick={handleGoogleAuth}
@@ -142,7 +142,7 @@ export const LoginForm = () => {
           >
             <Chrome className="mr-2 h-4 w-4" />
             Entrar com Google
-          </Button> */}
+          </Button>
 
           {/* <div className="text-center">
             <button

@@ -10,6 +10,7 @@ import {
   Home,
   Settings,
   Gift,
+  Package,
   Wrench,
   Map,
   Film,
@@ -17,7 +18,9 @@ import {
   Users,
   DollarSign,
   Ticket,
-  Database
+  Database,
+  Trophy,
+  UserPlus
 } from 'lucide-react';
 import {
   Sidebar,
@@ -79,6 +82,21 @@ const menuItems = [
     icon: Gift,
   },
   {
+    title: "Meus Prêmios",
+    url: "/rewards",
+    icon: Gift,
+  },
+  {
+    title: "Ranking",
+    url: "/leaderboard",
+    icon: Trophy,
+  },
+  {
+    title: "Indique e Ganhe",
+    url: "/my-referrals",
+    icon: UserPlus,
+  },
+  {
     title: "Filmes",
     url: "/movies",
     icon: Film,
@@ -87,6 +105,16 @@ const menuItems = [
     title: "Séries",
     url: "/series",
     icon: Tv,
+  },
+  {
+    title: "Gestão de Prêmios",
+    url: "/rewards-management",
+    icon: Package,
+  },
+  {
+    title: "Pedidos de Resgate",
+    url: "/redemption-orders",
+    icon: Package,
   },
   // {
   //   title: "Configurações",

@@ -29,18 +29,22 @@ import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/type
 // Mock data for clients with additional fields
 
 const prizes = [
-  'liquidificador',
-  'fritadeira elétrica',
-  'conjunto de panelas',
-  'aspirador de pó',
-  'caixa de som bluetooth',
-  'kit de ferramentas',
-  'prancha de cabelo',
-  'kit de maquiagem',
-  'ventilador',
-  'batedeira',
-  'micro-ondas',
-  'pix de R$200,00',
+  "cafeteira eletrica + pizza",
+  "liquidificador + pizza",
+  "batedeira + pizza",
+  "chaleira eletrica + pizza",
+  "air fryer + pizza",
+  "microondas + pizza",
+  "smart tv 32 + pizza",
+  "soundbar + pizza",
+  "caixa de som bluetooth + pizza",
+  "kit de ferramentas + pizza",
+  "prancha de cabelo + pizza",
+  "kit de maquiagem + pizza",
+  "ventilador + pizza",
+  "batedeira + pizza",
+  "micro-ondas + pizza",
+  "pix de R$200,00 + pizza",
 ];
 
 export default function Raffle() {
