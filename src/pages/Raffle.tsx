@@ -1,16 +1,30 @@
 
 import React, { useState, useEffect} from 'react';
 import PageTransition from '@/components/PageTransition';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Gift, Trophy, Sparkles } from 'lucide-react';
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Gift, Trophy, Sparkles, Send, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import ClientList from '@/components/raffle/ClientList';
 import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { whapiService } from '@/services/whapi/whapiService';
+import { fillTemplate, getTemplateForGroup } from '@/services/whapi/messageTemplates';
+import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 
 // Mock data for clients with additional fields
 
@@ -26,16 +40,24 @@ const prizes = [
   'ventilador',
   'batedeira',
   'micro-ondas',
-  'pix de R$100,00',
+  'pix de R$200,00',
 ];
 
 export default function Raffle() {
+  const { toast } = useToast();
   const [selectedClients, setSelectedClients] = useState<Client[]>([]);
   const [isRaffling, setIsRaffling] = useState(false);
   const [winner, setWinner] = useState<Client | null>(null);
   const [selectedPrize, setSelectedPrize] = useState(prizes[0]);
   const [showWinnerCard, setShowWinnerCard] = useState(false);
   const [usersPremix, setUsersPremix] = useState<Client[]>([]);
+
+  // Estados para envio WhatsApp
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
+  const [logs, setLogs] = useState<WhapiSendLog[]>([]);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewMessage, setPreviewMessage] = useState<string>('');
 
 
    useEffect(() => {
@@ -167,6 +189,86 @@ export default function Raffle() {
     setSelectedClients([]);
   };
 
+  // Função para abrir preview de mensagem
+  const handlePreviewWhatsApp = () => {
+    if (selectedClients.length === 0) {
+      toast({
+        title: 'Nenhum cliente selecionado',
+        description: 'Selecione pelo menos um participante para enviar mensagens.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Gerar preview com o primeiro cliente
+    const firstClient = selectedClients[0];
+    const template = getTemplateForGroup('premix_welcome');
+    const messageBody = fillTemplate(template, {
+      nome: firstClient.name,
+    });
+    
+    setPreviewMessage(messageBody);
+    setShowPreviewDialog(true);
+  };
+
+  // Função para confirmar e enviar mensagens
+  const confirmSendWhatsApp = async () => {
+    setShowPreviewDialog(false);
+    setSending(true);
+    setProgress({ total: selectedClients.length, sent: 0, failed: 0 });
+    setLogs([]);
+
+    try {
+      // Converter Client[] para WhapiBulkRecipient[]
+      const recipients: WhapiBulkRecipient[] = selectedClients
+        .filter(client => client.phone) // Apenas clientes com telefone
+        .map(client => ({
+          clienteId: client.id,
+          nome: client.name,
+          telefone: client.phone,
+          fatura: {
+            id: '',
+            valor: 0,
+            dataVencimento: '',
+            diasAtraso: 0,
+            linkBoleto: '',
+          },
+        }));
+
+      if (recipients.length === 0) {
+        toast({
+          title: 'Nenhum telefone válido',
+          description: 'Nenhum dos clientes selecionados possui telefone cadastrado.',
+          variant: 'destructive',
+        });
+        setSending(false);
+        setProgress(null);
+        return;
+      }
+
+      const groupLogs = await whapiService.sendBulkMessages(
+        recipients,
+        'premix_welcome',
+        (prog) => setProgress(prog),
+        (log) => setLogs((prev) => [...prev, log])
+      );
+
+      toast({
+        title: 'Envio concluído',
+        description: `${groupLogs.filter((l) => l.status === 'success').length} mensagens enviadas com sucesso`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro no envio',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(false);
+      setProgress(null);
+    }
+  };
+
   console.log('Raffle rendering', usersPremix.length);
   return (
     <PageTransition>
@@ -253,14 +355,27 @@ export default function Raffle() {
                   <p className="text-gray-600 mb-2">
                     {selectedClients.length} participantes selecionados
                   </p>
-                  <Button
-                    onClick={handleRaffle}
-                    disabled={selectedClients.length === 0 || isRaffling}
-                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-3 text-lg font-semibold shadow-lg transform transition-all duration-200 hover:scale-105"
-                    size="lg"
-                  >
-                    {isRaffling ? 'Sorteando...' : 'Realizar Sorteio'}
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      onClick={handleRaffle}
+                      disabled={selectedClients.length === 0 || isRaffling}
+                      className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-3 text-lg font-semibold shadow-lg transform transition-all duration-200 hover:scale-105"
+                      size="lg"
+                    >
+                      {isRaffling ? 'Sorteando...' : 'Realizar Sorteio'}
+                    </Button>
+                    
+                    <Button
+                      onClick={handlePreviewWhatsApp}
+                      disabled={selectedClients.length === 0 || sending}
+                      variant="outline"
+                      className="border-green-500 text-green-600 hover:bg-green-50"
+                      size="lg"
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      {sending ? 'Enviando...' : 'Enviar Mensagens de Boas-Vindas'}
+                    </Button>
+                  </div>
                 </div>
                 
                 {winner && (
@@ -286,6 +401,84 @@ export default function Raffle() {
           </motion.div>
         </div>
 
+        {/* Progresso de Envio */}
+        {progress && (
+          <Card className="border-primary/50 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 animate-spin text-primary" />
+                Enviando mensagens...
+              </CardTitle>
+              <CardDescription>
+                <strong>IMPORTANTE:</strong> Não feche esta aba enquanto o envio estiver em andamento.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-2 font-medium">
+                  <span>Progresso</span>
+                  <span>
+                    {progress.sent} / {progress.total}
+                  </span>
+                </div>
+                <Progress value={(progress.sent / progress.total) * 100} className="h-2" />
+              </div>
+              {progress.current && (
+                <p className="text-sm text-foreground/80">
+                  Atividade atual: <span className="font-semibold">{progress.current}</span>
+                </p>
+              )}
+              <div className="flex gap-4 text-sm font-medium">
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  {progress.sent - progress.failed} enviadas
+                </span>
+                <span className="flex items-center gap-1 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  {progress.failed} falhas
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Logs */}
+        {logs.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Logs de Envio</CardTitle>
+              <CardDescription>Últimas {logs.length} mensagens</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                {logs.slice(-20).reverse().map((log, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-center justify-between p-3 rounded-md border ${
+                      log.status === 'success' ? 'bg-green-50/50 border-green-100' : 'bg-red-50/50 border-red-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {log.status === 'success' ? (
+                        <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                      )}
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">{log.clienteNome}</span>
+                        <span className="text-xs text-muted-foreground">{log.telefone}</span>
+                      </div>
+                    </div>
+                    {log.error && (
+                      <span className="text-xs text-red-600 font-medium">{log.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Winner Card */}
         {showWinnerCard && winner && (
           <WinnerCard
@@ -295,6 +488,48 @@ export default function Raffle() {
           />
         )}
       </div>
+
+      {/* Dialog de Preview */}
+      <Dialog open={showPreviewDialog} onOpenChange={(open) => !open && setShowPreviewDialog(false)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Confirmar Envio ({selectedClients.length} participantes)</DialogTitle>
+            <DialogDescription>
+              Mensagens de Boas-Vindas ao Pre-Mix
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-muted p-4 rounded-md">
+            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Modelo da Mensagem (Exemplo):</h4>
+            <pre className="whitespace-pre-wrap text-sm font-sans text-foreground/90 leading-relaxed max-h-64 overflow-y-auto">
+              {previewMessage}
+            </pre>
+          </div>
+
+          <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
+            <h4 className="text-sm font-medium mb-2">Lista de Destinatários:</h4>
+            <div className="space-y-1">
+              {selectedClients.map((client, idx) => (
+                <div key={`${client.id}-${idx}`} className="flex items-center justify-between text-sm p-2 hover:bg-muted rounded">
+                  <div className="flex flex-col">
+                    <span className="font-medium">{client.name}</span>
+                    <span className="text-xs text-muted-foreground">{client.phone || 'Sem telefone'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>Cancelar</Button>
+            <Button onClick={confirmSendWhatsApp} className="gap-2">
+              <Send className="h-4 w-4" />
+              Confirmar e Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }
+

@@ -70,6 +70,9 @@ export interface IXCFaturaData {
   descricao?: string;
   referencia?: string;
   tipo?: string;
+  link_getwere?: string;
+  gateway_link?: string;
+  url_boleto?: string;
   [key: string]: unknown;
 }
 

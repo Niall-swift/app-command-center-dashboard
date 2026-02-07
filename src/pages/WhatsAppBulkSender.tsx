@@ -21,6 +21,7 @@ import { ixcService } from '@/services/ixc/ixcService';
 import type { IXCClienteData } from '@/types/ixc';
 import { whapiService } from '@/services/whapi/whapiService';
 import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency, formatDate } from '@/services/whapi/messageTemplates';
+import { spin } from '@/utils/spintax';
 import type { IXCFaturaData, IXCContratoData } from '@/types/ixc';
 import type { WhapiBulkRecipient, GroupedClients, VencimentoGroup, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 import PageTransition from '@/components/PageTransition';
@@ -42,6 +43,12 @@ export default function WhatsAppBulkSender() {
   const [filteredClients, setFilteredClients] = useState<WhapiBulkRecipient[]>([]);
   const [previewMessage, setPreviewMessage] = useState<string>('');
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  
+  // Search for individual client
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<WhapiBulkRecipient[]>([]);
+  const [selectedClient, setSelectedClient] = useState<WhapiBulkRecipient | null>(null);
+  const [sendingToClient, setSendingToClient] = useState(false);
 
   // Carregar dados ao montar
   useEffect(() => {
@@ -117,6 +124,10 @@ export default function WhatsAppBulkSender() {
       // Filtro de valor mínimo removido conforme solicitado
       const valor = parseFloat(fatura.valor || '0');
       
+      // DEBUG: Verificar dados da fatura
+      console.log(`🧾 Fatura ID: ${fatura.id} | Gateway Link: ${fatura.gateway_link} | Link GetWere: ${fatura.link_getwere} | URL Boleto: ${fatura.url_boleto}`, fatura);
+
+      
       const cliente = clientes.find((c) => String(c.id) === String(fatura.id_cliente || fatura.cliente_id));
       
       // 1. Filtro de Cliente (apenas ativos e com telefone)
@@ -139,7 +150,7 @@ export default function WhatsAppBulkSender() {
           valor: valor,
           dataVencimento: dataVencimento,
           diasAtraso: calculateDaysOverdue(dataVencimento),
-          linkBoleto: (fatura.url_boleto as string | undefined),
+          linkBoleto: (fatura.gateway_link || fatura.link_getwere || fatura.url_boleto || fatura.b_link_getwere || '') as string,
         },
       };
 
@@ -186,6 +197,208 @@ export default function WhatsAppBulkSender() {
       });
 
     return sortedGroups;
+  };
+
+  // Search for clients by name or phone
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    // Build a comprehensive list from ALL open invoices (not just current month)
+    const allClientsMap = new Map<string, { phones: string[], fatura: any, cliente: any }>();
+    
+    data.faturas.forEach((fatura) => {
+      const valor = parseFloat(fatura.valor || '0');
+      const cliente = data.clientes.find((c) => String(c.id) === String(fatura.id_cliente || fatura.cliente_id));
+      
+      // Filter: only active clients
+      if (!cliente || cliente.ativo !== 'S') return;
+      
+      const dataVencimento = fatura.data_vencimento as string;
+      if (!dataVencimento) return;
+      
+      const clienteId = cliente.id || '';
+      
+      // Get ALL phone numbers for this client
+      const phones = ixcService.getClientPhones(cliente);
+      
+      // Skip if no valid phones
+      if (phones.length === 0) return;
+      
+      // If client already exists, keep the oldest (most overdue) invoice
+      if (allClientsMap.has(clienteId)) {
+        const existing = allClientsMap.get(clienteId)!;
+        const existingDate = new Date(existing.fatura.dataVencimento);
+        const currentDate = new Date(dataVencimento);
+        
+        // Only update if this invoice is older
+        if (currentDate >= existingDate) return;
+      }
+      
+      // Store client with all phones and invoice data
+      allClientsMap.set(clienteId, {
+        phones,
+        cliente,
+        fatura: {
+          id: fatura.id || '',
+          valor: valor,
+          dataVencimento: dataVencimento,
+          diasAtraso: calculateDaysOverdue(dataVencimento),
+          linkBoleto: (fatura.gateway_link || fatura.link_getwere || fatura.url_boleto || fatura.b_link_getwere || '') as string,
+        }
+      });
+    });
+
+    // Convert to WhapiBulkRecipient array (one entry per client, with primary phone)
+    const allClients: WhapiBulkRecipient[] = [];
+    allClientsMap.forEach((data, clienteId) => {
+      allClients.push({
+        clienteId,
+        nome: data.cliente.razao || data.cliente.nome || 'Cliente',
+        telefone: data.phones[0], // Primary phone for display
+        fatura: data.fatura,
+        // Store all phones in a custom property (will use in send function)
+        allPhones: data.phones as any
+      });
+    });
+
+    // Filter by name or phone
+    const results = allClients.filter(client => 
+      client.nome.toLowerCase().includes(query.toLowerCase()) ||
+      client.telefone.includes(query) ||
+      (client as any).allPhones?.some((p: string) => p.includes(query))
+    );
+
+    setSearchResults(results);
+  };
+
+  // Send message to a single client (ALL their phone numbers)
+  const handleSendToSingleClient = async (client: WhapiBulkRecipient) => {
+    setSelectedClient(client);
+    setSendingToClient(true);
+
+    // Get all phones for this client
+    const allPhones = (client as any).allPhones || [client.telefone];
+    const totalPhones = allPhones.length;
+
+    try {
+      // Send email first if not in warmup mode
+      if (!warmupMode && client.fatura?.id) {
+        toast({
+          title: 'Enviando E-mail',
+          description: `Enviando e-mail de cobrança para ${client.nome}...`,
+        });
+        
+        await ixcService.sendEmailFatura(client.fatura.id);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      // Prepare template data
+      const diasAtraso = client.fatura.diasAtraso;
+      const templateData = {
+        nome: client.nome,
+        valor: formatCurrency(client.fatura.valor),
+        data_vencimento: formatDate(client.fatura.dataVencimento),
+        dias_atraso: diasAtraso.toString(),
+        dias_restantes: diasAtraso < 0 ? Math.abs(diasAtraso).toString() : '0',
+        link_boleto: client.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento'
+      };
+
+      // Select appropriate template based on invoice status
+      let templateGroup = 'vencida'; // default
+      
+      if (!warmupMode) {
+        if (diasAtraso > 0) {
+          templateGroup = 'vencidas_' + diasAtraso; // Will use 'vencida' template
+        } else if (diasAtraso === 0) {
+          templateGroup = 'vencendo_hoje';
+        } else {
+          templateGroup = 'vencendo_breve';
+        }
+      } else {
+        templateGroup = 'warmup';
+      }
+
+      const template = getTemplateForGroup(templateGroup);
+      
+      // Send to ALL phones
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < allPhones.length; i++) {
+        const phone = allPhones[i];
+        
+        // Update toast for each phone
+        toast({
+          title: `Enviando ${i + 1}/${totalPhones}`,
+          description: `Enviando WhatsApp para ${client.nome} (${phone})...`,
+        });
+
+        // Generate message with spintax for each send (different variation)
+        let messageBody = fillTemplate(template, templateData);
+        messageBody = spin(messageBody);
+
+        // Send WhatsApp message
+        const result = await whapiService.sendMessage({
+          to: phone,
+          body: messageBody,
+          typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 10000)
+        });
+
+        // Log the result
+        const log: WhapiSendLog = {
+          timestamp: new Date().toISOString(),
+          clienteId: client.clienteId,
+          clienteNome: `${client.nome} (${i + 1}/${totalPhones})`,
+          telefone: phone,
+          status: result.sent ? 'success' : 'failed',
+          error: result.error,
+          messageId: result.id
+        };
+        setLogs(prev => [log, ...prev]);
+
+        if (result.sent) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+
+        // Small delay between sends to avoid rate limiting
+        if (i < allPhones.length - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      // Final summary toast
+      if (successCount > 0) {
+        toast({
+          title: 'Envio Concluído',
+          description: `${successCount} de ${totalPhones} mensagens enviadas com sucesso para ${client.nome}`,
+        });
+      }
+
+      if (failCount > 0) {
+        toast({
+          title: 'Algumas Falhas',
+          description: `${failCount} de ${totalPhones} mensagens falharam`,
+          variant: 'destructive'
+        });
+      }
+
+    } catch (error) {
+      toast({
+        title: 'Erro ao Enviar',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingToClient(false);
+      setSelectedClient(null);
+    }
   };
 
   const handlePreview = async (group: GroupedClients) => {
@@ -418,6 +631,101 @@ export default function WhatsAppBulkSender() {
             </Button>
           </div>
         </div>
+
+        {/* Search for Individual Client */}
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Search className="h-5 w-5 text-blue-600" />
+              Enviar para Cliente Individual
+            </CardTitle>
+            <CardDescription>
+              Pesquise um cliente específico por nome ou telefone e envie uma mensagem individual
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Digite o nome ou telefone do cliente..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="flex-1"
+              />
+              {searchQuery && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                >
+                  ✕
+                </Button>
+              )}
+            </div>
+
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                <p className="text-sm text-muted-foreground">
+                  {searchResults.length} cliente{searchResults.length !== 1 ? 's' : ''} encontrado{searchResults.length !== 1 ? 's' : ''}
+                </p>
+                {searchResults.map((client) => (
+                  <div
+                    key={client.clienteId}
+                    className="flex items-center justify-between p-4 bg-white rounded-lg border hover:border-blue-300 transition-colors"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-gray-900">{client.nome}</p>
+                        {((client as any).allPhones?.length || 1) > 1 && (
+                          <Badge variant="secondary" className="text-xs">
+                            {(client as any).allPhones?.length || 1} contatos
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600">{client.telefone}</p>
+                      <div className="flex gap-4 mt-2 text-sm">
+                        <span className="text-gray-700">
+                          Valor: <strong>R$ {client.fatura.valor.toFixed(2)}</strong>
+                        </span>
+                        <span className={client.fatura.diasAtraso > 0 ? 'text-red-600' : 'text-green-600'}>
+                          Vencimento: <strong>{formatDate(client.fatura.dataVencimento)}</strong>
+                          {client.fatura.diasAtraso > 0 && ` (${client.fatura.diasAtraso} dias de atraso)`}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => handleSendToSingleClient(client)}
+                      disabled={sendingToClient && selectedClient?.clienteId === client.clienteId}
+                      className="ml-4"
+                    >
+                      {sendingToClient && selectedClient?.clienteId === client.clienteId ? (
+                        <>
+                          <Clock className="mr-2 h-4 w-4 animate-spin" />
+                          Enviando...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="mr-2 h-4 w-4" />
+                          Enviar
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {searchQuery && searchResults.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>Nenhum cliente encontrado com "{searchQuery}"</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Grupos de Vencimento */}
         {groupedClients.length === 0 && !loading && (

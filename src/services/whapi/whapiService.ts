@@ -134,6 +134,58 @@ export class WhapiService {
   }
 
   /**
+   * Enviar imagem via WhatsApp
+   */
+  async sendImage(params: {
+    to: string;
+    imageDataUrl: string;
+    caption?: string;
+  }): Promise<WhapiResponse> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(params.to);
+      
+      // Converter data URL para Blob
+      const response = await fetch(params.imageDataUrl);
+      const blob = await response.blob();
+      
+      // Criar FormData
+      const formData = new FormData();
+      formData.append('to', formattedPhone);
+      formData.append('media', blob, 'winner_card.png');
+      
+      if (params.caption) {
+        formData.append('caption', params.caption);
+      }
+      
+      console.log('📸 Enviando imagem para Whapi:', formattedPhone);
+
+      const apiResponse = await this.client.post('/messages/image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      return {
+        sent: true,
+        id: apiResponse.data.id,
+        message: 'Imagem enviada com sucesso'
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('❌ Erro ao enviar imagem:', error.response?.data);
+        return {
+          sent: false,
+          error: error.response?.data?.message || error.message
+        };
+      }
+      return {
+        sent: false,
+        error: 'Erro desconhecido ao enviar imagem'
+      };
+    }
+  }
+
+  /**
    * Enviar mensagens em massa com rate limiting
    */
   async sendBulkMessages(
@@ -246,9 +298,8 @@ export class WhapiService {
 
         // BATCH PAUSE: A cada 10 mensagens, fazer uma pausa média e ALEATÓRIA (1 a 5 minutos)
         } else if (messagesSentInSession > 0 && messagesSentInSession % 10 === 0) {
-           // Gera um tempo aleatório entre 60.000ms (1 min) e 300.000ms (5 min)
-           const minTime = 60000;
-           const maxTime = 300000;
+           const minTime = 3 * 60 * 1000; // 3 minutos
+           const maxTime = 13 * 60 * 1000; // 13 minutos
            const mediumPause = Math.floor(Math.random() * (maxTime - minTime + 1) + minTime); 
            
            const minutes = Math.floor(mediumPause / 60000);
@@ -268,9 +319,15 @@ export class WhapiService {
            await this.sleep(mediumPause);
 
         } else {
-           // Pausa normal entre mensagens (15 a 35 segundos)
-           const baseDelay = Math.floor(Math.random() * (35000 - 15000 + 1) + 15000);
-           console.log(`⏳ Aguardando ${baseDelay}ms para a próxima mensagem...`);
+           // Pausa normal entre mensagens (1 a 4 minutos)
+           const minDelay = 1 * 60 * 1000;
+           const maxDelay = 4 * 60 * 1000;
+           const baseDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+           
+           const minutes = Math.floor(baseDelay / 60000);
+           const seconds = Math.floor((baseDelay % 60000) / 1000);
+           
+           console.log(`⏳ Aguardando ${minutes}m ${seconds}s para a próxima mensagem...`);
            await this.sleep(baseDelay);
         }
       }

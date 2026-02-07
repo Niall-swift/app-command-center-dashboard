@@ -1,11 +1,13 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Download, X, Trophy, Star, Sparkles, MessageCircle } from 'lucide-react';
+import { Download, X, Trophy, Star, Sparkles, MessageCircle, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Client } from '@/types/dashboard';
 import { WHATSAPP_API_KEY, WHATSAPP_API_URL } from '@/config/firebase';
+import { whapiService } from '@/services/whapi/whapiService';
+import { useToast } from '@/hooks/use-toast';
 
 declare global {
   interface Window {
@@ -21,6 +23,8 @@ interface WinnerCardProps {
 
 export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  const [sending, setSending] = useState(false);
   console.log(winner)
 
   const generateCardImage = async (): Promise<string | null> => {
@@ -34,9 +38,9 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
 
     // Background gradient
     const gradient = ctx.createLinearGradient(0, 0, 600, 800);
-    gradient.addColorStop(0, '#8B5CF6');
-    gradient.addColorStop(0.5, '#EC4899');
-    gradient.addColorStop(1, '#F59E0B');
+    gradient.addColorStop(0, '#C1FF72');
+    gradient.addColorStop(0.5, '#2E2E2E');
+    gradient.addColorStop(1, '#C1FF72');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 600, 800);
 
@@ -167,103 +171,152 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
     const phoneNumber = winner.phone?.replace(/\D/g, '') || '';
 
     if (!phoneNumber) {
-      alert('Telefone não cadastrado para este participante.');
+      toast({
+        title: 'Telefone não cadastrado',
+        description: 'Este participante não possui telefone cadastrado.',
+        variant: 'destructive',
+      });
       return;
     }
+
+    setSending(true);
 
     // Create congratulations message
     const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ Obrigado por participar! ✨`;
 
-    // Try CallMeBot API first if API key is configured
-    if (WHATSAPP_API_KEY) {
-      try {
-        const apiMessage = `${congratsMessage}\n\n📸 Card de vencedor gerado!`;
-        const apiUrl = `${WHATSAPP_API_URL}?phone=55${phoneNumber}&text=${encodeURIComponent(apiMessage)}&apikey=${WHATSAPP_API_KEY}`;
+    try {
+      // Generate card image
+      const dataUrl = await generateCardImage();
+      if (!dataUrl) {
+        throw new Error('Erro ao gerar o card');
+      }
 
-        const response = await fetch(apiUrl);
-        if (response.ok) {
-          alert('Mensagem enviada com sucesso via WhatsApp API!');
+      // Try to send via Whapi API first
+      try {
+        const result = await whapiService.sendImage({
+          to: phoneNumber,
+          imageDataUrl: dataUrl,
+          caption: congratsMessage,
+        });
+
+        if (result.sent) {
+          toast({
+            title: '✅ Card enviado com sucesso!',
+            description: `O card foi enviado para ${winner.name} via WhatsApp.`,
+          });
+          setSending(false);
           return;
         } else {
-          console.log('Erro na API do WhatsApp:', response.status);
-          // Continue to fallback
+          console.log('Whapi falhou, tentando fallback:', result.error);
+          throw new Error(result.error || 'Falha no envio via Whapi');
         }
-      } catch (error) {
-        console.log('Erro ao enviar via API:', error);
-        // Continue to fallback
+      } catch (whapiError) {
+        console.log('Erro ao enviar via Whapi, tentando fallback:', whapiError);
+        // Continue to fallback methods
       }
-    }
 
-    // Generate card image for fallback methods
-    const dataUrl = await generateCardImage();
-    if (!dataUrl) {
-      alert('Erro ao gerar o card. Tente novamente.');
-      return;
-    }
+      // Fallback 1: Try CallMeBot API if configured
+      if (WHATSAPP_API_KEY) {
+        try {
+          const apiMessage = `${congratsMessage}\n\n📸 Card de vencedor gerado!`;
+          const apiUrl = `${WHATSAPP_API_URL}?phone=55${phoneNumber}&text=${encodeURIComponent(apiMessage)}&apikey=${WHATSAPP_API_KEY}`;
 
-    // Convert data URL to blob
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
+          const response = await fetch(apiUrl);
+          if (response.ok) {
+            toast({
+              title: '✅ Mensagem enviada!',
+              description: 'Mensagem enviada via WhatsApp API (sem imagem).',
+            });
+            setSending(false);
+            return;
+          }
+        } catch (error) {
+          console.log('Erro ao enviar via CallMeBot:', error);
+        }
+      }
 
-    // Create file from blob
-    const file = new File([blob], `vencedor_${winner.name.replace(' ', '_')}.png`, { type: 'image/png' });
+      // Fallback 2: Web Share API
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const file = new File([blob], `vencedor_${winner.name.replace(' ', '_')}.png`, { type: 'image/png' });
 
-    // Check if Web Share API is available and supports files
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({
-          title: 'Parabéns! Você ganhou!',
-          text: congratsMessage,
-          files: [file]
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            title: 'Parabéns! Você ganhou!',
+            text: congratsMessage,
+            files: [file]
+          });
+          toast({
+            title: '✅ Compartilhamento iniciado',
+            description: 'Use o menu de compartilhamento para enviar o card.',
+          });
+          setSending(false);
+          return;
+        } catch (error) {
+          console.log('Erro ao compartilhar via Web Share API:', error);
+        }
+      }
+
+      // Fallback 3: Open WhatsApp Web
+      const whatsappMessage = `${congratsMessage}\n\n📸 Seu card de vencedor está anexado!`;
+      const whatsappUrl = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
+
+      let whatsappWindow = window.whatsappWindowRef;
+      if (whatsappWindow && !whatsappWindow.closed) {
+        whatsappWindow.location.href = whatsappUrl;
+        whatsappWindow.focus();
+      } else {
+        whatsappWindow = window.open(whatsappUrl, 'whatsappSender', 'width=800,height=600');
+        window.whatsappWindowRef = whatsappWindow;
+      }
+
+      if (!whatsappWindow) {
+        toast({
+          title: 'Pop-up bloqueado',
+          description: 'Não foi possível abrir o WhatsApp. Verifique se pop-ups estão bloqueados.',
+          variant: 'destructive',
         });
+        setSending(false);
         return;
-      } catch (error) {
-        console.log('Erro ao compartilhar via Web Share API:', error);
-        // Continue to fallback
       }
-    }
 
-    // Fallback: Open WhatsApp Web
-    const whatsappMessage = `${congratsMessage}\n\n📸 Seu card de vencedor está anexado!`;
-    const whatsappUrl = `https://web.whatsapp.com/send?phone=55${phoneNumber}&text=${encodeURIComponent(whatsappMessage)}`;
+      // Copy image to clipboard
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': blob
+          })
+        ]);
 
-    // Reuse existing WhatsApp window if available
-    let whatsappWindow = window.whatsappWindowRef;
-    if (whatsappWindow && !whatsappWindow.closed) {
-      whatsappWindow.location.href = whatsappUrl;
-      whatsappWindow.focus();
-    } else {
-      whatsappWindow = window.open(whatsappUrl, 'whatsappSender', 'width=800,height=600');
-      window.whatsappWindowRef = whatsappWindow;
-    }
+        setTimeout(() => {
+          if (whatsappWindow && !whatsappWindow.closed) {
+            toast({
+              title: '📋 Imagem copiada',
+              description: 'Cole a imagem no WhatsApp (Ctrl+V ou Cmd+V).',
+            });
+          }
+        }, 2000);
+      } catch (clipboardError) {
+        console.log('Erro ao copiar para área de transferência:', clipboardError);
+        setTimeout(() => {
+          if (whatsappWindow && !whatsappWindow.closed) {
+            toast({
+              title: 'WhatsApp aberto',
+              description: 'Anexe a imagem manualmente se necessário.',
+            });
+          }
+        }, 2000);
+      }
 
-    if (!whatsappWindow) {
-      alert('Não foi possível abrir o WhatsApp. Verifique se pop-ups estão bloqueados.');
-      return;
-    }
-
-    // Copy image to clipboard as additional fallback
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'image/png': blob
-        })
-      ]);
-
-      // Show instruction to paste the image
-      setTimeout(() => {
-        if (whatsappWindow && !whatsappWindow.closed) {
-          alert('A imagem foi copiada para a área de transferência. Cole ela no WhatsApp (Ctrl+V ou Cmd+V) se não foi anexada automaticamente.');
-        }
-      }, 3000);
-    } catch (clipboardError) {
-      console.log('Erro ao copiar para área de transferência:', clipboardError);
-      // If clipboard fails, show message about manual attachment
-      setTimeout(() => {
-        if (whatsappWindow && !whatsappWindow.closed) {
-          alert('Abra o WhatsApp e anexe a imagem manualmente se necessário.');
-        }
-      }, 3000);
+    } catch (error) {
+      toast({
+        title: 'Erro ao enviar card',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -424,10 +477,19 @@ export default function WinnerCard({ winner, prize, onClose }: WinnerCardProps) 
                   <Button
                     onClick={sendCardToWinner}
                     className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
-                    disabled={!winner.phone}
+                    disabled={!winner.phone || sending}
                   >
-                    <MessageCircle className="w-4 h-4 mr-2" />
-                    Enviar Card
+                    {sending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        Enviar Card
+                      </>
+                    )}
                   </Button>
                 </div>
                 {!winner.phone && (

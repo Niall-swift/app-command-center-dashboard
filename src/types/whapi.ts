@@ -6,6 +6,12 @@ export interface WhapiMessage {
   typing_time?: number; // Tempo de digitação simulado (ms)
 }
 
+export interface WhapiImageMessage {
+  to: string; // Número no formato internacional (5511999999999)
+  imageDataUrl: string; // Data URL da imagem (base64)
+  caption?: string; // Legenda da imagem
+}
+
 export interface WhapiResponse {
   sent: boolean;
   message?: string;
@@ -22,9 +28,11 @@ export interface WhapiBulkRecipient {
     valor: number;
     dataVencimento: string;
     diasAtraso: number;
-    linkBoleto?: string;
+    linkBoleto: string;
   };
+  allPhones?: string[]; // All phone numbers for this client (for multi-contact sending)
 }
+
 
 export interface WhapiSendProgress {
   total: number;

@@ -83,6 +83,23 @@ _Att, {Josué|Soraya|Luan|Estela} - AVL Telecom_`,
 
 _Att, {Josué|Soraya|Luan|Estela} - AVL Telecom_`,
     variables: ['nome']
+  },
+  {
+    id: 'premix_welcome',
+    name: 'Boas-Vindas Pre-Mix',
+    subject: 'Boas-Vindas ao Pre-Mix',
+    body: `{Olá|Oi|Opa|E aí}, {{nome}}! {👋|🎉|✨}
+
+{Seja bem-vindo|Bem-vindo|É um prazer ter você} ao *Pre-Mix*! {🎊|🎁|🌟}
+
+{Estamos muito felizes|Ficamos felizes|Que bom} em ter você {conosco|com a gente|participando}!
+
+{Em breve|Logo logo|Fique atento}, você receberá {novidades|informações|atualizações} sobre {sorteios|promoções|benefícios exclusivos}! {🎯|🚀|💫}
+
+{Qualquer dúvida|Se precisar de algo|Precisa de ajuda}? {Estamos aqui|Chama a gente|Entre em contato}!
+
+_Att, Equipe Pre-Mix_`,
+    variables: ['nome']
   }
 ];
 
@@ -101,6 +118,8 @@ export function fillTemplate(template: MessageTemplate, data: Record<string, str
 export function getTemplateForGroup(group: string): MessageTemplate {
   if (group === 'warmup') {
     return messageTemplates[4]; // Aquecimento
+  } else if (group === 'premix_welcome') {
+    return messageTemplates[5]; // Boas-Vindas Pre-Mix
   } else if (group.startsWith('vencidas')) {
     return messageTemplates[0]; // Vencida
   } else if (group === 'vencendo_hoje') {

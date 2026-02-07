@@ -651,6 +651,39 @@ class IXCService {
       onProgress
     );
   }
+
+  /**
+   * Extrai todos os números de telefone válidos de um cliente
+   * Remove duplicatas e números inválidos
+   */
+  getClientPhones(cliente: IXCClienteData): string[] {
+    const phones: string[] = [];
+    const seen = new Set<string>();
+    
+    // Coletar todos os campos de telefone possíveis
+    const possiblePhones = [
+      cliente.telefone_celular,
+      cliente.fone_celular,
+      cliente.fone_whatsapp,
+      cliente.fone_residencial
+    ];
+    
+    // Filtrar válidos e remover duplicatas
+    possiblePhones.forEach(phone => {
+      if (phone && typeof phone === 'string' && phone.trim()) {
+        // Limpar apenas números
+        const cleaned = phone.replace(/\D/g, '');
+        
+        // Validar: mínimo 10 dígitos (DDD + número)
+        if (cleaned.length >= 10 && !seen.has(cleaned)) {
+          seen.add(cleaned);
+          phones.push(cleaned);
+        }
+      }
+    });
+    
+    return phones;
+  }
 }
 
 // Exportar instância única do serviço
