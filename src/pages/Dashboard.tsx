@@ -24,75 +24,8 @@ export default function Dashboard() {
       {/* Quick Stats / Widgets */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Points Widget */}
-        <Card className="bg-gradient-to-br from-purple-600 to-indigo-700 text-white border-0 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10">
-            <Gift size={100} />
-          </div>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-purple-100">
-              <Sparkles className="w-5 h-5 text-yellow-300" />
-              Seus Pontos
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <span className="text-4xl font-bold">{userData?.points || 0}</span>
-              <span className="text-purple-200 ml-2">pts</span>
-            </div>
-            <Button asChild variant="secondary" className="w-full bg-white/10 hover:bg-white/20 text-white border-0">
-              <Link to="/rewards">
-                Trocar por Prêmios <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Referrals Widget */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-gray-700">
-              <Users className="w-5 h-5 text-blue-600" />
-              Indicações
-            </CardTitle>
-            <CardDescription>Ganhe pontos indicando amigos</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-               <div className="text-2xl font-bold text-gray-900">
-                {userData?.referrals?.length || 0}
-                <span className="text-sm font-normal text-gray-500 ml-2">amigos indicados</span>
-               </div>
-            </div>
-            <Button asChild variant="outline" className="w-full">
-              <Link to="/my-referrals">
-                Ver Meu Código <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Leaderboard Widget */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-gray-700">
-              <Trophy className="w-5 h-5 text-yellow-500" />
-              Ranking
-            </CardTitle>
-            <CardDescription>Veja sua posição no ranking global</CardDescription>
-          </CardHeader>
-          <CardContent>
-             <div className="mb-4 text-center py-2">
-               <p className="text-sm text-gray-500">Confira quem está no topo!</p>
-             </div>
-            <Button asChild variant="outline" className="w-full">
-              <Link to="/leaderboard">
-                Ver Ranking Completo <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
+        {/* Placeholder for future widgets or remove the grid if empty */}
+        
       </div>
 
       {/* Main Content Placeholder (or recent activity) */}

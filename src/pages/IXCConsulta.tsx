@@ -32,6 +32,10 @@ import {
   IXCSearchType,
   IXCClienteData 
 } from '@/types/ixc';
+import { TechnicalDiagnostics } from '@/components/ixc/TechnicalDiagnostics';
+import { ClientContracts } from '@/components/ixc/ClientContracts';
+import { NewTicketForm } from '@/components/ixc/NewTicketForm';
+import { ClientTickets } from '@/components/ixc/ClientTickets';
 
 const IXCConsulta: React.FC = () => {
   const [searchState, setSearchState] = useState<IXCSearchState>({
@@ -601,10 +605,7 @@ const IXCConsulta: React.FC = () => {
                       <ExternalLink className="w-3 h-3 mr-2" />
                       Abrir no IXC
                     </Button>
-                    <Button variant="outline" size="sm">
-                      <Download className="w-3 h-3 mr-2" />
-                      Exportar
-                    </Button>
+                    <NewTicketForm idCliente={selectedClient.id || ''} />
                   </div>
                 </motion.div>
               ) : (
@@ -616,6 +617,31 @@ const IXCConsulta: React.FC = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Contratos e Diagnóstico */}
+        {selectedClient && selectedClient.id && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+          >
+            {/* Contratos */}
+            <div>
+               <ClientContracts idCliente={selectedClient.id} />
+            </div>
+
+            {/* Diagnóstico Técnico */}
+            <div>
+              <TechnicalDiagnostics idCliente={selectedClient.id} />
+            </div>
+
+            {/* Histórico de Chamados */}
+            <div className="lg:col-span-2">
+              <ClientTickets idCliente={selectedClient.id} />
+            </div>
+          </motion.div>
+        )}
       </div>
     </PageTransition>
   );

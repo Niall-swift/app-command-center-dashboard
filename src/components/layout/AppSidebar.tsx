@@ -82,21 +82,6 @@ const menuItems = [
     icon: Gift,
   },
   {
-    title: "Meus Prêmios",
-    url: "/rewards",
-    icon: Gift,
-  },
-  {
-    title: "Ranking",
-    url: "/leaderboard",
-    icon: Trophy,
-  },
-  {
-    title: "Indique e Ganhe",
-    url: "/my-referrals",
-    icon: UserPlus,
-  },
-  {
     title: "Filmes",
     url: "/movies",
     icon: Film,

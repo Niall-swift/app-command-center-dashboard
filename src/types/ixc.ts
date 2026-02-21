@@ -89,6 +89,7 @@ export interface IXCTicketData {
   id_tecnico?: string;
   tecnico?: string;
   tipo?: string;
+  mensagem?: string; // Adicionado para exibir descrição/mensagem inicial
   [key: string]: unknown;
 }
 
@@ -117,15 +118,31 @@ export interface IXCEquipamentoData {
   [key: string]: unknown;
 }
 
-// Tipos para Conexões
+// Tipos para Conexões (sessões ativas)
 export interface IXCConexaoData {
   id?: string;
   id_cliente?: string;
   login?: string;
   ip?: string;
+  mac?: string;
+  uptime?: string;
   status?: string;
   data_conexao?: string;
   data_desconexao?: string;
+  [key: string]: unknown;
+}
+
+// Tipos para Logins (PPPoE/Hotspot - radusuarios)
+export interface IXCLoginData {
+  id?: string;
+  id_cliente?: string;
+  login?: string;
+  senha?: string;
+  ip?: string; // IP fixo se houver
+  mac?: string; // MAC amarrado
+  ativo?: 'S' | 'N';
+  online?: 'S' | 'N'; // Status calculado ou vindo da API
+  grupo_nome?: string; // Nome do plano/grupo
   [key: string]: unknown;
 }
 

@@ -9,7 +9,7 @@ import { Database, TrendingUp, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-const IXCFinanceiro: React.FC = () => {
+const IXCFinancial: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<any>(null);
     const [revenueData, setRevenueData] = useState<any[]>([]);
@@ -97,4 +97,4 @@ const IXCFinanceiro: React.FC = () => {
     );
 };
 
-export default IXCFinanceiro;
+export default IXCFinancial;

@@ -57,9 +57,6 @@ function AnimatedRoutes() {
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />
         <Route path="/redemption-orders" element={<RedemptionOrders />} />
-        <Route path="/rewards" element={<Rewards />} />
-        <Route path="/leaderboard" element={<Leaderboard />} />
-        <Route path="/my-referrals" element={<MyReferrals />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>
