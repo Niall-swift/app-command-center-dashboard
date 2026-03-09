@@ -193,7 +193,7 @@ export default function RewardsManagement() {
                     <div className="flex items-center gap-3">
                       <div className="text-2xl bg-gray-100 w-12 h-12 flex items-center justify-center rounded-full overflow-hidden">
                         {reward.imageUrl ? (
-                          <img src={reward.imageUrl} alt={reward.name} className="w-full h-full object-cover" />
+                          <img src={reward.imageUrl} alt={reward.name} crossOrigin="anonymous" className="w-full h-full object-cover" />
                         ) : (
                           reward.icon
                         )}

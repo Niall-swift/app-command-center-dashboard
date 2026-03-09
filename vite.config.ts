@@ -8,6 +8,12 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    // Headers necessários para SharedArrayBuffer (FFmpeg.wasm)
+    // credentialless: habilita crossOriginIsolated sem bloquear imagens externas (Firebase Storage)
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
     proxy: {
       '/api/ixc': {
         target: 'https://coopertecisp.com.br',

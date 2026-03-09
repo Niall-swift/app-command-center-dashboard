@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Check, CheckCheck, X, Search, Eye } from 'lucide-react';
+import { Users, Check, CheckCheck, X, Search, Eye, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ParticipantDetailsModal from './ParticipantDetailsModal';
 import type { Client } from '@/types/dashboard';
@@ -15,6 +15,7 @@ interface ClientListProps {
   onClientToggle: (client: Client) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onDeleteClient: (client: Client) => void;
 }
 
 export default function ClientList({ 
@@ -22,7 +23,8 @@ export default function ClientList({
   selectedClients, 
   onClientToggle, 
   onSelectAll, 
-  onDeselectAll 
+  onDeselectAll,
+  onDeleteClient,
 }: ClientListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedParticipant, setSelectedParticipant] = useState<Client | null>(null);
@@ -158,7 +160,7 @@ export default function ClientList({
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -169,6 +171,19 @@ export default function ClientList({
                         className="text-blue-600 hover:text-blue-800"
                       >
                         <Eye className="w-4 h-4" />
+                      </Button>
+
+                      <Button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteClient(client);
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                        title="Remover participante"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                       
                       <AnimatePresence>

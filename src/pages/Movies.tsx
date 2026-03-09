@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { storage, db } from '../config/firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -10,6 +10,8 @@ import { Label } from '../components/ui/label';
 import { Progress } from '../components/ui/progress';
 import { useToast } from '../hooks/use-toast';
 import { Upload, Play, Trash2 } from 'lucide-react';
+import { compressImage, formatBytes } from '../utils/compressImage';
+import { compressVideo } from '../utils/compressVideo';
 
 interface Movie {
   id?: string;
@@ -96,32 +98,93 @@ export default function Movies() {
 
     setUploading(true);
     setUploadProgress(0);
-    setCurrentUploadStep('Iniciando upload...');
+    setCurrentUploadStep('Iniciando...');
+
+    // Coleta info de tamanhos para o toast final
+    const sizeInfo: string[] = [];
 
     try {
-      // Upload movie file
-      setCurrentUploadStep('Enviando filme...');
-      const moviePath = `movies/${Date.now()}_${movieFile.name}`;
-      const movieUrl = await uploadFile(movieFile, moviePath);
+      // ── COMPRESSÃO + UPLOAD DO FILME ──────────────────────────────────────
+      setCurrentUploadStep('🎬 Comprimindo vídeo (pode demorar alguns minutos)...');
+      let fileToUpload = movieFile;
+      try {
+        const videoResult = await compressVideo(movieFile, (pct) => {
+          setUploadProgress(pct * 0.5); // Compressão ocupa 0–50% da barra
+          setCurrentUploadStep(`🎬 Comprimindo vídeo... ${pct}%`);
+        });
+        fileToUpload = videoResult.file;
+        sizeInfo.push(`Vídeo: ${formatBytes(videoResult.originalSize)} → ${formatBytes(videoResult.compressedSize)} (${videoResult.reduction} menor)`);
+      } catch (err) {
+        console.warn('Compressão de vídeo falhou, enviando original:', err);
+        sizeInfo.push('Vídeo: enviado sem compressão');
+      }
 
-      // Upload poster if provided
+      setCurrentUploadStep('📤 Enviando filme...');
+      const moviePath = `movies/${Date.now()}_${fileToUpload.name}`;
+      // Upload ocupa 50–80% da barra
+      const movieUrl = await new Promise<string>((resolve, reject) => {
+        const storageRef = ref(storage, moviePath);
+        const task = uploadBytesResumable(storageRef, fileToUpload);
+        task.on('state_changed',
+          (snap) => setUploadProgress(50 + (snap.bytesTransferred / snap.totalBytes) * 30),
+          reject,
+          async () => resolve(await getDownloadURL(task.snapshot.ref))
+        );
+      });
+
+      // ── COMPRESSÃO + UPLOAD DO POSTER ────────────────────────────────────
       let posterUrl = '';
       if (posterFile) {
-        setCurrentUploadStep('Enviando poster...');
-        const posterPath = `posters/${Date.now()}_${posterFile.name}`;
-        posterUrl = await uploadFile(posterFile, posterPath);
+        setCurrentUploadStep('🖼️ Comprimindo poster...');
+        let posterToUpload = posterFile;
+        try {
+          const result = await compressImage(posterFile, { maxWidth: 800, maxHeight: 1200 });
+          posterToUpload = result.file;
+          sizeInfo.push(`Poster: ${formatBytes(result.originalSize)} → ${formatBytes(result.compressedSize)} (${result.reduction} menor)`);
+        } catch {
+          sizeInfo.push('Poster: enviado sem compressão');
+        }
+        setCurrentUploadStep('📤 Enviando poster...');
+        const posterPath = `posters/${Date.now()}_${posterToUpload.name}`;
+        posterUrl = await new Promise<string>((resolve, reject) => {
+          const storageRef = ref(storage, posterPath);
+          const task = uploadBytesResumable(storageRef, posterToUpload);
+          task.on('state_changed',
+            (snap) => setUploadProgress(80 + (snap.bytesTransferred / snap.totalBytes) * 8),
+            reject,
+            async () => resolve(await getDownloadURL(task.snapshot.ref))
+          );
+        });
       }
 
-      // Upload backdrop if provided
+      // ── COMPRESSÃO + UPLOAD DO BACKDROP ─────────────────────────────────
       let backdropUrl = '';
       if (backdropFile) {
-        setCurrentUploadStep('Enviando backdrop...');
-        const backdropPath = `backdrops/${Date.now()}_${backdropFile.name}`;
-        backdropUrl = await uploadFile(backdropFile, backdropPath);
+        setCurrentUploadStep('🖼️ Comprimindo backdrop...');
+        let bdToUpload = backdropFile;
+        try {
+          const result = await compressImage(backdropFile, { maxWidth: 1280, maxHeight: 720 });
+          bdToUpload = result.file;
+          sizeInfo.push(`Backdrop: ${formatBytes(result.originalSize)} → ${formatBytes(result.compressedSize)} (${result.reduction} menor)`);
+        } catch {
+          sizeInfo.push('Backdrop: enviado sem compressão');
+        }
+        setCurrentUploadStep('📤 Enviando backdrop...');
+        const backdropPath = `backdrops/${Date.now()}_${bdToUpload.name}`;
+        backdropUrl = await new Promise<string>((resolve, reject) => {
+          const storageRef = ref(storage, backdropPath);
+          const task = uploadBytesResumable(storageRef, bdToUpload);
+          task.on('state_changed',
+            (snap) => setUploadProgress(88 + (snap.bytesTransferred / snap.totalBytes) * 8),
+            reject,
+            async () => resolve(await getDownloadURL(task.snapshot.ref))
+          );
+        });
       }
 
-      // Save to Firestore
-      setCurrentUploadStep('Salvando informações...');
+      // ── SALVAR NO FIRESTORE ───────────────────────────────────────────────
+      setCurrentUploadStep('💾 Salvando informações...');
+      setUploadProgress(98);
       await addDoc(collection(db, 'movies'), {
         title,
         overview,
@@ -129,6 +192,8 @@ export default function Movies() {
         backdrop_path: backdropUrl,
         movie_url: movieUrl,
       });
+
+      setUploadProgress(100);
 
       // Reset form
       setTitle('');
@@ -139,19 +204,18 @@ export default function Movies() {
       setUploadProgress(0);
       setCurrentUploadStep('');
 
-      // Reload movies
       loadMovies();
 
       toast({
-        title: "Sucesso!",
-        description: "Filme enviado com sucesso.",
+        title: '✅ Filme enviado com sucesso!',
+        description: sizeInfo.join(' | '),
       });
     } catch (error) {
       console.error('Erro ao fazer upload:', error);
       toast({
-        title: "Erro",
-        description: "Erro ao enviar filme. Tente novamente.",
-        variant: "destructive",
+        title: 'Erro',
+        description: 'Erro ao enviar filme. Tente novamente.',
+        variant: 'destructive',
       });
     } finally {
       setUploading(false);
@@ -269,6 +333,7 @@ export default function Movies() {
                         <img
                           src={movie.poster_path}
                           alt={movie.title}
+                          crossOrigin="anonymous"
                           className="w-20 h-28 object-cover rounded mt-2"
                         />
                       )}

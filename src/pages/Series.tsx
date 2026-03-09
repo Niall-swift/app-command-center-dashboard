@@ -10,6 +10,8 @@ import { Label } from '../components/ui/label';
 import { Progress } from '../components/ui/progress';
 import { useToast } from '../hooks/use-toast';
 import { Upload, Play, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { compressImage } from '../utils/compressImage';
+import { compressVideo } from '../utils/compressVideo';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import AddEpisodeToExistingSeries from '../components/AddEpisodeToExistingSeries';
@@ -243,17 +245,27 @@ export default function Series() {
       // Upload poster if provided
       let posterUrl = '';
       if (posterFile) {
-        setCurrentUploadStep('Enviando poster...');
-        const posterPath = `series/posters/${Date.now()}_${posterFile.name}`;
-        posterUrl = await uploadFile(posterFile, posterPath);
+        setCurrentUploadStep('🖼️ Comprimindo poster da série...');
+        let posterToUpload = posterFile;
+        try {
+          const r = await compressImage(posterFile, { maxWidth: 800, maxHeight: 1200 });
+          posterToUpload = r.file;
+        } catch { /* sem compressão */ }
+        setCurrentUploadStep('📤 Enviando poster...');
+        posterUrl = await uploadFile(posterToUpload, `series/posters/${Date.now()}_${posterToUpload.name}`);
       }
 
       // Upload backdrop if provided
       let backdropUrl = '';
       if (backdropFile) {
-        setCurrentUploadStep('Enviando backdrop...');
-        const backdropPath = `series/backdrops/${Date.now()}_${backdropFile.name}`;
-        backdropUrl = await uploadFile(backdropFile, backdropPath);
+        setCurrentUploadStep('🖼️ Comprimindo backdrop da série...');
+        let bdToUpload = backdropFile;
+        try {
+          const r = await compressImage(backdropFile, { maxWidth: 1280, maxHeight: 720 });
+          bdToUpload = r.file;
+        } catch { /* sem compressão */ }
+        setCurrentUploadStep('📤 Enviando backdrop...');
+        backdropUrl = await uploadFile(bdToUpload, `series/backdrops/${Date.now()}_${bdToUpload.name}`);
       }
 
       // Create series document
@@ -281,8 +293,13 @@ export default function Series() {
         if (season.poster_path && typeof season.poster_path === 'string' && !season.poster_path.startsWith('http')) {
           const seasonPosterFile = season.poster_file;
           if (seasonPosterFile) {
-            const seasonPosterPath = `series/seasons/${Date.now()}_${seasonPosterFile.name}`;
-            seasonPosterUrl = await uploadFile(seasonPosterFile, seasonPosterPath);
+            setCurrentUploadStep(`🖼️ Comprimindo poster T${seasonIndex + 1}...`);
+            let spToUpload = seasonPosterFile;
+            try {
+              const r = await compressImage(seasonPosterFile, { maxWidth: 800, maxHeight: 1200 });
+              spToUpload = r.file;
+            } catch { /* sem compressão */ }
+            seasonPosterUrl = await uploadFile(spToUpload, `series/seasons/${Date.now()}_${spToUpload.name}`);
           }
         } else if (season.poster_path.startsWith('http')) {
           seasonPosterUrl = season.poster_path;
@@ -310,18 +327,32 @@ export default function Series() {
           if (episode.thumbnail_path && typeof episode.thumbnail_path === 'string' && !episode.thumbnail_path.startsWith('http')) {
             const episodeThumbnailFile = episode.thumbnail_file;
             if (episodeThumbnailFile) {
-              const episodeThumbnailPath = `series/episodes/${Date.now()}_${episodeThumbnailFile.name}`;
-              episodeThumbnailUrl = await uploadFile(episodeThumbnailFile, episodeThumbnailPath);
+              setCurrentUploadStep(`🖼️ Comprimindo thumbnail ${seasonIndex + 1}x${episodeIndex + 1}...`);
+              let thToUpload = episodeThumbnailFile;
+              try {
+                const r = await compressImage(episodeThumbnailFile, { maxWidth: 1280, maxHeight: 720 });
+                thToUpload = r.file;
+              } catch { /* sem compressão */ }
+              episodeThumbnailUrl = await uploadFile(thToUpload, `series/episodes/${Date.now()}_${thToUpload.name}`);
             }
           } else if (episode.thumbnail_path.startsWith('http')) {
             episodeThumbnailUrl = episode.thumbnail_path;
           }
 
-          // Upload episode video
+          // Compress + Upload episode video
           let episodeVideoUrl = '';
           if (episode.video_file) {
-            const episodeVideoPath = `series/videos/${Date.now()}_${episode.video_file.name}`;
-            episodeVideoUrl = await uploadFile(episode.video_file, episodeVideoPath);
+            setCurrentUploadStep(`🎬 Comprimindo vídeo ${seasonIndex + 1}x${episodeIndex + 1}...`);
+            let vidToUpload = episode.video_file;
+            try {
+              const vr = await compressVideo(episode.video_file, (pct) => {
+                setCurrentUploadStep(`🎬 Comprimindo ${seasonIndex + 1}x${episodeIndex + 1}... ${pct}%`);
+                setUploadProgress(pct);
+              });
+              vidToUpload = vr.file;
+            } catch { /* sem compressão */ }
+            setCurrentUploadStep(`📤 Enviando vídeo ${seasonIndex + 1}x${episodeIndex + 1}...`);
+            episodeVideoUrl = await uploadFile(vidToUpload, `series/videos/${Date.now()}_${vidToUpload.name}`);
           }
 
           // Create episode document
@@ -721,6 +752,7 @@ export default function Series() {
                           <img
                             src={serie.poster_path}
                             alt={serie.title}
+                            crossOrigin="anonymous"
                             className="w-20 h-28 object-cover rounded mt-2"
                           />
                         )}
@@ -847,6 +879,7 @@ export default function Series() {
                         <img
                           src={serie.poster_path}
                           alt={serie.title}
+                          crossOrigin="anonymous"
                           className="w-20 h-28 object-cover rounded mt-2"
                         />
                       )}

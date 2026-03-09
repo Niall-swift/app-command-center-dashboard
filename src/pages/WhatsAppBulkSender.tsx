@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Users, AlertCircle, CheckCircle, Clock, Database, Search, Filter, Flame, PlayCircle } from 'lucide-react';
+import { Send, Users, AlertCircle, CheckCircle, Clock, Database, Search, Flame, PlayCircle } from 'lucide-react';
+import { generateAIBillingMessage, generateAIBlockedMessage } from '@/services/gemini/geminiService';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ export default function WhatsAppBulkSender() {
   const [logs, setLogs] = useState<WhapiSendLog[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<Set<VencimentoGroup>>(new Set());
   const [warmupMode, setWarmupMode] = useState(false);
+  const [isSendingBlockedBulk, setIsSendingBlockedBulk] = useState(false);
   
   // Preview
   const [previewGroup, setPreviewGroup] = useState<GroupedClients | null>(null);
@@ -297,59 +299,81 @@ export default function WhatsAppBulkSender() {
         await new Promise(r => setTimeout(r, 2000));
       }
 
-      // Prepare template data
       const diasAtraso = client.fatura.diasAtraso;
-      const templateData = {
-        nome: client.nome,
-        valor: formatCurrency(client.fatura.valor),
-        data_vencimento: formatDate(client.fatura.dataVencimento),
-        dias_atraso: diasAtraso.toString(),
-        dias_restantes: diasAtraso < 0 ? Math.abs(diasAtraso).toString() : '0',
-        link_boleto: client.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento'
-      };
 
-      // Select appropriate template based on invoice status
-      let templateGroup = 'vencida'; // default
-      
-      if (!warmupMode) {
-        if (diasAtraso > 0) {
-          templateGroup = 'vencidas_' + diasAtraso; // Will use 'vencida' template
-        } else if (diasAtraso === 0) {
-          templateGroup = 'vencendo_hoje';
-        } else {
-          templateGroup = 'vencendo_breve';
+      // ⚠️ Verificar link de pagamento (muito importante!)
+      let linkBoleto = client.fatura.linkBoleto || '';
+      if (!linkBoleto && !warmupMode) {
+        toast({
+          title: '⚠️ Link de pagamento não encontrado',
+          description: `Enviando e-mail para gerar o link da fatura de ${client.nome}...`,
+          variant: 'destructive',
+        });
+        if (client.fatura?.id) {
+          try {
+            await ixcService.sendEmailFatura(client.fatura.id);
+            await new Promise(r => setTimeout(r, 3000));
+          } catch (e) {
+            console.warn('Não foi possível gerar link via e-mail:', e);
+          }
         }
-      } else {
-        templateGroup = 'warmup';
+        linkBoleto = 'Solicite a 2ª via pelo nosso atendimento';
+        toast({
+          title: 'ℹ️ Enviando sem link de boleto',
+          description: 'A mensagem será enviada sem o link de pagamento. Oriente o cliente a solicitar a 2ª via.',
+        });
       }
 
-      const template = getTemplateForGroup(templateGroup);
-      
       // Send to ALL phones
       let successCount = 0;
       let failCount = 0;
 
       for (let i = 0; i < allPhones.length; i++) {
         const phone = allPhones[i];
-        
-        // Update toast for each phone
+
+        // Gerar mensagem via IA (Gemini) ou fallback para template
+        let messageBody: string | null = null;
+
+        if (!warmupMode) {
+          toast({
+            title: `🤖 Gerando mensagem ${i + 1}/${totalPhones}`,
+            description: `Personalizando mensagem para ${client.nome}...`,
+          });
+          messageBody = await generateAIBillingMessage({
+            nomeCliente: client.nome,
+            valor: `R$ ${formatCurrency(client.fatura.valor)}`,
+            dataVencimento: formatDate(client.fatura.dataVencimento),
+            diasAtraso,
+            linkBoleto,
+          });
+        }
+
+        // Fallback se Gemini falhar ou for warmup
+        if (!messageBody) {
+          const templateGroup = warmupMode ? 'warmup' : (diasAtraso > 0 ? 'vencidas_' + diasAtraso : diasAtraso === 0 ? 'vencendo_hoje' : 'vencendo_breve');
+          const templateData = {
+            nome: client.nome,
+            valor: formatCurrency(client.fatura.valor),
+            data_vencimento: formatDate(client.fatura.dataVencimento),
+            dias_atraso: diasAtraso.toString(),
+            dias_restantes: diasAtraso < 0 ? Math.abs(diasAtraso).toString() : '0',
+            link_boleto: linkBoleto,
+          };
+          messageBody = spin(fillTemplate(getTemplateForGroup(templateGroup), templateData));
+        }
+
         toast({
-          title: `Enviando ${i + 1}/${totalPhones}`,
-          description: `Enviando WhatsApp para ${client.nome} (${phone})...`,
+          title: `💬 Enviando ${i + 1}/${totalPhones}`,
+          description: `Enviando mensagem para ${client.nome} (${phone})...`,
         });
 
-        // Generate message with spintax for each send (different variation)
-        let messageBody = fillTemplate(template, templateData);
-        messageBody = spin(messageBody);
-
-        // Send WhatsApp message
         const result = await whapiService.sendMessage({
           to: phone,
           body: messageBody,
-          typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 10000)
+          typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 10000),
         });
 
-        // Log the result
+        // Log
         const log: WhapiSendLog = {
           timestamp: new Date().toISOString(),
           clienteId: client.clienteId,
@@ -357,7 +381,7 @@ export default function WhatsAppBulkSender() {
           telefone: phone,
           status: result.sent ? 'success' : 'failed',
           error: result.error,
-          messageId: result.id
+          messageId: result.id,
         };
         setLogs(prev => [log, ...prev]);
 
@@ -367,9 +391,9 @@ export default function WhatsAppBulkSender() {
           failCount++;
         }
 
-        // Small delay between sends to avoid rate limiting
+        // Pausa entre envios (anti-ban)
         if (i < allPhones.length - 1) {
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
 
@@ -509,6 +533,136 @@ export default function WhatsAppBulkSender() {
     }
   };
 
+  const handleSendAllBlocked = async () => {
+    // Pegar apenas os que não foram enviados nas últimas 24h
+    const pendingContracts = data.blockedContracts.filter(c => !isBlocked24h(c.id));
+    
+    if (pendingContracts.length === 0) {
+      toast({
+        title: 'Tudo certo!',
+        description: 'Todos os clientes bloqueados já foram notificados nas últimas 24h.',
+      });
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const recipients: WhapiBulkRecipient[] = [];
+
+    // Mapear contratos para o formato WhapiBulkRecipient
+    for (const contract of pendingContracts) {
+      const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
+      if (!cliente || !cliente.telefone_celular || cliente.ativo !== 'S') continue;
+
+      const faturasAtrasadas = data.faturas.filter(f =>
+        String(f.id_cliente) === String(cliente.id) && 
+        !f.data_pagamento &&
+        f.data_vencimento < today
+      );
+      
+      if (faturasAtrasadas.length === 0) continue;
+
+      // Ordenar por data (mais antiga primeiro)
+      faturasAtrasadas.sort((a, b) => 
+        new Date(a.data_vencimento as string).getTime() - new Date(b.data_vencimento as string).getTime()
+      );
+
+      const faturaVencida = faturasAtrasadas[0];
+      const linkBoleto = ((faturaVencida.gateway_link || faturaVencida.link_getwere || faturaVencida.url_boleto || faturaVencida.b_link_getwere || '') as string);
+      const totalValor = faturasAtrasadas.reduce((acc, f) => acc + parseFloat(f.valor || '0'), 0);
+      const diasAtraso = calculateDaysOverdue(faturaVencida.data_vencimento as string);
+
+      recipients.push({
+        clienteId: cliente.id || '',
+        nome: cliente.razao || cliente.nome || 'Cliente',
+        telefone: cliente.telefone_celular,
+        fatura: {
+          id: faturaVencida.id || '',
+          valor: totalValor,
+          dataVencimento: faturaVencida.data_vencimento as string,
+          diasAtraso,
+          linkBoleto,
+          // Guardar a quantidade real para usar na geração de texto (usando um campo extra)
+          totalFaturasAtrasadas: faturasAtrasadas.length
+        } as any // Forçando any para aceitar a propriedade extra (totalFaturasAtrasadas) sem quebrar tipagem global
+      });
+    }
+
+    if (recipients.length === 0) {
+      toast({
+        title: 'Aviso',
+        description: 'Não foram encontrados clientes válidos com faturas em atraso.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSendingBlockedBulk(true);
+    setProgress({ total: recipients.length, sent: 0, failed: 0 });
+    setLogs([]);
+
+    try {
+      // Usar a mesma engine de envio em massa (sendBulkMessages)
+      // Passar o grupo 'blocked_clients' (o whapiService tratará com a mesma proteção anti-ban)
+      const groupLogs = await whapiService.sendBulkMessages(
+        recipients,
+        'blocked_clients',
+        (prog) => setProgress(prog),
+        (log) => setLogs((prev) => [...prev, log]),
+        async (recipient) => {
+          // Atualizar interface
+          setProgress(prev => prev ? { ...prev, current: `Gerando cobrança para ${recipient.nome}...` } : prev);
+        },
+        async (recipient) => {
+          // Override da mensagem: Usar a IA de bloqueio ao invés da cobrança padrão
+          const totalFaturasAtrasadas = (recipient.fatura as any).totalFaturasAtrasadas || 1;
+          const valorTotalFormat = `R$ ${formatCurrency(recipient.fatura.valor)}`;
+          const linkBoleto = recipient.fatura.linkBoleto || undefined;
+          
+          let overrideMsg = await generateAIBlockedMessage({
+            nomeCliente: recipient.nome,
+            dataVencimento: formatDate(recipient.fatura.dataVencimento),
+            totalFaturas: totalFaturasAtrasadas,
+            valorTotal: valorTotalFormat,
+            linkBoleto,
+          });
+
+          // Fallback caso a IA do Google falhe
+          if (!overrideMsg) {
+             const faturasTexto = totalFaturasAtrasadas > 1
+                ? `*${totalFaturasAtrasadas} faturas* em atraso totalizando *${valorTotalFormat}* (a mais antiga com vencimento em *${formatDate(recipient.fatura.dataVencimento)}*)`
+                : `1 fatura no valor de *${valorTotalFormat}* com vencimento em *${formatDate(recipient.fatura.dataVencimento)}*`;
+             overrideMsg = `Olá ${recipient.nome}, sua internet foi bloqueada por inadimplência. Identificamos ${faturasTexto}.\n\n${linkBoleto ? `👉 Link para pagamento: ${linkBoleto}\n\n` : ''}Para regularizar e reativar seu acesso, responda esta mensagem.\n\n_Att, Equipe AVL Telecom_`;
+          }
+
+          return overrideMsg;
+        }
+      );
+
+      // Salvar os timestamps
+      groupLogs.forEach(log => {
+        if (log.status === 'success') {
+           // Em recipients, temos clienteId. Precisamos encontrar o contratoId associado.
+           const contract = pendingContracts.find(c => String(c.id_cliente) === String(log.clienteId));
+           if (contract && contract.id) saveSentTimestamp(contract.id);
+        }
+      });
+
+      toast({
+        title: 'Envio concluído',
+        description: `${groupLogs.filter((l) => l.status === 'success').length} notificações enviadas com sucesso`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro no envio automático',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSendingBlockedBulk(false);
+      setProgress(null);
+    }
+  };
+
   // Estado para controlar envio individual e bloqueio 24h
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [sentMap, setSentMap] = useState<Record<string, number>>({});
@@ -565,25 +719,58 @@ export default function WhatsAppBulkSender() {
       return;
     }
 
-    // Buscar fatura vencida mais antiga
-    const faturasCliente = data.faturas.filter(f => String(f.id_cliente) === String(cliente.id));
+    // Buscar TODAS as faturas vencidas deste cliente (abertas e data menor que hoje)
+    const today = new Date().toISOString().split('T')[0];
+    const faturasCliente = data.faturas.filter(f =>
+      String(f.id_cliente) === String(cliente.id) &&
+      !f.data_pagamento &&
+      f.data_vencimento < today
+    );
     // Ordenar por data de vencimento (mais antiga primeiro)
-    faturasCliente.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
-    
+    faturasCliente.sort((a, b) =>
+      new Date(a.data_vencimento as string).getTime() - new Date(b.data_vencimento as string).getTime()
+    );
+
+    // Calcular totais financeiros
+    const totalFaturas = faturasCliente.length;
+    const totalValor = faturasCliente.reduce((acc, f) => acc + parseFloat(f.valor || '0'), 0);
+    const valorTotal = `R$ ${formatCurrency(totalValor)}`;
+
+    // Fatura mais antiga = principal responsável pelo bloqueio
     const faturaVencida = faturasCliente[0];
-    const dataVencimento = faturaVencida 
+    const dataVencimento = faturaVencida
       ? formatDate(faturaVencida.data_vencimento as string)
       : 'data não identificada';
+    const linkBoleto = faturaVencida
+      ? ((faturaVencida.gateway_link || faturaVencida.link_getwere || faturaVencida.url_boleto || faturaVencida.b_link_getwere || '') as string)
+      : '';
+
+    const nomeCliente = cliente.razao || cliente.nome || 'Cliente';
 
     setResolvingId(contract.id || null);
 
     try {
-      const messageBody = `Olá ${cliente.razao || cliente.nome}, identificamos que houve um bloqueio na sua conexão devido à fatura com vencimento em *${dataVencimento}* que consta em aberto.\n\nPara regularizar e desbloquear o acesso, por favor responda a esta mensagem.`;
+      // Gerar mensagem via IA (Gemini) com dados financeiros completos do IXC
+      let messageBody = await generateAIBlockedMessage({
+        nomeCliente,
+        dataVencimento,
+        totalFaturas: totalFaturas || 1,
+        valorTotal,
+        linkBoleto: linkBoleto || undefined,
+      });
+
+      // Fallback enriquecido: usado se Gemini falhar
+      if (!messageBody) {
+        const faturasTexto = totalFaturas > 1
+          ? `*${totalFaturas} faturas* em aberto totalizando *${valorTotal}* (a mais antiga com vencimento em *${dataVencimento}*)`
+          : `1 fatura no valor de *${valorTotal}* com vencimento em *${dataVencimento}*`;
+        messageBody = `Olá ${nomeCliente}, sua internet foi bloqueada por inadimplência. Identificamos ${faturasTexto}.\n\n${linkBoleto ? `👉 Link para pagamento: ${linkBoleto}\n\n` : ''}Para regularizar e reativar seu acesso, responda esta mensagem.\n\n_Att, Equipe AVL Telecom_`;
+      }
 
       const result = await whapiService.sendMessage({
         to: cliente.telefone_celular,
         body: messageBody,
-        typing_time: 2
+        typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 8000),
       });
 
       if (result.sent) {
@@ -696,23 +883,24 @@ export default function WhatsAppBulkSender() {
                         </span>
                       </div>
                     </div>
-                    <Button
-                      onClick={() => handleSendToSingleClient(client)}
-                      disabled={sendingToClient && selectedClient?.clienteId === client.clienteId}
-                      className="ml-4"
-                    >
-                      {sendingToClient && selectedClient?.clienteId === client.clienteId ? (
-                        <>
-                          <Clock className="mr-2 h-4 w-4 animate-spin" />
-                          Enviando...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="mr-2 h-4 w-4" />
-                          Enviar
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2 ml-4">
+                      <Button
+                        onClick={() => handleSendToSingleClient(client)}
+                        disabled={sendingToClient && selectedClient?.clienteId === client.clienteId}
+                      >
+                        {sendingToClient && selectedClient?.clienteId === client.clienteId ? (
+                          <>
+                            <Clock className="mr-2 h-4 w-4 animate-spin" />
+                            Enviando...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="mr-2 h-4 w-4" />
+                            Enviar
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -739,25 +927,50 @@ export default function WhatsAppBulkSender() {
         {data.blockedContracts.length > 0 && (
           <div className="w-full mb-6">
             <Card className="border-red-200 bg-red-50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-red-700">
-                  <AlertCircle className="w-6 h-6" />
-                  Clientes Bloqueados / Cancelamento Automático ({data.blockedContracts.length})
-                </CardTitle>
-                <CardDescription>
-                  Contratos com status de internet <strong>CA</strong> (Cancelamento Automático). Estes clientes não aparecem na lista normal de cobrança.
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="w-6 h-6" />
+                    Clientes Bloqueados / Cancelamento Automático ({data.blockedContracts.length})
+                  </CardTitle>
+                  <CardDescription>
+                    Contratos com status de internet <strong>CA</strong> (Cancelamento Automático). Estes clientes não aparecem na lista normal de cobrança.
+                  </CardDescription>
+                </div>
+                <Button 
+                  onClick={handleSendAllBlocked}
+                  disabled={isSendingBlockedBulk || (data.blockedContracts.filter(c => !isBlocked24h(c.id)).length === 0)}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {isSendingBlockedBulk ? (
+                    <><Clock className="mr-2 h-4 w-4 animate-spin" /> Processando...</>
+                  ) : (
+                    <><PlayCircle className="mr-2 h-4 w-4" /> Notificar Todos</>
+                  )}
+                </Button>
               </CardHeader>
               <CardContent>
                 <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2">
                   {data.blockedContracts.map(contract => {
                      const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
+                     const today = new Date().toISOString().split('T')[0];
+                     const faturasAtrasadas = data.faturas.filter(f =>
+                       String(f.id_cliente) === String(contract.id_cliente) && 
+                       !f.data_pagamento &&
+                       f.data_vencimento < today
+                     );
+                     const totalAtraso = faturasAtrasadas.reduce((acc, f) => acc + parseFloat(f.valor || '0'), 0);
                      return (
                        <div key={contract.id} className="flex items-center justify-between p-3 bg-white rounded shadow-sm border border-red-100">
                           <div>
                             <p className="font-semibold text-gray-800">{cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
                             <p className="text-sm text-gray-500">Contrato: {contract.id} | Status: {contract.status_internet}</p>
                             {cliente?.telefone_celular && <p className="text-xs text-gray-400">{cliente.telefone_celular}</p>}
+                            {faturasAtrasadas.length > 0 && (
+                              <p className="text-xs font-semibold text-red-600 mt-1">
+                                🧾 {faturasAtrasadas.length} fatura{faturasAtrasadas.length > 1 ? 's' : ''} em atraso — R$ {formatCurrency(totalAtraso)}
+                              </p>
+                            )}
                           </div>
                           <Button 
                             size="sm" 

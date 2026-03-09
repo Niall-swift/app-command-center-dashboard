@@ -10,6 +10,7 @@ import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculat
 import { spin } from '@/utils/spintax';
 import { db } from '@/config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { generateAIBillingMessage } from '@/services/gemini/geminiService';
 
 export class WhapiService {
   private client: AxiosInstance;
@@ -193,7 +194,8 @@ export class WhapiService {
     group: string,
     onProgress?: (progress: WhapiSendProgress) => void,
     onLog?: (log: WhapiSendLog) => void,
-    onBeforeSend?: (recipient: WhapiBulkRecipient) => Promise<void>
+    onBeforeSend?: (recipient: WhapiBulkRecipient) => Promise<void>,
+    messageOverride?: (recipient: WhapiBulkRecipient) => Promise<string | null>
   ): Promise<WhapiSendLog[]> {
     const logs: WhapiSendLog[] = [];
 
@@ -222,22 +224,39 @@ export class WhapiService {
         }
       }
 
-      // Preparar dados para o template
-      const templateData = {
-        nome: recipient.nome,
-        valor: formatCurrency(recipient.fatura.valor),
-        data_vencimento: formatDate(recipient.fatura.dataVencimento),
-        dias_atraso: recipient.fatura.diasAtraso.toString(),
-        dias_restantes: calculateDaysRemaining(recipient.fatura.dataVencimento).toString(),
-        link_boleto: recipient.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento'
-      };
+      // Preparar dados
+      const linkBoleto = recipient.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento';
+      const valorFormatado = `R$ ${formatCurrency(recipient.fatura.valor)}`;
+      const dataFormatada = formatDate(recipient.fatura.dataVencimento);
 
-      // Obter template apropriado
-      const template = getTemplateForGroup(group);
-      let messageBody = fillTemplate(template, templateData);
-      
-      // APLICAR SPINTAX (Variação de mensagem)
-      messageBody = spin(messageBody);
+      // Tentar gerar mensagem com IA (Gemini) ou usar o override fornecido
+      let messageBody: string | null = null;
+
+      if (messageOverride) {
+        messageBody = await messageOverride(recipient);
+      } else if (group !== 'warmup') {
+        messageBody = await generateAIBillingMessage({
+          nomeCliente: recipient.nome,
+          valor: valorFormatado,
+          dataVencimento: dataFormatada,
+          diasAtraso: recipient.fatura.diasAtraso,
+          linkBoleto,
+        });
+      }
+
+      // Fallback: usar template + spintax se Gemini falhar ou for warmup
+      if (!messageBody) {
+        const templateData = {
+          nome: recipient.nome,
+          valor: formatCurrency(recipient.fatura.valor),
+          data_vencimento: dataFormatada,
+          dias_atraso: recipient.fatura.diasAtraso.toString(),
+          dias_restantes: calculateDaysRemaining(recipient.fatura.dataVencimento).toString(),
+          link_boleto: linkBoleto,
+        };
+        const template = getTemplateForGroup(group);
+        messageBody = spin(fillTemplate(template, templateData));
+      }
 
       // Enviar mensagem
       // Typing time calculado baseado no tamanho da mensagem (Simular humano)
@@ -343,6 +362,69 @@ export class WhapiService {
     }
 
     return logs;
+  }
+
+  /**
+   * Garantir que init_avatars está ativo no canal Whapi
+   */
+  private async ensureAvatarsEnabled(): Promise<void> {
+    try {
+      const settings = await this.client.get('/settings');
+      if (!settings.data?.media?.init_avatars) {
+        console.log('🔧 Ativando init_avatars no canal Whapi...');
+        await this.client.patch('/settings', { media: { init_avatars: true } });
+        console.log('✅ init_avatars ativado!');
+      }
+    } catch (error) {
+      console.warn('⚠️ Não foi possível verificar/ativar init_avatars:', error);
+    }
+  }
+
+  /**
+   * Buscar foto de perfil do WhatsApp de um contato
+   * Endpoint: GET /contacts/{phoneNumber}/profile
+   * Resposta: { about: string|null, icon: string, icon_full: string }
+   */
+  async getContactProfilePicture(phone: string): Promise<string | null> {
+    try {
+      // Garantir que init_avatars está ativo
+      await this.ensureAvatarsEnabled();
+
+      // O contactId deve ser apenas o número formatado (ex: 5511999999999)
+      const contactId = this.formatPhoneNumber(phone);
+      console.log('📸 Buscando foto de perfil de:', contactId);
+
+      // Tentar até 3 vezes com delay de 2s (Whapi pode precisar sincronizar)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const response = await this.client.get(`/contacts/${contactId}/profile`);
+        const data = response.data;
+
+        console.log(`📸 Resposta perfil (tentativa ${attempt}):`, JSON.stringify(data));
+
+        // A API Whapi retorna: { about, icon (thumbnail), icon_full (foto completa) }
+        const imageUrl = data?.icon_full || data?.icon || null;
+
+        if (imageUrl && imageUrl.trim() !== '') {
+          console.log('✅ Foto de perfil encontrada:', imageUrl);
+          return imageUrl;
+        }
+
+        if (attempt < 3) {
+          console.log(`ℹ️ Foto vazia na tentativa ${attempt}, aguardando 2s...`);
+          await this.sleep(2000);
+        }
+      }
+
+      console.log('ℹ️ Contato sem foto de perfil após 3 tentativas.');
+      return null;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.warn('⚠️ Não foi possível buscar foto de perfil:', error.response?.data || error.message);
+      } else {
+        console.warn('⚠️ Erro desconhecido ao buscar foto de perfil:', error);
+      }
+      return null;
+    }
   }
 
   /**

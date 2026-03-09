@@ -49,6 +49,8 @@ const prizes = [
   "COMBO PIZZA",
   "COMBO KERU+",
   "fone de ouvido bluetooth",
+  "sanduicheira",
+  "Manicure e pedicure - studio elaine moraes"
 ];
 
 export default function Raffle() {
@@ -59,6 +61,8 @@ export default function Raffle() {
   const [selectedPrize, setSelectedPrize] = useState(prizes[0]);
   const [showWinnerCard, setShowWinnerCard] = useState(false);
   const [usersPremix, setUsersPremix] = useState<Client[]>([]);
+  const [winnerProfilePic, setWinnerProfilePic] = useState<string | null>(null);
+  const [isFetchingProfilePic, setIsFetchingProfilePic] = useState(false);
 
   // Estados para envio WhatsApp
   const [sending, setSending] = useState(false);
@@ -170,19 +174,40 @@ export default function Raffle() {
     setSelectedClients([]);
   };
 
+  const handleDeleteClient = (client: Client) => {
+    // Remove da lista principal
+    setUsersPremix(prev => prev.filter(c => c.id !== client.id));
+    // Remove da seleção se estiver selecionado
+    setSelectedClients(prev => prev.filter(c => c.id !== client.id));
+  };
+
   const handleRaffle = () => {
     if (selectedClients.length === 0) return;
     
     setIsRaffling(true);
     setWinner(null);
     setShowWinnerCard(false);
+    setWinnerProfilePic(null);
     
     // Simular sorteio com delay
-    setTimeout(() => {
+    setTimeout(async () => {
       const randomIndex = Math.floor(Math.random() * selectedClients.length);
       const winnerClient = selectedClients[randomIndex];
       setWinner(winnerClient);
       setIsRaffling(false);
+
+      // Buscar foto de perfil do WhatsApp do vencedor
+      if (winnerClient.phone) {
+        setIsFetchingProfilePic(true);
+        try {
+          const profilePic = await whapiService.getContactProfilePicture(winnerClient.phone);
+          setWinnerProfilePic(profilePic);
+        } catch (err) {
+          console.warn('Não foi possível buscar a foto de perfil:', err);
+        } finally {
+          setIsFetchingProfilePic(false);
+        }
+      }
       
       // Mostrar card após animação
       setTimeout(() => {
@@ -195,6 +220,8 @@ export default function Raffle() {
     setWinner(null);
     setShowWinnerCard(false);
     setSelectedClients([]);
+    setWinnerProfilePic(null);
+    setIsFetchingProfilePic(false);
   };
 
   // Função para abrir preview de mensagem
@@ -346,6 +373,7 @@ export default function Raffle() {
               onClientToggle={handleClientToggle}
               onSelectAll={handleSelectAll}
               onDeselectAll={handleDeselectAll}
+              onDeleteClient={handleDeleteClient}
             />
           </motion.div>
 
@@ -492,6 +520,8 @@ export default function Raffle() {
           <WinnerCard
             winner={winner}
             prize={selectedPrize}
+            winnerProfilePic={winnerProfilePic}
+            isFetchingProfilePic={isFetchingProfilePic}
             onClose={() => setShowWinnerCard(false)}
           />
         )}

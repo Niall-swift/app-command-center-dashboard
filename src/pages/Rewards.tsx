@@ -204,7 +204,7 @@ export default function Rewards() {
                         <div className="flex items-center gap-3">
                           <div className="text-3xl bg-gray-100 w-14 h-14 flex items-center justify-center rounded-xl shadow-inner">
                             {reward.imageUrl ? (
-                              <img src={reward.imageUrl} alt={reward.name} className="w-full h-full object-cover rounded-xl" />
+                              <img src={reward.imageUrl} alt={reward.name} crossOrigin="anonymous" className="w-full h-full object-cover rounded-xl" />
                             ) : (
                               reward.icon
                             )}
