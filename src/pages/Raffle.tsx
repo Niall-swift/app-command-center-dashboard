@@ -19,12 +19,13 @@ import ClientList from '@/components/raffle/ClientList';
 import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { whapiService } from '@/services/whapi/whapiService';
 import { fillTemplate, getTemplateForGroup } from '@/services/whapi/messageTemplates';
 import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
+import { preMixService } from '@/services/preMixService';
 
 // Mock data for clients with additional fields
 
@@ -174,11 +175,28 @@ export default function Raffle() {
     setSelectedClients([]);
   };
 
-  const handleDeleteClient = (client: Client) => {
-    // Remove da lista principal
-    setUsersPremix(prev => prev.filter(c => c.id !== client.id));
-    // Remove da seleção se estiver selecionado
-    setSelectedClients(prev => prev.filter(c => c.id !== client.id));
+  const handleDeleteClient = async (client: Client) => {
+    try {
+      // Remove do Firebase
+      await deleteDoc(doc(db, 'usuariosDoPreMix', client.id));
+
+      // Remove da lista principal
+      setUsersPremix(prev => prev.filter(c => c.id !== client.id));
+      // Remove da seleção se estiver selecionado
+      setSelectedClients(prev => prev.filter(c => c.id !== client.id));
+
+      toast({
+        title: 'Sucesso',
+        description: 'Participante excluído com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao excluir participante:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível excluir o participante do banco de dados.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleRaffle = () => {
@@ -207,6 +225,29 @@ export default function Raffle() {
         } finally {
           setIsFetchingProfilePic(false);
         }
+      }
+
+      // 🎁 Salvar vencedor no Firebase para tempo real no App
+      try {
+        const rescueCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        await preMixService.saveWinner({
+          cpf: winnerClient.cpf,
+          name: winnerClient.name,
+          prize: selectedPrize,
+          rescueCode: rescueCode
+        });
+        
+        toast({
+          title: 'Vencedor Registrado!',
+          description: `O código de resgate é ${rescueCode}. O cliente já pode ver no app!`,
+        });
+      } catch (error) {
+        console.error('Erro ao salvar vencedor:', error);
+        toast({
+          title: 'Erro ao Registrar',
+          description: 'O sorteio ocorreu, mas o vencedor não foi salvo no Banco de Dados.',
+          variant: 'destructive'
+        });
       }
       
       // Mostrar card após animação

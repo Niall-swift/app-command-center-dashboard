@@ -13,7 +13,8 @@ import {
   User, 
   Calendar,
   CreditCard,
-  Gift
+  Gift,
+  Trophy
 } from 'lucide-react';
 import {
   Dialog,
@@ -29,6 +30,7 @@ import { redemptionsService } from '@/services/redemptionsService';
 import { RedeemedReward } from '@/types/rewards';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { preMixService, Winner } from '@/services/preMixService';
 
 export default function RedemptionOrders() {
   const { toast } = useToast();
@@ -38,6 +40,9 @@ export default function RedemptionOrders() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('pending');
+  const [winners, setWinners] = useState<Winner[]>([]);
+  const [selectedWinner, setSelectedWinner] = useState<Winner | null>(null);
+  const [isWinnerDialogOpen, setIsWinnerDialogOpen] = useState(false);
 
   // Carregar resgates
   const fetchRedemptions = async () => {
@@ -45,14 +50,35 @@ export default function RedemptionOrders() {
     try {
       const data = await redemptionsService.getAllRedemptions();
       setRedemptions(data);
+      
+      const winnersData = await preMixService.getWinners();
+      setWinners(winnersData);
     } catch (error) {
       toast({
         title: 'Erro ao carregar',
-        description: 'Não foi possível carregar os pedidos.',
+        description: 'Não foi possível carregar os pedidos ou vencedores.',
         variant: 'destructive',
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleWinnerRedeem = async (id: string) => {
+    try {
+      await preMixService.markAsRedeemed(id);
+      toast({
+        title: 'Prêmio Entregue!',
+        description: 'O vencedor foi marcado como resgatado com sucesso.',
+      });
+      setIsWinnerDialogOpen(false);
+      fetchRedemptions();
+    } catch (error) {
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível atualizar o status do vencedor.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -137,11 +163,12 @@ export default function RedemptionOrders() {
 
         {/* Abas e Lista */}
         <Tabs defaultValue="pending" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
+          <TabsList className="grid w-full grid-cols-6 lg:w-[750px]">
             <TabsTrigger value="pending">Pendentes</TabsTrigger>
             <TabsTrigger value="approved">Aprovados</TabsTrigger>
             <TabsTrigger value="applied">Aplicados</TabsTrigger>
             <TabsTrigger value="expired">Expirados</TabsTrigger>
+            <TabsTrigger value="premix">Vencedores Pré-Mix</TabsTrigger>
             <TabsTrigger value="all">Todos</TabsTrigger>
           </TabsList>
 
@@ -201,6 +228,65 @@ export default function RedemptionOrders() {
                           {getStatusBadge(redemption.status)}
                           <p className="text-xs text-gray-500 flex items-center gap-1">
                             <Calendar size={10} /> {formatDate(redemption.redeemedAt)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="premix" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Vencedores do Pré-Mix</CardTitle>
+                <CardDescription>
+                  Acompanhe e valide o resgate dos prêmios sorteados.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex justify-center py-10">Carregando...</div>
+                ) : winners.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">
+                    Nenhum vencedor encontrado. Realize um sorteio na página de Sorteios!
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {winners.filter(w => 
+                      w.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                      w.prize.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                      w.rescueCode.toLowerCase().includes(searchTerm.toLowerCase())
+                    ).map((winner) => (
+                      <div 
+                        key={winner.id} 
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                        onClick={() => {
+                          setSelectedWinner(winner);
+                          setIsWinnerDialogOpen(true);
+                        }}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                            winner.redeemed ? 'bg-green-100 text-green-600' : 'bg-purple-100 text-purple-600'
+                          }`}>
+                            {winner.redeemed ? <CheckCircle size={20} /> : <Trophy size={20} />}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{winner.name}</p>
+                            <p className="text-sm text-gray-600 flex items-center gap-1">
+                              <Gift size={12} className="text-purple-600" /> {winner.prize}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge variant={winner.redeemed ? "outline" : "default"} className={winner.redeemed ? "bg-green-100 text-green-800" : "bg-purple-600"}>
+                            {winner.redeemed ? 'Resgatado' : 'Aguardando Resgate'}
+                          </Badge>
+                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock size={10} /> {formatDate(winner.createdAt)}
                           </p>
                         </div>
                       </div>
@@ -303,6 +389,62 @@ export default function RedemptionOrders() {
                       </Button>
                     )}
                   </div>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Detalhes do Vencedor Pré-Mix */}
+        <Dialog open={isWinnerDialogOpen} onOpenChange={setIsWinnerDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Resgate Pré-Mix</DialogTitle>
+              <DialogDescription>
+                Validação de prêmio sorteado.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedWinner && (
+              <div className="grid gap-6 py-4">
+                <div className="flex flex-col items-center justify-center bg-purple-50 p-6 rounded-xl border border-purple-100">
+                  <p className="text-sm text-purple-600 font-semibold mb-2 uppercase tracking-wider">Código de Resgate</p>
+                  <p className="text-4xl font-black text-purple-900 tracking-[0.2em]">{selectedWinner.rescueCode}</p>
+                </div>
+
+                <div className="grid gap-4 bg-white p-4 rounded-lg border">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="text-gray-500 text-sm">Vencedor:</span>
+                    <span className="font-semibold text-gray-900">{selectedWinner.name}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="text-gray-500 text-sm">CPF:</span>
+                    <span className="font-mono text-xs">{selectedWinner.cpf}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="text-gray-500 text-sm">Prêmio:</span>
+                    <span className="font-semibold text-purple-700">{selectedWinner.prize}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-sm">Data do Sorteio:</span>
+                    <span className="text-sm">{formatDate(selectedWinner.createdAt)}</span>
+                  </div>
+                </div>
+
+                <DialogFooter className="flex gap-2 sm:justify-center mt-2">
+                  <Button variant="outline" onClick={() => setIsWinnerDialogOpen(false)}>
+                    Voltar
+                  </Button>
+                  
+                  {!selectedWinner.redeemed && (
+                    <Button 
+                      className="bg-green-600 hover:bg-green-700 flex-1" 
+                      onClick={() => handleWinnerRedeem(selectedWinner.id)}
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Entregar Prêmio
+                    </Button>
+                  )}
                 </DialogFooter>
               </div>
             )}

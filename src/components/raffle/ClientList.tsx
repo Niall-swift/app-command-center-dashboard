@@ -128,6 +128,7 @@ export default function ClientList({
             {filteredClients.map((client) => (
               <div
                 key={client.id}
+                onClick={() => onClientToggle(client)}
                 className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-300 ${
                   isSelected(client)
                     ? 'border-purple-500 bg-purple-50 shadow-lg'
@@ -135,10 +136,7 @@ export default function ClientList({
                 }`}
               >
                   <div className="flex items-center justify-between">
-                    <div 
-                      className="flex items-center gap-3 flex-1"
-                      onClick={() => onClientToggle(client)}
-                    >
+                    <div className="flex items-center gap-3 flex-1">
                       <div className="relative">
                         <Avatar className="w-12 h-12">
                           <AvatarImage src={client.avatar} alt={client.name || 'Unknown'} />
