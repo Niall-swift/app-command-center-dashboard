@@ -27,6 +27,14 @@ export interface WelcomeMessageLog {
   timestamp: string;
 }
 
+
+export interface UserSession {
+  lastIntent?: string;
+  state?: 'IDLE' | 'WAITING_FOR_CPF';
+  updatedAt: any;
+  phone: string;
+}
+
 export interface WhapiResponse {
   sent: boolean;
   id?: string;

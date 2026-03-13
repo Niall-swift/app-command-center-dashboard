@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ const IXCConsulta: React.FC = () => {
 
   const [selectedClient, setSelectedClient] = useState<IXCClienteData | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'testing' | 'connected' | 'disconnected' | null>(null);
+  const navigate = useNavigate();
 
   // Testar conexão com a API
   const testConnection = async () => {
@@ -601,7 +603,14 @@ const IXCConsulta: React.FC = () => {
                   <Separator />
 
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
+                    <Button 
+                      className="bg-primary hover:bg-primary/90" 
+                      onClick={() => navigate(`/ixc/cliente/${selectedClient.id}`)}
+                    >
+                      <Database className="w-4 h-4 mr-2" />
+                      Abrir Dashboard
+                    </Button>
+                    <Button variant="outline" size="sm" className="hidden md:flex">
                       <ExternalLink className="w-3 h-3 mr-2" />
                       Abrir no IXC
                     </Button>

@@ -73,7 +73,16 @@ export interface IXCFaturaData {
   link_getwere?: string;
   gateway_link?: string;
   url_boleto?: string;
+  pix_qrcode?: string; // QR Code em base64 ou link
+  pix_copia_e_cola?: string;
   [key: string]: unknown;
+}
+
+export interface IXCPixData {
+  qrcode: string;
+  qrcode_text: string;
+  id_pix?: string;
+  status?: string;
 }
 
 // Tipos para Tickets/Chamados
@@ -168,4 +177,18 @@ export interface IXCSearchState {
   searchValue: string;
   totalResults: number;
   currentPage: number;
+}
+// Tipos para consumo de banda
+export interface IXCBandwidthUsage {
+  id_login: string;
+  data: string; // YYYY-MM-DD
+  download: number; // em bytes ou formatado
+  upload: number;
+  total?: number;
+}
+
+export interface IXCUsageSeries {
+  date: string;
+  download: number;
+  upload: number;
 }

@@ -30,6 +30,7 @@ import RedemptionOrders from "./pages/RedemptionOrders";
 import Rewards from "./pages/Rewards";
 import Leaderboard from "./pages/Leaderboard";
 import MyReferrals from "./pages/MyReferrals";
+import IXCClientDetails from "./pages/IXCClientDetails";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,6 +53,7 @@ function AnimatedRoutes() {
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
         <Route path="/ixc/consulta" element={<IXCConsulta />} />
+        <Route path="/ixc/cliente/:id" element={<IXCClientDetails />} />
         <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
         <Route path="/ixc/tickets" element={<IXCTickets />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />

@@ -35,13 +35,19 @@ export const pointsService = {
         const userDoc = await transaction.get(userRef);
 
         if (!userDoc.exists()) {
-          throw new Error('Usuário não encontrado');
+          // Se o usuário não existe, criar o documento inicial
+          transaction.set(userRef, {
+            points: amount,
+            createdAt: serverTimestamp(),
+            email: '', // Pode ser preenchido depois se necessário
+            name: ''
+          });
+        } else {
+          // Se existe, apenas incrementar
+          transaction.update(userRef, {
+            points: increment(amount)
+          });
         }
-
-        // Atualizar saldo do usuário
-        transaction.update(userRef, {
-          points: increment(amount)
-        });
 
         // Registrar histórico
         const historyRef = doc(collection(db, POINTS_HISTORY_COLLECTION));
