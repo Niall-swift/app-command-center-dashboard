@@ -1,0 +1,50 @@
+﻿2026-03-13T14:11:36.707448Z ? whatsappWebhook:   text: '3´©ÅÔâúMotivo:  ***SEM C',
+2026-03-13T14:11:36.707451Z ? whatsappWebhook:   isGroup: true,
+2026-03-13T14:11:36.707454Z ? whatsappWebhook:   fromMe: true
+2026-03-13T14:11:36.707457Z ? whatsappWebhook: }
+2026-03-13T14:11:36.707519Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Grupo
+2026-03-13T14:11:36.708600236Z D whatsappWebhook: Function execution took 5 ms, finished with status code: 200
+2026-03-13T14:11:37.263509342Z D whatsappWebhook: Function execution started
+2026-03-13T14:11:37.267496Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"statuses":[{"id":"pT_eL2DeotW4VbRVOacDkQ-xHMA","code":4,"status":"read","recipient_id":"stories","timestamp":"1773411095","viewer_id":"5521996347114"},{"id":"pUggGV643BaygRy6iWWqTQ-xLEA","code":4,"status":"read","recipient_id":"stories","timestamp":"1773411095","viewer_id":"5521996347114"},{"id":"pYm5Y1FR91ZaxS8MrmivFA-xDMA","code":4,"status":"read","recipient_id":"stories","timestamp":"1773411093","viewer_id":"5521996347114"}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:11:37.267796Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:11:37.267805Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:11:37.267809Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:11:37.267812Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:11:37.267816Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:11:37.267819Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:11:37.267823Z ? whatsappWebhook: }
+2026-03-13T14:11:37.267840Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:11:37.269102913Z D whatsappWebhook: Function execution took 5 ms, finished with status code: 200
+2026-03-13T14:11:37.366396452Z D whatsappWebhook: Function execution started
+2026-03-13T14:11:37.369906Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"chats_updates":[{"before_update":{"id":"120363040961050323@g.us","type":"group","timestamp":1773410396,"name":"EQUIPE AVL ","pin":true,"not_spam":true,"last_message":{"id":"rH_DzhDAKA7ZFn0A6darDA-gpcBq52MTJG20w","from_me":false,"type":"text","chat_id":"120363040961050323@g.us","timestamp":1773410395,"source":"mobile","text":{"body":"Finalizado"},"context":{"quoted_id":"PrAvcEMmbb9WFoY-wkQBq52MTJG20w","quoted_author":"552134867465","quoted_content":{"body":"2´©ÅÔâúMotivo:  ****SEM CONEX├âO******\nPLANO:  300MB\nLOGUIN E SENHA:   vanessa.paula111\n\nVANESSA DE PAULA SANTOS\n\nEndere├ºo: Rua Ramalho Torres CEP: 26061-314 N├║mero: 281 Condom├¡nio: Bairro: Vila Ga├║cha Apartamento: - Cidade: Nova Igua├ºu - RJ Complemento: AO LADO DA OFICINA DO FERRUGEM Refer├¬ncia:\n\nCPF: 111.317.257-60 Celular: (21) 98284-1707 Skype: Telefone: (21) 99074-5564 Whatsapp: (21) 98284-1707 Telefone comercial: (21) 99074-5564"},"quoted_type":"text"},"from":"5521969194354","from_name":"Dani"},"labels":[{"id":"4","name":"­ƒæ¿ÔÇì­ƒÆ╗PARCEIROS DA AVL TELECOM­ƒæ¿ÔÇì­ƒÆ╝","color":"rebeccapurple"}]},"after_update":{"id":"120363040961050323@g.us","type":"group","timestamp":1773411096,"name":"EQUIPE AVL ","pin":true,"not_spam":true,"last_message":{"id":"PrCvvJT48NfEkVg-wucBq52MTJG20w","from_me":true,"type":"text","chat_id":"120363040961050323@g.us","timestamp":1773411096,"source":"web","status":"sent","text":{"body":"3´©ÅÔâúMotivo:  ***SEM CONEX├âO****\nLOGIN E SENHA:  charles.lopes535\nPLANO: 50MB\n\nCHARLES LOPES DA SILVA\n\nEndere├ºo: Estrada Amba├¡ - Figueira CEP: 26051-770 N├║mero: 797 Condom├¡nio: Bairro: Amba├¡ Apartamento: - Cidade: Nova Igua├ºu - RJ Complemento: Refer├¬ncia:\n\nCPF: 535.559.377-15 Celular: (21) 98885-6149 Skype: Telefone: (21) 98885-6149 Whatsapp: (21) 98885-6149 Telefone comercial: (21) 98885-6149"},"from":"552134867465","from_name":"EQUIPE AVL TELECOM LTDA"},"labels":[{"id":"4","name":"­ƒæ¿ÔÇì­ƒÆ╗PARCEIROS DA AVL TELECOM­ƒæ¿ÔÇì­ƒÆ╝","color":"rebeccapurple"}]},"changes":["timestamp","last_message"]}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:11:37.370186Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:11:37.370191Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:11:37.370194Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:11:37.370197Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:11:37.370200Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:11:37.370203Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:11:37.370207Z ? whatsappWebhook: }
+2026-03-13T14:11:37.370257Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:11:37.371143796Z D whatsappWebhook: Function execution took 4 ms, finished with status code: 200
+2026-03-13T14:11:44.336407975Z D whatsappWebhook: Function execution started
+2026-03-13T14:11:44.340778Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"statuses":[{"id":"PrCvvJT48NfEkVg-wucBq52MTJG20w","code":4,"status":"read","recipient_id":"120363040961050323@g.us","timestamp":"1773411102","viewer_id":"5521990580680"}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:11:44.340986Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:11:44.340994Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:11:44.340998Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:11:44.341003Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:11:44.341007Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:11:44.341011Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:11:44.341015Z ? whatsappWebhook: }
+2026-03-13T14:11:44.341031Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:11:44.342442778Z D whatsappWebhook: Function execution took 6 ms, finished with status code: 200
+2026-03-13T14:11:47.898768910Z D whatsappWebhook: Function execution started
+2026-03-13T14:11:47.903435Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"statuses":[{"id":"PrCvvJT48NfEkVg-wucBq52MTJG20w","code":3,"status":"delivered","recipient_id":"120363040961050323@g.us","timestamp":"1773411104","viewer_id":"140187850002641@lid"}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:11:47.903770Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:11:47.903780Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:11:47.903784Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:11:47.903787Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:11:47.903791Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:11:47.903794Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:11:47.903798Z ? whatsappWebhook: }
+2026-03-13T14:11:47.903901Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:11:47.905664161Z D whatsappWebhook: Function execution took 6 ms, finished with status code: 200

@@ -1,0 +1,50 @@
+﻿2026-03-13T14:07:09.179313Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"messages":[{"id":"rHc1.OUxpjzfnd8_WqcaFw-hVFuXwUAgMg","from_me":false,"type":"text","chat_id":"5521966897836@s.whatsapp.net","timestamp":1773410828,"source":"mobile","text":{"body":"Num ├® vcs que mudam a├¡ no sistema n├úo??"},"from":"5521966897836","from_name":"Aline Santos"}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:07:09.179465Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:07:09.179478Z ? whatsappWebhook:   from: '5521966897836',
+2026-03-13T14:07:09.179483Z ? whatsappWebhook:   chatId: '5521966897836@s.whatsapp.net',
+2026-03-13T14:07:09.179488Z ? whatsappWebhook:   text: 'Num ├® vcs que mudam ',
+2026-03-13T14:07:09.179492Z ? whatsappWebhook:   isGroup: false,
+2026-03-13T14:07:09.179496Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:07:09.179500Z ? whatsappWebhook: }
+2026-03-13T14:07:09.408735Z ? whatsappWebhook: ÔØî Erro ao acessar Firestore (Sess├úo): 7 PERMISSION_DENIED: Missing or insufficient permissions.
+2026-03-13T14:07:09.565574Z ? whatsappWebhook: Erro no AiService: GoogleGenerativeAIFetchError: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+2026-03-13T14:07:09.565589Z ? whatsappWebhook:     at handleResponseNotOk (/workspace/node_modules/@google/generative-ai/dist/index.js:434:11)
+2026-03-13T14:07:09.565593Z ? whatsappWebhook:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-03-13T14:07:09.565596Z ? whatsappWebhook:     at async makeRequest (/workspace/node_modules/@google/generative-ai/dist/index.js:403:9)
+2026-03-13T14:07:09.565600Z ? whatsappWebhook:     at async generateContent (/workspace/node_modules/@google/generative-ai/dist/index.js:867:22)
+2026-03-13T14:07:09.565603Z ? whatsappWebhook:     at async AiService.detectIntent (/workspace/lib/services/aiService.js:35:28)
+2026-03-13T14:07:09.565607Z ? whatsappWebhook:     at async /workspace/lib/index.js:299:28 {
+2026-03-13T14:07:09.565610Z ? whatsappWebhook:   status: 404,
+2026-03-13T14:07:09.565614Z ? whatsappWebhook:   statusText: 'Not Found',
+2026-03-13T14:07:09.565618Z ? whatsappWebhook:   errorDetails: undefined
+2026-03-13T14:07:09.565622Z ? whatsappWebhook: }
+2026-03-13T14:07:09.565922Z ? whatsappWebhook: ­ƒñû IA Detectou: other
+2026-03-13T14:07:09.565964Z ? whatsappWebhook: ­ƒñÉ Ignorando mensagem (inten├º├úo n├úo relacionada a fatura): other
+2026-03-13T14:07:09.567072132Z D whatsappWebhook: Function execution took 390 ms, finished with status code: 200
+2026-03-13T14:07:16.665184486Z D whatsappWebhook: Function execution started
+2026-03-13T14:07:16.668218Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"chats_updates":[],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:07:16.668318Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:07:16.668325Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:07:16.668330Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:07:16.668334Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:07:16.668338Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:07:16.668343Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:07:16.668346Z ? whatsappWebhook: }
+2026-03-13T14:07:16.668350Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:07:16.669190124Z D whatsappWebhook: Function execution took 4 ms, finished with status code: 200
+2026-03-13T14:07:25.198346678Z D whatsappWebhook: Function execution started
+2026-03-13T14:07:25.201651Z ? whatsappWebhook: ­ƒô® Webhook recebido: {"chats_updates":[{"before_update":{"id":"5521966897836@s.whatsapp.net","type":"contact","timestamp":1773410782,"archive":true,"read_only":true,"not_spam":true,"last_message":{"id":"rHc1.OUxpjzfnd8_WqcaFw-hVFuXwUAgMg","from_me":false,"type":"text","chat_id":"5521966897836@s.whatsapp.net","timestamp":1773410844,"source":"mobile","text":{"body":"Num ├® vcs que mudam a├¡ no sistema n├úo??"},"from":"5521966897836","from_name":"Aline Santos"},"name":"ALINE OTAVIO DOS SANTOS / RUA VILA SAO CARLOS N`47","chat_pic":"https://pps.whatsapp.net/v/t61.24694-24/534414788_33672803132364245_4833418100779649286_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa4AHRhGFKEj96aokSq94kzTOB6kvvhVSp3qYiHraDGlFn8w&oe=69C113C1&_nc_sid=5e03e0&_nc_cat=109","chat_pic_full":"https://pps.whatsapp.net/v/t61.24694-24/534414788_33672803132364245_4833418100779649286_n.jpg?ccb=11-4&oh=01_Q5Aa4AF5OoXi-Ow-2jrxaK6sWbr50s9YONcHxjxKslYpvdyqoQ&oe=69C113C1&_nc_sid=5e03e0&_nc_cat=109"},"after_update":{"id":"5521966897836@s.whatsapp.net","type":"contact","timestamp":1773410844,"archive":true,"read_only":true,"not_spam":true,"last_message":{"id":"rHc1.OUxpjzfnd8_WqcaFw-hVFuXwUAgMg","from_me":false,"type":"text","chat_id":"5521966897836@s.whatsapp.net","timestamp":1773410844,"source":"mobile","text":{"body":"Num ├® vcs que mudam a├¡ no sistema n├úo??"},"from":"5521966897836","from_name":"Aline Santos"},"name":"ALINE OTAVIO DOS SANTOS / RUA VILA SAO CARLOS N`47","chat_pic":"https://pps.whatsapp.net/v/t61.24694-24/534414788_33672803132364245_4833418100779649286_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa4AHRhGFKEj96aokSq94kzTOB6kvvhVSp3qYiHraDGlFn8w&oe=69C113C1&_nc_sid=5e03e0&_nc_cat=109","chat_pic_full":"https://pps.whatsapp.net/v/t61.24694-24/534414788_33672803132364245_4833418100779649286_n.jpg?ccb=11-4&oh=01_Q5Aa4AF5OoXi-Ow-2jrxaK6sWbr50s9YONcHxjxKslYpvdyqoQ&oe=69C113C1&_nc_sid=5e03e0&_nc_cat=109"},"changes":["timestamp"]}],"channel_id":"SHAZAM-TMDZ8"}
+2026-03-13T14:07:25.201899Z ? whatsappWebhook: ­ƒöì Extra├¡do: {
+2026-03-13T14:07:25.201910Z ? whatsappWebhook:   from: undefined,
+2026-03-13T14:07:25.201916Z ? whatsappWebhook:   chatId: undefined,
+2026-03-13T14:07:25.201921Z ? whatsappWebhook:   text: undefined,
+2026-03-13T14:07:25.201931Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:07:25.201935Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:07:25.201940Z ? whatsappWebhook: }
+2026-03-13T14:07:25.201945Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:07:25.202772874Z D whatsappWebhook: Function execution took 4 ms, finished with status code: 200
+2026-03-13T14:07:25.542406Z ? whatsappWebhook:   isGroup: undefined,
+2026-03-13T14:07:25.542411Z ? whatsappWebhook:   fromMe: false
+2026-03-13T14:07:25.542416Z ? whatsappWebhook: }
+2026-03-13T14:07:25.542434Z ? whatsappWebhook: ÔÅ¡´©Å Ignorado: Sem texto
+2026-03-13T14:07:25.543271964Z D whatsappWebhook: Function execution took 3 ms, finished with status code: 200

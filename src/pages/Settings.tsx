@@ -5,9 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings2, Plus, Trash2, MessageSquare, Users, UserPlus } from 'lucide-react';
+import { Settings2, Plus, Trash2, MessageSquare, Users, UserPlus, Bot, Power } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
+import { db } from '@/config/firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { Switch } from '@/components/ui/switch';
+import { Label as LabelUI } from '@/components/ui/label';
 
 interface CustomMessage {
   id: string;
@@ -66,6 +70,31 @@ export default function Settings() {
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserRole, setNewUserRole] = useState<'tecnico' | 'atendente'>('atendente');
   const [isAddingUser, setIsAddingUser] = useState(false);
+
+  // Estado do Robô WhatsApp
+  const [botActive, setBotActive] = useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    const unsub = onSnapshot(doc(db, "bot_config", "global"), (snap) => {
+      if (snap.exists()) {
+        setBotActive(snap.data().active);
+      } else {
+        setBotActive(false);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleToggleBot = async (checked: boolean) => {
+    try {
+      await setDoc(doc(db, "bot_config", "global"), {
+        active: checked,
+        last_update: new Date()
+      }, { merge: true });
+    } catch (error) {
+      console.error("Erro ao atualizar status do robô:", error);
+    }
+  };
 
   const handleAddMessage = () => {
     if (newTitle.trim() && newContent.trim()) {
@@ -167,6 +196,61 @@ export default function Settings() {
             Configurações
           </h1>
           <p className="text-gray-600 mt-2">Gerencie suas configurações e equipe</p>
+        </motion.div>
+
+        {/* Seção de Configuração do Robô */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Card className={`border-2 transition-all duration-300 ${botActive ? 'border-green-500/50 shadow-lg shadow-green-500/5' : 'border-gray-200 shadow-sm'}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`p-2 rounded-lg ${botActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <Bot className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Assistente Virtual (Bot WhatsApp)</h3>
+                    <p className="text-sm font-normal text-muted-foreground">Controle a ativação do atendimento automático</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-secondary/20 p-2 rounded-full px-4 border">
+                  <span className={`text-xs font-bold uppercase ${botActive ? 'text-green-600' : 'text-gray-500'}`}>
+                    {botActive === null ? 'Carregando...' : botActive ? 'Ligado' : 'Desligado'}
+                  </span>
+                  <Switch 
+                    checked={botActive || false} 
+                    onCheckedChange={handleToggleBot}
+                    disabled={botActive === null}
+                  />
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-secondary/10 border border-secondary/20 flex items-start gap-4">
+                  <div className="p-2 rounded-full bg-blue-100 text-blue-600">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Saudação Ativa</p>
+                    <p className="text-xs text-muted-foreground italic">"Olá [Nome]! Como posso te ajudar hoje?"</p>
+                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/10 border border-secondary/20 flex items-start gap-4">
+                  <div className="p-2 rounded-full bg-purple-100 text-purple-600">
+                    <Power className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Comandos de Emergência</p>
+                    <p className="text-xs text-muted-foreground">Use #robo:desligar no WhatsApp para desativar remotamente.</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         {/* Seção de Gerenciamento de Usuários */}
