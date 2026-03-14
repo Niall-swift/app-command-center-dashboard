@@ -57,6 +57,7 @@
     "firebase": "^11.10.0",
     "firebase-admin": "^13.7.0",
     "framer-motion": "^12.15.0",
+    "http-proxy-middleware": "^3.0.5",
     "input-otp": "^1.2.4",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.462.0",

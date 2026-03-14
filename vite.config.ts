@@ -50,6 +50,9 @@ export default defineConfig(({ mode }) => ({
             type: 'image/png'
           }
         ]
+      },
+      workbox: {
+        maximumFileSizeToCacheInBytes: 3000000,
       }
     }),
     mode === 'development' &&

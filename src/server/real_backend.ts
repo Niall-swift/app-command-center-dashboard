@@ -7,6 +7,7 @@ import admin from 'firebase-admin';
 import { WhatsAppService } from './services/whatsappService';
 import { IXCBackendService } from './services/ixcService';
 import { AiService } from './services/aiService';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 // --- Firebase Admin Init ---
 const saPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
@@ -30,10 +31,9 @@ try {
         projectId: projectId
       });
       console.log(`✅ Firebase Admin: Inicializado (ProjectId: ${projectId})`);
+      console.log(`⚠️ AVISO: serviceAccountKey.json nao encontrado. O Dashboard vai funcionar, mas os Listeners (Bot WhatsApp) podem precisar de credenciais padrão do Google.`);
     }
   }
-  
-  console.log('DEBUG: App Options:', admin.app().options);
 } catch (e: any) {
   console.log('⚠️ Erro Firebase Init:', e.message);
 }
@@ -60,6 +60,62 @@ if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     console.log(`📂 Servindo frontend de: ${distPath}`);
 }
+
+// Proxies para APIs Externas (Replicando vite.config.ts para produção)
+app.use('/api/ixc', createProxyMiddleware({
+    target: 'https://coopertecisp.com.br/webservice/v1',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/api/ixc': '',
+    },
+    followRedirects: true,
+    on: {
+        proxyReq: (proxyReq, req, res) => {
+            console.log(`🌐 [Proxy IXC] Request: ${req.method} ${proxyReq.path}`);
+            // Garantir que o body do POST seja repassado corretamente em proxies de Node.js
+            if ((req.method === 'POST' || req.method === 'PUT') && (req as any).body) {
+                const bodyData = JSON.stringify((req as any).body);
+                proxyReq.setHeader('Content-Type', 'application/json');
+                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                proxyReq.write(bodyData);
+            }
+            proxyReq.setHeader('Origin', 'https://coopertecisp.com.br');
+        },
+        proxyRes: (proxyRes, req, res) => {
+            console.log(`📡 [Proxy IXC] Response: ${proxyRes.statusCode} from ${req.url}`);
+        },
+        error: (err, req, res) => {
+            console.error('❌ [Proxy IXC] Error:', err.message);
+        }
+    },
+    secure: false 
+}));
+
+app.use('/api/smartolt', createProxyMiddleware({
+    target: 'https://api.smartolt.com',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/api/smartolt': '/api/v2',
+    },
+    on: {
+        proxyReq: (proxyReq, req, res) => {
+            console.log(`📡 [Proxy SmartOLT] Request: ${req.method} ${proxyReq.path}`);
+            if ((req.method === 'POST' || req.method === 'PUT') && (req as any).body) {
+                const bodyData = JSON.stringify((req as any).body);
+                proxyReq.setHeader('Content-Type', 'application/json');
+                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                proxyReq.write(bodyData);
+            }
+        },
+        proxyRes: (proxyRes, req, res) => {
+            console.log(`📡 [Proxy SmartOLT] Response: ${proxyRes.statusCode} from ${req.url}`);
+        },
+        error: (err, req, res) => {
+            console.error('❌ [Proxy SmartOLT] Error:', err.message);
+        }
+    },
+    secure: true
+}));
 
 // --- Instanciar Serviços ---
 const ixcService = new IXCBackendService(process.env.IXC_HOST || process.env.VITE_IXC_HOST || '', process.env.IXC_TOKEN || process.env.VITE_IXC_TOKEN || '');
@@ -242,7 +298,7 @@ async function handleInvoiceRequest(cliente: any, from: string) {
 }
 
 // Fallback para SPA (Single Page Application) - Deve ser depois de todas as rotas de API
-app.get('*', (req, res) => {
+app.use((req, res) => {
     const distPath = path.resolve(process.cwd(), 'dist', 'index.html');
     if (fs.existsSync(distPath)) {
         res.sendFile(distPath);
