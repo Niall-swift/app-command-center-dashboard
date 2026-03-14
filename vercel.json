@@ -3,6 +3,18 @@
         {
             "source": "/api/ixc/:path*",
             "destination": "/api/ixc"
+        },
+        {
+            "source": "/api/smartolt/:path*",
+            "destination": "/api/smartolt"
+        },
+        {
+            "source": "/webhook/whatsapp",
+            "destination": "/api/whatsapp-webhook"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/"
         }
     ]
 }
