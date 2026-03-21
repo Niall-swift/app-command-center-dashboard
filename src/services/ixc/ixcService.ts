@@ -12,7 +12,9 @@ import type {
   IXCApiResponse,
   IXCUsageSeries,
   IXCBandwidthUsage,
-  IXCCaixaData
+  IXCCaixaData,
+  IXCPosteData,
+  IXCPopData
 } from '@/types/ixc';
 
 export interface IXCParams {
@@ -960,6 +962,80 @@ class IXCService {
       return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
     });
   }
+
+  /**
+   * Busca TODAS as caixas FTTH que possuem coordenadas geográficas (recursivo)
+   */
+  async fetchAllCaixasComCoordenadas(onProgress?: (total: number) => void): Promise<IXCCaixaData[]> {
+    const caixas = await this.fetchAllRecords<IXCCaixaData>(
+      '/rad_caixa_ftth',
+      { qtype: 'rad_caixa_ftth.id', query: '0', oper: '>', sortname: 'rad_caixa_ftth.id', sortorder: 'desc' },
+      onProgress
+    );
+    return caixas.filter(c => {
+      const lat = parseFloat(String(c.latitude || '').replace(',', '.'));
+      const lng = parseFloat(String(c.longitude || '').replace(',', '.'));
+      return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+    });
+  }
+
+  /**
+   * Busca TODOS os logins que possuem coordenadas geográficas (recursivo)
+   */
+  async fetchAllLoginsComCoordenadas(onProgress?: (total: number) => void): Promise<IXCLoginData[]> {
+    const logins = await this.fetchAllRecords<IXCLoginData>(
+      '/radusuarios',
+      { qtype: 'radusuarios.ativo', query: 'S', oper: '=', sortname: 'radusuarios.id', sortorder: 'desc' },
+      onProgress
+    );
+    return logins.filter(l => {
+      const lat = parseFloat(String(l.latitude || '').replace(',', '.'));
+      const lng = parseFloat(String(l.longitude || '').replace(',', '.'));
+      return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+    });
+  }
+  /**
+   * Busca postes com coordenadas geográficas.
+   * Tenta endpoints comuns do IXC; retorna [] silenciosamente se não existir.
+   */
+  async getPostesComCoordenadas(): Promise<IXCPosteData[]> {
+    try {
+      const response = await this.makeRequest<IXCApiResponse<IXCPosteData>>('/poste', {
+        qtype: 'poste.id', query: '0', oper: '>', page: '1', rp: '1000',
+        sortname: 'poste.id', sortorder: 'desc',
+      });
+      const postes = response.registros || [];
+      return postes.filter(p => {
+        const lat = parseFloat(String(p.latitude || '').replace(',', '.'));
+        const lng = parseFloat(String(p.longitude || '').replace(',', '.'));
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Busca POPs (Pontos de Presença) com coordenadas.
+   * Tenta endpoints comuns do IXC; retorna [] silenciosamente se não existir.
+   */
+  async getPopsComCoordenadas(): Promise<IXCPopData[]> {
+    try {
+      const response = await this.makeRequest<IXCApiResponse<IXCPopData>>('/pop_anel', {
+        qtype: 'pop_anel.id', query: '0', oper: '>', page: '1', rp: '1000',
+        sortname: 'pop_anel.id', sortorder: 'desc',
+      });
+      const pops = response.registros || [];
+      return pops.filter(p => {
+        const lat = parseFloat(String(p.latitude || '').replace(',', '.'));
+        const lng = parseFloat(String(p.longitude || '').replace(',', '.'));
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      });
+    } catch {
+      return [];
+    }
+  }
+
   // ==================== MÉTODOS DE BUSCA TOTAL (PAGINAÇÃO AUTOMÁTICA) ====================
 
   /**

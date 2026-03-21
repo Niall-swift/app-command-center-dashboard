@@ -1,486 +1,423 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import {
-  Navigation,
-  Route,
-  MapPin,
-  Play,
-  Square,
-  MapPinPlus,
-  Signal as SignalIcon,
-  RefreshCw,
-  Users,
-  Server
+  ChevronLeft, ChevronRight, Search, Layers, Signal as SignalIcon,
+  Server, Users, Home, Wifi, Circle, Zap, RefreshCw, Eye, EyeOff,
+  MapPin, Radio
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { ixcService } from '@/services/ixc/ixcService';
-import { IXCLoginData, IXCCaixaData } from '@/types/ixc';
+import { IXCLoginData, IXCCaixaData, IXCPosteData, IXCPopData } from '@/types/ixc';
 import { smartOltService } from '@/services/smartolt/smartOltService';
 import { SmartOltOnu, SmartOltOlt } from '@/types/smartOlt';
 import {
   APIProvider,
   Map as GoogleMap,
-  AdvancedMarker, 
-  InfoWindow, 
-  useMap, 
+  AdvancedMarker,
+  InfoWindow,
+  useMap,
   MapCameraChangedEvent
 } from '@vis.gl/react-google-maps';
 
-// Interface for static network points
-interface NetworkPoint {
-  id: string;
-  name: string;
-  coordinates: [number, number];
-  type: 'tower' | 'station' | 'repeater';
-  status: 'active' | 'inactive' | 'maintenance';
-}
-
-// Interface for technicians
 interface Technician {
-  id: string;
-  name: string;
-  coordinates: [number, number];
-  email: string;
-  lastUpdate: string;
-  status: 'online' | 'offline';
+  id: string; name: string; coordinates: [number, number];
+  email: string; lastUpdate: string; status: 'online' | 'offline';
 }
 
-// Polyline component for Google Maps
-const Polyline = (props: { points: google.maps.LatLngLiteral[], color: string, weight: number, opacity: number }) => {
+// ---------- Polyline Component ----------
+const Polyline = ({ points, color, weight, opacity, dashed }: {
+  points: google.maps.LatLngLiteral[]; color: string; weight: number; opacity: number; dashed?: boolean;
+}) => {
   const map = useMap();
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
-
+  const ref = useRef<google.maps.Polyline | null>(null);
   useEffect(() => {
     if (!map) return;
-
-    polylineRef.current = new google.maps.Polyline({
-      path: props.points,
-      geodesic: true,
-      strokeColor: props.color,
-      strokeOpacity: props.opacity,
-      strokeWeight: props.weight,
-      icons: [{
-        icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2 },
-        offset: '0',
-        repeat: '20px'
-      }],
-      map: map,
+    ref.current = new google.maps.Polyline({
+      path: points, geodesic: true, strokeColor: color,
+      strokeOpacity: dashed ? 0 : opacity, strokeWeight: weight,
+      icons: dashed ? [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: opacity, scale: weight }, offset: '0', repeat: '12px' }] : [],
+      map,
     });
-
-    return () => {
-      if (polylineRef.current) {
-        polylineRef.current.setMap(null);
-      }
-    };
-  }, [map, props.points, props.color, props.opacity, props.weight]);
-
+    return () => { ref.current?.setMap(null); };
+  }, [map, points, color, opacity, weight, dashed]);
   return null;
 };
 
-const Frag = ({ children }: { children: React.ReactNode, [key: string]: any }) => <>{children}</>;
+// ---------- Layer Config ----------
+type LayerId = 'logins' | 'ctos' | 'olts' | 'technicians' | 'cables' | 'postes' | 'pops' | 'standalone';
+interface LayerConfig { id: LayerId; label: string; icon: React.ReactNode; color: string; defaultOn: boolean; }
+const LAYERS: LayerConfig[] = [
+  { id: 'logins',      label: 'Logins / Clientes', icon: <Home className="w-3.5 h-3.5" />,       color: '#3b82f6', defaultOn: true },
+  { id: 'ctos',        label: 'CTOs (Caixas)',      icon: <Circle className="w-3.5 h-3.5" />,     color: '#8b5cf6', defaultOn: true },
+  { id: 'cables',      label: 'Cabos Drop',         icon: <Zap className="w-3.5 h-3.5" />,        color: '#06b6d4', defaultOn: true },
+  { id: 'olts',        label: 'OLTs SmartOLT',      icon: <Server className="w-3.5 h-3.5" />,     color: '#1d4ed8', defaultOn: true },
+  { id: 'technicians', label: 'Técnicos',           icon: <Users className="w-3.5 h-3.5" />,      color: '#10b981', defaultOn: true },
+  { id: 'standalone',  label: 'Clientes Avulsos',   icon: <Home className="w-3.5 h-3.5" />,       color: '#94a3b8', defaultOn: false },
+  { id: 'postes',      label: 'Postes',             icon: <Radio className="w-3.5 h-3.5" />,      color: '#6b7280', defaultOn: false },
+  { id: 'pops',        label: 'POPs',               icon: <Wifi className="w-3.5 h-3.5" />,       color: '#f59e0b', defaultOn: false },
+];
+
+// ---------- Custom SVG Markers ----------
+const HomeSvg = ({ color }: { color: string }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill={color} stroke="white" strokeWidth="1.5">
+    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+    <polyline points="9,22 9,12 15,12 15,22"/>
+  </svg>
+);
+const CtoSvg = ({ color, label }: { color: string; label: string }) => (
+  <div style={{
+    backgroundColor: color, color: 'white', borderRadius: '50%',
+    width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: '2px solid white', boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+    fontSize: '9px', fontWeight: 700, lineHeight: 1
+  }}>{label}</div>
+);
+const PosteSvg = () => (
+  <svg width="14" height="28" viewBox="0 0 14 28" fill="none">
+    <rect x="5" y="0" width="4" height="22" rx="2" fill="#6b7280"/>
+    <rect x="0" y="6" width="14" height="3" rx="1.5" fill="#9ca3af"/>
+    <circle cx="7" cy="24" r="3" fill="#4b5563" stroke="white" strokeWidth="1"/>
+  </svg>
+);
+const PopSvg = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="#f59e0b" stroke="white" strokeWidth="1.5">
+    <polygon points="12,2 22,20 2,20"/>
+  </svg>
+);
+
+const Frag = ({ children }: { children: React.ReactNode; [k: string]: unknown }) => <>{children}</>;
+
+// ---------- Helpers ----------
+const parseCoord = (v?: string | number | null): number => {
+  const n = parseFloat(String(v || '').replace(',', '.'));
+  return isNaN(n) ? NaN : n;
+};
+const getCtoColor = (cap?: string, occ?: string): string => {
+  const c = parseInt(cap || '0'); const o = parseInt(occ || '0');
+  if (!c) return '#8b5cf6';
+  const pct = o / c;
+  if (pct < 0.7) return '#10b981';
+  if (pct < 0.9) return '#f59e0b';
+  return '#ef4444';
+};
+const getSignalColor = (sinal?: string, smartStatus?: string): string => {
+  if (smartStatus === 'online')  return '#10b981';
+  if (smartStatus === 'los')     return '#ef4444';
+  if (smartStatus === 'offline') return '#f59e0b';
+  const s = parseFloat((sinal || '').replace(/[^-0-9.]/g, ''));
+  if (isNaN(s)) return '#3b82f6';
+  if (s > -25) return '#10b981';
+  if (s > -28) return '#f59e0b';
+  return '#ef4444';
+};
+
+// ---------- Main Component ----------
 const NetworkMap = () => {
-  const [selectedPoint, setSelectedPoint] = useState<string>('');
-  const [routeType, setRouteType] = useState<string>('fastest');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showTechnicians, setShowTechnicians] = useState(true);
-  const [showOnus, setShowOnus] = useState(true);
-  const [showCaixas, setShowCaixas] = useState(true);
-  const [showOlts, setShowOlts] = useState(true);
-  const [routeCalculated, setRouteCalculated] = useState(false);
-  const [rideInProgress, setRideInProgress] = useState(false);
-  const [estimatedArrival, setEstimatedArrival] = useState<string>('');
-  const [addingPoint, setAddingPoint] = useState(false);
-  const [newPointName, setNewPointName] = useState('');
-  const [newPointType, setNewPointType] = useState<'tower' | 'station' | 'repeater'>('tower');
-  const [newPointStatus, setNewPointStatus] = useState<'active' | 'inactive' | 'maintenance'>('active');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [layers, setLayers] = useState<Record<LayerId, boolean>>(
+    Object.fromEntries(LAYERS.map(l => [l.id, l.defaultOn])) as Record<LayerId, boolean>
+  );
   const [mapStyle, setMapStyle] = useState<'roadmap' | 'satellite' | 'hybrid'>('roadmap');
-
-  const [onuPoints, setOnuPoints] = useState<(IXCLoginData & { clientName?: string; address?: string })[]>([]);
-  const [caixas, setCaixas] = useState<IXCCaixaData[]>([]);
-  const [smartOnus, setSmartOnus] = useState<SmartOltOnu[]>([]);
-  const [olts, setOlts] = useState<SmartOltOlt[]>([]);
-  const [smartGps, setSmartGps] = useState<Record<string, { lat: string, lng: string }>>({});
-  const [loadingOnus, setLoadingOnus] = useState(false);
-  const [loadingCaixas, setLoadingCaixas] = useState(false);
-  const [loadingOlts, setLoadingOlts] = useState(false);
-
-  const [activeInfoWindow, setActiveInfoWindow] = useState<{ type: string, id: string } | null>(null);
-  const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number }>({ lat: -25.4284, lng: -49.2748 });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeInfoWindow, setActiveInfoWindow] = useState<{ type: string; id: string } | null>(null);
+  const [mapCenter, setMapCenter] = useState({ lat: -25.4284, lng: -49.2748 });
   const [mapZoom, setMapZoom] = useState(13);
-
-  const [networkPoints, setNetworkPoints] = useState<NetworkPoint[]>([
-    { id: '1', name: 'Torre Central', coordinates: [-25.4284, -49.2748], type: 'tower', status: 'active' },
-    { id: '2', name: 'Estação Norte', coordinates: [-25.4184, -49.2648], type: 'station', status: 'active' },
-    { id: '3', name: 'Repetidor Sul', coordinates: [-25.4384, -49.2848], type: 'repeater', status: 'maintenance' },
-    { id: '4', name: 'Torre Oeste', coordinates: [-25.4284, -49.2948], type: 'tower', status: 'active' }
-  ]);
-
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
-  const { toast } = useToast();
-
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-  const isKeyValid = apiKey.startsWith('AIza') && apiKey.length > 20;
   const [apiLoaded, setApiLoaded] = useState(false);
 
+  // Data
+  const [logins, setLogins] = useState<(IXCLoginData & { clientName?: string })[]>([]);
+  const [ctos, setCtos] = useState<IXCCaixaData[]>([]);
+  const [postes, setPostes] = useState<IXCPosteData[]>([]);
+  const [pops, setPops] = useState<IXCPopData[]>([]);
+  const [olts, setOlts] = useState<SmartOltOlt[]>([]);
+  const [smartOnus, setSmartOnus] = useState<SmartOltOnu[]>([]);
+  const [techs, setTechs] = useState<Technician[]>([]);
+  const [standaloneClients, setStandaloneClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+
+  const { toast } = useToast();
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+  const isKeyValid = apiKey.startsWith('AIza') && apiKey.length > 20;
+
+  // Google API check
   useEffect(() => {
-    const checkGoogle = setInterval(() => {
-      if (typeof google !== 'undefined') {
-        setApiLoaded(true);
-        clearInterval(checkGoogle);
-      }
-    }, 500);
-    return () => clearInterval(checkGoogle);
+    const t = setInterval(() => { if (typeof google !== 'undefined') { setApiLoaded(true); clearInterval(t); } }, 500);
+    return () => clearInterval(t);
   }, []);
 
-  // Firestore Listener for Technicians
+  // Technicians (Firebase)
   useEffect(() => {
     const q = collection(db, 'technicians');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    return onSnapshot(q, snap => {
       const techs: Technician[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.location && data.location.latitude && data.location.longitude) {
-          const lastUpdateDate = new Date(data.lastUpdate);
-          const diffMinutes = (new Date().getTime() - lastUpdateDate.getTime()) / 60000;
-          techs.push({
-            id: doc.id,
-            name: data.email ? data.email.split('@')[0] : 'Técnico',
-            email: data.email || '',
-            coordinates: [data.location.latitude, data.location.longitude],
-            lastUpdate: data.lastUpdate,
-            status: diffMinutes < 15 ? 'online' : 'offline'
-          });
+      snap.forEach(doc => {
+        const d = doc.data();
+        if (d.location?.latitude && d.location?.longitude) {
+          const diff = (new Date().getTime() - new Date(d.lastUpdate).getTime()) / 60000;
+          techs.push({ id: doc.id, name: d.email?.split('@')[0] || 'Técnico', email: d.email || '',
+            coordinates: [d.location.latitude, d.location.longitude], lastUpdate: d.lastUpdate, status: diff < 15 ? 'online' : 'offline' });
         }
       });
-      setTechnicians(techs);
+      setTechs(techs);
     });
-    return () => unsubscribe();
   }, []);
 
-  // Fetch IXC Infrastructure
+  // IXC + SmartOLT data
   useEffect(() => {
-    const fetchInfrastructure = async () => {
-      setLoadingOnus(true);
-      setLoadingCaixas(true);
-      setLoadingOlts(true);
+    const load = async () => {
+      setLoading(true);
       try {
-        const [logins, allCaixas, activeClients, smartOltOnus, smartOltOlts, smartOltGps] = await Promise.all([
-          ixcService.getLoginsComCoordenadas(),
-          ixcService.getCaixasComCoordenadas(),
-          ixcService.getClientesAtivos(),
-          smartOltService.getOnus(),
-          smartOltService.getOlts(),
-          smartOltService.getOnuGpsCoordinates()
+        const [rawLogins, allCtos, allClients, rawPostes, rawPops, smartOnusRes, smartOltsRes] = await Promise.all([
+          ixcService.fetchAllLoginsComCoordenadas(),
+          ixcService.fetchAllCaixasComCoordenadas(),
+          ixcService.fetchAllClientesAtivos(),
+          ixcService.getPostesComCoordenadas(),
+          ixcService.getPopsComCoordenadas(),
+          smartOltService.getOnus().catch(() => [] as SmartOltOnu[]),
+          smartOltService.getOlts().catch(() => [] as SmartOltOlt[]),
         ]);
 
-        const clientMap = new Map(activeClients.map(c => [c.id, c]));
-        const enrichedLogins = logins.map(login => {
-          const client = clientMap.get(login.id_cliente || '');
-          return {
-            ...login,
-            clientName: client ? (client.razao || client.nome) : `Cliente ${login.id_cliente}`,
-            address: client ? `${client.endereco}, ${client.bairro}` : (login.endereco as string || 'Não informado')
-          };
+        const clientMap = new Map(allClients.map(c => [c.id, c]));
+        
+        // Logins enriched with client data
+        const enriched = rawLogins.map(l => ({
+          ...l, 
+          clientName: clientMap.get(l.id_cliente || '')?.razao || clientMap.get(l.id_cliente || '')?.nome || `Cliente ${l.id_cliente}`
+        }));
+
+        // Clients with Geo that are NOT represented in radusuarios records
+        const loginClientIds = new Set(rawLogins.map(l => l.id_cliente));
+        const standaloneClients = allClients.filter(c => {
+          const lat = parseCoord(c.latitude);
+          const lng = parseCoord(c.longitude);
+          return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0 && !loginClientIds.has(c.id);
         });
 
-        setOnuPoints(enrichedLogins);
-        setCaixas(allCaixas);
-        setSmartOnus(smartOltOnus);
-        setOlts(smartOltOlts);
-        setSmartGps(smartOltGps);
+        setLogins(enriched);
+        setCtos(allCtos);
+        setPostes(rawPostes);
+        setPops(rawPops);
+        setSmartOnus(smartOnusRes);
+        setOlts(smartOltsRes);
+        setStandaloneClients(standaloneClients);
 
-        if (enrichedLogins.length > 0 || allCaixas.length > 0) {
-          const lats = [
-            ...enrichedLogins.map(l => parseFloat(String(l.latitude || '').replace(',', '.'))),
-            ...allCaixas.map(c => parseFloat(String(c.latitude || '').replace(',', '.')))
-          ].filter(l => !isNaN(l));
-          const lngs = [
-            ...enrichedLogins.map(l => parseFloat(String(l.longitude || '').replace(',', '.'))),
-            ...allCaixas.map(c => parseFloat(String(c.longitude || '').replace(',', '.')))
-          ].filter(l => !isNaN(l));
+        // We can add standalone clients to a specific state or just merge them for display
+        // For now, let's just count them and maybe show them as a separate layer
+        setCounts({ 
+          logins: enriched.length, 
+          ctos: allCtos.length, 
+          postes: rawPostes.length, 
+          pops: rawPops.length, 
+          olts: smartOltsRes.length,
+          standalone: standaloneClients.length
+        });
 
-          if (lats.length > 0 && lngs.length > 0) {
-            setMapCenter({
-              lat: (Math.min(...lats) + Math.max(...lats)) / 2,
-              lng: (Math.min(...lngs) + Math.max(...lngs)) / 2
-            });
-          }
+        // Auto-center using ALL available points
+        const allPoints = [
+          ...enriched.map(l => ({ lat: parseCoord(l.latitude), lng: parseCoord(l.longitude) })),
+          ...allCtos.map(c => ({ lat: parseCoord(c.latitude), lng: parseCoord(c.longitude) })),
+          ...standaloneClients.map(c => ({ lat: parseCoord(c.latitude), lng: parseCoord(c.longitude) }))
+        ].filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+
+        if (allPoints.length > 0) {
+          const lats = allPoints.map(p => p.lat);
+          const lngs = allPoints.map(p => p.lng);
+          setMapCenter({ 
+            lat: (Math.min(...lats) + Math.max(...lats)) / 2, 
+            lng: (Math.min(...lngs) + Math.max(...lngs)) / 2 
+          });
         }
-      } catch (error) {
-        console.error("IXC Fetch Error:", error);
+      } catch (e) {
+        console.error('Erro ao carregar dados do mapa:', e);
+        toast({ title: 'Erro ao carregar mapa', description: 'Verifique a conexão com o IXC.', variant: 'destructive' });
       } finally {
-        setLoadingOnus(false);
-        setLoadingCaixas(false);
+        setLoading(false);
       }
     };
-    fetchInfrastructure();
+    load();
   }, []);
 
-  const addNewPoint = (coordinates: [number, number]) => {
-    if (!newPointName.trim()) return;
-    const newPoint: NetworkPoint = {
-      id: Date.now().toString(),
-      name: newPointName,
-      coordinates,
-      type: newPointType,
-      status: newPointStatus
-    };
-    setNetworkPoints(prev => [...prev, newPoint]);
-    setNewPointName('');
-    setAddingPoint(false);
-    toast({ title: "Ponto adicionado!", description: `${newPoint.name} foi adicionado ao mapa.` });
-  };
+  const toggleLayer = (id: LayerId) => setLayers(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const calculateDistance = (start: [number, number], end: [number, number]): number => {
-    const R = 6371;
-    const dLat = (end[0] - start[0]) * Math.PI / 180;
-    const dLon = (end[1] - start[1]) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(start[0] * Math.PI / 180) * Math.cos(end[0] * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return '#10b981';
-      case 'inactive': return '#ef4444';
-      case 'maintenance': return '#f59e0b';
-      default: return '#6b7280';
-    }
-  };
+  // Filter by search
+  const filtered = searchQuery
+    ? logins.filter(l => (l.clientName || '').toLowerCase().includes(searchQuery.toLowerCase()) || (l.login || '').toLowerCase().includes(searchQuery.toLowerCase()))
+    : logins;
 
   return (
-    <div className="space-y-4">
-      <style>
-        {`
-          @keyframes pulse-red {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-          }
-        `}
-      </style>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Route className="w-5 h-5" />
-            Controles do Mapa e Infraestrutura
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Buscar Ponto</label>
+    <div className="relative w-full" style={{ height: 'calc(100vh - 120px)', minHeight: '600px', background: '#1a1a2e' }}>
+      <style>{`
+        @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.7)} 70%{box-shadow:0 0 0 10px rgba(239,68,68,0)} }
+        .fbmap-sidebar { transition: width 0.3s ease, opacity 0.3s ease; }
+      `}</style>
+
+      {/* ===== LEFT SIDEBAR ===== */}
+      <div className="fbmap-sidebar absolute top-0 left-0 h-full z-20 flex flex-col"
+        style={{ width: sidebarOpen ? '260px' : '0px', overflow: 'hidden' }}>
+        <div className="h-full flex flex-col" style={{ width: '260px', background: 'rgba(15,23,42,0.96)', backdropFilter: 'blur(8px)', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+          {/* Header */}
+          <div className="p-3 border-b border-white/10">
+            <div className="flex items-center gap-2 mb-2">
+              <Layers className="w-4 h-4 text-blue-400" />
+              <span className="text-white font-semibold text-sm">Árvore de Elementos</span>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-gray-400" />
               <Input
-                placeholder="Nome do ponto..."
+                placeholder="Buscar elemento..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-7 h-7 text-xs bg-white/10 border-white/20 text-white placeholder:text-gray-500"
               />
             </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Destino</label>
-              <Select value={selectedPoint} onValueChange={setSelectedPoint}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um ponto" />
-                </SelectTrigger>
-                <SelectContent>
-                  {networkPoints
-                    .filter(point => point.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map(point => (
-                      <SelectItem key={point.id} value={point.id}>{point.name}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Tipo de Rota</label>
-              <Select value={routeType} onValueChange={setRouteType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fastest">Mais Rápida</SelectItem>
-                  <SelectItem value="shortest">Mais Curta</SelectItem>
-                  <SelectItem value="traffic">Evitar Trânsito</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              {!rideInProgress ? (
-                <Button onClick={() => {
-                  setRouteCalculated(true);
-                  setRideInProgress(true);
-                  toast({ title: "Simulação Iniciada", description: "Monitorando rota para " + selectedPoint });
-                }} className="mt-6" disabled={!selectedPoint}>
-                  <Navigation className="w-4 h-4 mr-2" />
-                  Iniciar Rota
-                </Button>
-              ) : (
-                <Button onClick={() => setRideInProgress(false)} variant="destructive" className="mt-6">
-                  <Square className="w-4 h-4 mr-2" />
-                  Parar Rota
-                </Button>
-              )}
-            </div>
-
-            <div className="flex flex-col justify-end gap-2">
-              <Button
-                onClick={() => setAddingPoint(!addingPoint)}
-                variant={addingPoint ? "destructive" : "outline"}
-                className="w-full"
-              >
-                <MapPinPlus className="w-4 h-4 mr-2" />
-                {addingPoint ? 'Cancelar' : 'Adicionar Ponto'}
-              </Button>
-              <div className="flex gap-1 mt-2">
-                <Button variant={mapStyle === 'roadmap' ? "default" : "outline"} size="sm" onClick={() => setMapStyle('roadmap')} className="text-[9px] h-6 px-1">Rua</Button>
-                <Button variant={mapStyle === 'satellite' ? "default" : "outline"} size="sm" onClick={() => setMapStyle('satellite')} className="text-[9px] h-6 px-1">Sat</Button>
-                <Button variant={mapStyle === 'hybrid' ? "default" : "outline"} size="sm" onClick={() => setMapStyle('hybrid')} className="text-[9px] h-6 px-1">Híb</Button>
+          </div>
+          {/* Layers List */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+            {loading && (
+              <div className="flex items-center gap-2 p-3 text-xs text-gray-400">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Carregando dados...
               </div>
-            </div>
-          </div>
-
-          {addingPoint && (
-            <div className="mt-4 p-4 border rounded-lg bg-blue-50/50">
-              <h3 className="text-sm font-bold text-blue-800 mb-3">Novo Ponto de Rede</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Input value={newPointName} onChange={(e) => setNewPointName(e.target.value)} placeholder="Nome da Torre/Repetidor" />
-                </div>
-                <div>
-                  <Select value={newPointType} onValueChange={(v: any) => setNewPointType(v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="tower">Torre</SelectItem>
-                      <SelectItem value="station">Estação</SelectItem>
-                      <SelectItem value="repeater">Repetidor</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="text-xs text-blue-600 flex items-center italic">
-                  * Clique no mapa para definir a localização
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-4">
-            <Button variant={showTechnicians ? "default" : "outline"} size="sm" onClick={() => setShowTechnicians(!showTechnicians)}>
-              <Users className="w-4 h-4 mr-1" /> {showTechnicians ? 'Ocultar' : 'Ver'} Técnicos
-            </Button>
-            <Button variant={showOnus ? "default" : "outline"} size="sm" onClick={() => setShowOnus(!showOnus)}>
-              {loadingOnus ? <RefreshCw className="w-4 h-4 animate-spin mr-1" /> : <SignalIcon className="w-4 h-4 mr-1" />}
-              {showOnus ? 'Ocultar' : 'Ver'} ONUs
-            </Button>
-            <Button variant={showCaixas ? "default" : "outline"} size="sm" onClick={() => setShowCaixas(!showCaixas)}>
-              {loadingCaixas ? <RefreshCw className="w-4 h-4 animate-spin mr-1" /> : <MapPin className="w-4 h-4 mr-1" />}
-              {showCaixas ? 'Ocultar' : 'Ver'} CTOs
-            </Button>
-            <Button variant={showOlts ? "default" : "outline"} size="sm" onClick={() => setShowOlts(!showOlts)}>
-              {loadingOlts ? <RefreshCw className="w-4 h-4 animate-spin mr-1" /> : <Server className="w-4 h-4 mr-1" />}
-              {showOlts ? 'Ocultar' : 'Ver'} OLTs
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="relative w-full h-[600px] rounded-xl overflow-hidden border shadow-inner bg-gray-100 flex items-center justify-center">
-        {!isKeyValid ? (
-          <div className="text-center p-8 max-w-md">
-            <div className="bg-red-100 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-              <SignalIcon className="w-8 h-8 text-red-600" />
-            </div>
-            <h3 className="text-lg font-bold text-red-800 mb-2">Chave de API Inválida</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              A chave atual não parece ser uma chave válida do Google Maps (deve começar com "AIza").
-              Por favor, verifique o arquivo .env.local.
-            </p>
-            <div className="bg-gray-800 text-white p-2 rounded text-[10px] font-mono break-all line-clamp-1">
-              {apiKey || 'Nenhuma chave configurada'}
-            </div>
-          </div>
-        ) : (
-          <APIProvider apiKey={apiKey}>
-            <GoogleMap
-              defaultCenter={mapCenter}
-              defaultZoom={mapZoom}
-              mapId="bf51a910020faedc"
-              mapTypeId={mapStyle}
-              onCameraChanged={(ev: MapCameraChangedEvent) => {
-                setMapCenter(ev.detail.center);
-                setMapZoom(ev.detail.zoom);
-              }}
-              onClick={(e) => {
-                if (addingPoint && e.detail.latLng) {
-                  addNewPoint([e.detail.latLng.lat, e.detail.latLng.lng]);
-                }
-              }}
-            >
-              {/* Technicians */}
-              {apiLoaded && showTechnicians && technicians.map(tech => (
-                <AdvancedMarker key={tech.id} position={{ lat: tech.coordinates[0], lng: tech.coordinates[1] }} onClick={() => setActiveInfoWindow({ type: 'tech', id: tech.id })}>
-                  <div style={{
-                    backgroundColor: tech.status === 'online' ? '#10b981' : '#6b7280',
-                    color: 'white', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.3)', fontSize: '10px', fontWeight: 'bold'
-                  }}>User</div>
-                  {activeInfoWindow?.type === 'tech' && activeInfoWindow.id === tech.id && (
-                    <InfoWindow position={{ lat: tech.coordinates[0], lng: tech.coordinates[1] }} onCloseClick={() => setActiveInfoWindow(null)}>
-                      <div className="p-2">
-                        <h3 className="font-bold">{tech.name}</h3>
-                        <p className="text-xs">{tech.email}</p>
-                        <Badge variant={tech.status === 'online' ? 'default' : 'secondary'} className="mt-1">{tech.status}</Badge>
-                      </div>
-                    </InfoWindow>
+            )}
+            {LAYERS.map(layer => {
+              const count = counts[layer.id];
+              const isOn = layers[layer.id];
+              const hide = (layer.id === 'postes' && !loading && (counts.postes || 0) === 0) ||
+                           (layer.id === 'pops' && !loading && (counts.pops || 0) === 0);
+              if (hide) return null;
+              return (
+                <button key={layer.id} onClick={() => toggleLayer(layer.id)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-left transition-all hover:bg-white/10 group">
+                  <div className="w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all"
+                    style={{ borderColor: isOn ? layer.color : '#4b5563', background: isOn ? layer.color : 'transparent' }}>
+                    {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><path d="M1 5L4 8L9 2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>}
+                  </div>
+                  <span style={{ color: layer.color }} className="flex-shrink-0">{layer.icon}</span>
+                  <span className="text-gray-300 text-xs flex-1 truncate">{layer.label}</span>
+                  {count !== undefined && count > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
+                      style={{ background: isOn ? layer.color + '33' : '#ffffff11', color: isOn ? layer.color : '#6b7280' }}>
+                      {count}
+                    </span>
                   )}
-                </AdvancedMarker>
-              ))}
+                  <span className="opacity-0 group-hover:opacity-100 text-gray-500 flex-shrink-0">
+                    {isOn ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/* Legend */}
+          <div className="p-3 border-t border-white/10 space-y-1.5">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Legendas – Sinal</p>
+            {[['#10b981', 'Online / Sinal OK'], ['#f59e0b', 'Offline / Alerta'], ['#ef4444', 'LOS / Crítico']].map(([c, l]) => (
+              <div key={c} className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c }} />
+                <span className="text-[10px] text-gray-400">{l}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 mt-1">
+              <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: '#8b5cf6' }} />
+              <span className="text-[10px] text-gray-400">CTO (verde &lt;70% / laranja &lt;90% / vermelho ≥90%)</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-              {/* OLTs */}
-              {apiLoaded && showOlts && olts.map(olt => {
-                // @ts-ignore - a API pode retornar lat/lng se configurado
-                const lat = parseFloat(olt.latitude || olt.gps_lat);
-                // @ts-ignore
-                const lng = parseFloat(olt.longitude || olt.gps_lng);
-                
-                if (isNaN(lat) || isNaN(lng)) return null;
+      {/* ===== TOGGLE SIDEBAR BUTTON ===== */}
+      <button
+        onClick={() => setSidebarOpen(p => !p)}
+        className="absolute top-3 z-30 w-6 h-12 flex items-center justify-center rounded-r-lg transition-all hover:opacity-90"
+        style={{ left: sidebarOpen ? '260px' : '0px', background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none' }}>
+        {sidebarOpen ? <ChevronLeft className="w-3.5 h-3.5 text-gray-300" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-300" />}
+      </button>
 
-                return (
-                  <Frag key={olt.id}>
-                    <AdvancedMarker 
-                    position={{ lat, lng }}
-                    onClick={() => setActiveInfoWindow({ type: 'olt', id: olt.id })}
-                  >
-                    <div style={{ 
-                      backgroundColor: '#1e3a8a', 
-                      color: 'white', 
-                      borderRadius: '4px', 
-                      padding: '4px',
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      border: '2px solid white', 
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                    }}>
+      {/* ===== TOP TOOLBAR ===== */}
+      <div className="absolute top-3 right-3 z-20 flex gap-2 items-center">
+        <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(15,23,42,0.92)' }}>
+          {(['roadmap','satellite','hybrid'] as const).map(s => (
+            <button key={s} onClick={() => setMapStyle(s)}
+              className="px-3 py-1.5 text-[10px] font-medium transition-all"
+              style={{ background: mapStyle === s ? '#3b82f6' : 'transparent', color: mapStyle === s ? 'white' : '#9ca3af' }}>
+              {s === 'roadmap' ? 'Mapa' : s === 'satellite' ? 'Satélite' : 'Híbrido'}
+            </button>
+          ))}
+        </div>
+        {!loading && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-green-300"
+            style={{ background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(34,197,94,0.3)' }}>
+            <Zap className="w-3 h-3 text-green-400" /> Dados 100% Carregados
+          </div>
+        )}
+        {loading && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-blue-300"
+            style={{ background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(59,130,246,0.3)' }}>
+            <RefreshCw className="w-3 h-3 animate-spin" /> Carregando...
+          </div>
+        )}
+      </div>
+
+      {/* ===== MAP ===== */}
+      {!isKeyValid ? (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="text-center p-8 bg-white/5 rounded-xl border border-white/10">
+            <SignalIcon className="w-10 h-10 text-red-400 mx-auto mb-3" />
+            <p className="text-white font-semibold">Chave Google Maps inválida</p>
+            <p className="text-gray-400 text-sm mt-1">Verifique VITE_GOOGLE_MAPS_API_KEY no .env.local</p>
+          </div>
+        </div>
+      ) : (
+        <APIProvider apiKey={apiKey}>
+          <GoogleMap
+            defaultCenter={mapCenter}
+            defaultZoom={mapZoom}
+            mapId="bf51a910020faedc"
+            mapTypeId={mapStyle}
+            onCameraChanged={(ev: MapCameraChangedEvent) => {
+              setMapCenter(ev.detail.center); setMapZoom(ev.detail.zoom);
+            }}
+            onClick={() => setActiveInfoWindow(null)}
+          >
+            {/* ---- Technicians ---- */}
+            {apiLoaded && layers.technicians && techs.map(tech => (
+              <AdvancedMarker key={tech.id} position={{ lat: tech.coordinates[0], lng: tech.coordinates[1] }}
+                onClick={() => setActiveInfoWindow({ type: 'tech', id: tech.id })}>
+                <div style={{ backgroundColor: tech.status === 'online' ? '#10b981' : '#6b7280', color: 'white', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white', boxShadow: '0 2px 6px rgba(0,0,0,0.4)', fontSize: '10px', fontWeight: 700 }}>
+                  {tech.name.charAt(0).toUpperCase()}
+                </div>
+                {activeInfoWindow?.type === 'tech' && activeInfoWindow.id === tech.id && (
+                  <InfoWindow position={{ lat: tech.coordinates[0], lng: tech.coordinates[1] }} onCloseClick={() => setActiveInfoWindow(null)}>
+                    <div className="p-2 min-w-[160px]">
+                      <p className="font-bold text-sm">{tech.name}</p>
+                      <p className="text-xs text-gray-500">{tech.email}</p>
+                      <Badge variant={tech.status === 'online' ? 'default' : 'secondary'} className="mt-1 text-[10px]">{tech.status}</Badge>
+                    </div>
+                  </InfoWindow>
+                )}
+              </AdvancedMarker>
+            ))}
+
+            {/* ---- OLTs ---- */}
+            {apiLoaded && layers.olts && olts.map(olt => {
+              const lat = parseCoord((olt as any).latitude || (olt as any).gps_lat);
+              const lng = parseCoord((olt as any).longitude || (olt as any).gps_lng);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              return (
+                <Frag key={olt.id}>
+                  <AdvancedMarker position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'olt', id: olt.id })}>
+                    <div style={{ backgroundColor: '#1e3a8a', color: 'white', borderRadius: '6px', padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white', boxShadow: '0 2px 6px rgba(0,0,0,0.5)', gap: '3px' }}>
                       <Server className="w-4 h-4" />
                     </div>
                     {activeInfoWindow?.type === 'olt' && activeInfoWindow.id === olt.id && (
                       <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
                         <div className="p-2 min-w-[200px]">
-                          <h3 className="font-bold text-blue-900 border-b pb-1 mb-2 flex items-center gap-2">
-                            <Server className="w-4 h-4" /> {olt.name}
-                          </h3>
-                          <p className="text-xs"><strong>IP:</strong> {olt.ip}</p>
+                          <h3 className="font-bold text-blue-900 flex items-center gap-1"><Server className="w-3.5 h-3.5" />{olt.name}</h3>
+                          <p className="text-xs mt-1"><strong>IP:</strong> {olt.ip}</p>
                           <p className="text-xs"><strong>Uptime:</strong> {olt.uptime || 'N/D'}</p>
                           <p className="text-xs"><strong>Temp:</strong> {olt.temperature || 'N/D'}</p>
-                          <div className="mt-2 text-[10px] text-gray-400">ID: {olt.id}</div>
                         </div>
                       </InfoWindow>
                     )}
@@ -489,196 +426,161 @@ const NetworkMap = () => {
               );
             })}
 
-              {/* ONUs */}
-              {apiLoaded && showOnus && onuPoints.map(onu => {
-                // Tentar encontrar ONU correspondente no SmartOLT
-                const smartOnu = smartOnus.find(s => 
-                  s.sn === onu.mac || 
-                  s.name.includes(onu.login || '') || 
-                  s.description.includes(onu.login || '')
-                );
-
-                // Prioridade para Coordenadas do SmartOLT (mais precisas)
-                let lat = parseFloat(String(onu.latitude || '').replace(',', '.'));
-                let lng = parseFloat(String(onu.longitude || '').replace(',', '.'));
-
-                if (smartOnu && smartGps[smartOnu.id]) {
-                  const sLat = parseFloat(smartGps[smartOnu.id].lat);
-                  const sLng = parseFloat(smartGps[smartOnu.id].lng);
-                  if (!isNaN(sLat) && !isNaN(sLng)) {
-                    lat = sLat;
-                    lng = sLng;
-                  }
-                }
-
-                if (isNaN(lat) || isNaN(lng)) return null;
-
-                let color = '#3b82f6'; // Padrão Azul
-                let statusLabel = 'Ativo';
-
-                // Prioridade para Status do SmartOLT
-                if (smartOnu) {
-                  if (smartOnu.status === 'online') {
-                    color = '#10b981'; // Verde
-                    statusLabel = 'Online';
-                  } else if (smartOnu.status === 'los') {
-                    color = '#ef4444'; // Vermelho (Rompedura)
-                    statusLabel = 'LOS (Rompedura)';
-                  } else {
-                    color = '#f59e0b'; // Laranja (Offline)
-                    statusLabel = 'Offline';
-                  }
-                } else {
-                  // Fallback para sinal do IXC se não houver SmartOLT
-                  const signal = parseFloat((onu.sinal_ultimo_atendimento || '').replace(/[^-0-9.]/g, ''));
-                  if (!isNaN(signal)) {
-                    if (signal > -25) color = '#10b981';
-                    else if (signal > -28) color = '#f59e0b';
-                    else color = '#ef4444';
-                  }
-                }
-
-                const connectedCaixa = caixas.find(c => c.id === onu.id_caixa_ftth);
-                const cLat = connectedCaixa ? parseFloat(String(connectedCaixa.latitude || '').replace(',', '.')) : NaN;
-                const cLng = connectedCaixa ? parseFloat(String(connectedCaixa.longitude || '').replace(',', '.')) : NaN;
-
-                return (
-                  <Frag key={onu.id}>
-                    <AdvancedMarker position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'onu', id: onu.id! })}>
-                      <div style={{ 
-                        backgroundColor: color, 
-                        color: 'white', 
-                        borderRadius: '50%', 
-                        width: '22px', 
-                        height: '22px', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        border: '2px solid white', 
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        animation: smartOnu?.status === 'los' ? 'pulse-red 2s infinite' : 'none'
-                      }}>
-                        <SignalIcon className="w-3 h-3" />
+            {/* ---- CTOs ---- */}
+            {apiLoaded && layers.ctos && ctos.map(cto => {
+              const lat = parseCoord(cto.latitude); const lng = parseCoord(cto.longitude);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              const color = getCtoColor(cto.capacidade, cto.ocupacao);
+              const cap = parseInt(cto.capacidade || '0'); const occ = parseInt(cto.ocupacao || '0');
+              const label = cap > 0 ? `${occ}/${cap}` : 'CTO';
+              return (
+                <AdvancedMarker key={cto.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'cto', id: cto.id! })}>
+                  <CtoSvg color={color} label={label} />
+                  {activeInfoWindow?.type === 'cto' && activeInfoWindow.id === cto.id && (
+                    <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
+                      <div className="p-2 min-w-[200px]">
+                        <h3 className="font-bold text-purple-800">{cto.caixa}</h3>
+                        {cap > 0 && (
+                          <>
+                            <div className="flex justify-between text-xs mt-1 mb-0.5 text-gray-600">
+                              <span>Ocupação</span><span className="font-semibold">{occ}/{cap} portas</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (occ/cap)*100)}%`, background: color }} />
+                            </div>
+                          </>
+                        )}
+                        <div className="mt-2 flex gap-1">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase" style={{ background: color + '22', color }}>CTO</span>
+                        </div>
                       </div>
-                      {activeInfoWindow?.type === 'onu' && activeInfoWindow.id === onu.id && (
-                        <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
-                          <div className="p-1 min-w-[220px]">
-                            <div className="flex justify-between items-start mb-1">
-                              <h3 className="font-bold text-blue-700 leading-tight pr-2">{onu.clientName}</h3>
-                              <Badge variant={smartOnu?.status === 'online' ? 'default' : 'destructive'} className="text-[8px] h-4">
-                                {statusLabel}
-                              </Badge>
-                            </div>
-                            <p className="text-[10px] text-gray-500">{onu.login}</p>
-                            
-                            <div className="mt-2 space-y-1 border-t border-gray-100 pt-1">
-                              <p className="text-[10px]"><strong>Endereço:</strong> {onu.address}</p>
-                              <p className="text-[10px]"><strong>Caixa:</strong> {connectedCaixa?.caixa || 'N/I'}</p>
-                              
-                              {smartOnu ? (
-                                <>
-                                  <p className="text-[10px]"><strong>SmartOLT SN:</strong> {smartOnu.sn}</p>
-                                  <p className="text-[10px]"><strong>Tipo ONU:</strong> {smartOnu.onu_type}</p>
-                                  {smartOnu.last_offline_at && (
-                                    <p className="text-[10px] text-red-500"><strong>Caiu em:</strong> {new Date(smartOnu.last_offline_at).toLocaleString()}</p>
-                                  )}
-                                </>
-                              ) : (
-                                <p className="text-[10px] italic text-gray-400">Dados SmartOLT não vinculados</p>
-                              )}
-                              
-                              <p className="text-xs mt-1">
-                                <strong>Sinal:</strong> 
-                                <span className="font-bold ml-1" style={{ color }}>
-                                  {onu.sinal_ultimo_atendimento || 'N/D'}
-                                </span>
-                              </p>
-                            </div>
-                            
-                            {!isNaN(cLat) && (
-                              <p className="text-[9px] text-gray-400 mt-1 italic">
-                                Distância da CTO: {Math.round(calculateDistance([lat, lng], [cLat, cLng]) * 1000)}m
-                              </p>
-                            )}
+                    </InfoWindow>
+                  )}
+                </AdvancedMarker>
+              );
+            })}
 
-                            {smartOnu && (
-                              <div className="mt-2 flex gap-1">
-                                <Button size="sm" variant="outline" className="h-6 text-[9px] w-full" onClick={() => window.open(`https://api.smartolt.com/onus/${smartOnu.id}`, '_blank')}>
-                                  Abrir no SmartOLT
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </InfoWindow>
-                      )}
-                    </AdvancedMarker>
-                    {showCaixas && !isNaN(cLat) && !isNaN(cLng) && (
-                      <Polyline points={[{ lat, lng }, { lat: cLat, lng: cLng }]} color={color} weight={2} opacity={0.6} />
-                    )}
-                  </Frag>
-                );
-              })}
-
-              {/* CTOs */}
-              {apiLoaded && showCaixas && caixas.map(caixa => {
-                const lat = parseFloat(String(caixa.latitude || '').replace(',', '.'));
-                const lng = parseFloat(String(caixa.longitude || '').replace(',', '.'));
-                if (isNaN(lat) || isNaN(lng)) return null;
-
-                return (
-                  <AdvancedMarker key={caixa.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'caixa', id: caixa.id! })}>
-                    <div style={{ backgroundColor: '#7c3aed', color: 'white', borderRadius: '4px', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.3)', fontSize: '10px', fontWeight: 'bold' }}>C</div>
-                    {activeInfoWindow?.type === 'caixa' && activeInfoWindow.id === caixa.id && (
+            {/* ---- Logins/Clientes + Drop Cables ---- */}
+            {apiLoaded && layers.logins && filtered.map(login => {
+              const lat = parseCoord(login.latitude); const lng = parseCoord(login.longitude);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              const smartOnu = smartOnus.find(s => s.sn === login.mac || s.name?.includes(login.login || '') || s.description?.includes(login.login || ''));
+              const color = getSignalColor(login.sinal_ultimo_atendimento as string, smartOnu?.status);
+              const cto = ctos.find(c => c.id === login.id_caixa_ftth);
+              const cLat = cto ? parseCoord(cto.latitude) : NaN;
+              const cLng = cto ? parseCoord(cto.longitude) : NaN;
+              const isLos = smartOnu?.status === 'los';
+              return (
+                <Frag key={login.id}>
+                  <AdvancedMarker position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'login', id: login.id! })}>
+                    <div style={{ animation: isLos ? 'pulse-red 2s infinite' : 'none', padding: '1px' }}>
+                      <HomeSvg color={color} />
+                    </div>
+                    {activeInfoWindow?.type === 'login' && activeInfoWindow.id === login.id && (
                       <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
-                        <div className="p-1 min-w-[180px]">
-                          <h3 className="font-bold text-purple-700">{caixa.caixa}</h3>
-                          <p className="text-xs"><strong>Capacidade:</strong> {caixa.capacidade || 'N/D'}</p>
-                          <p className="text-xs"><strong>Ocupação:</strong> {caixa.ocupacao || '0'}</p>
-                          <div className="mt-1 pt-1 border-t border-gray-100"><span className="text-[8px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold uppercase">CTO</span></div>
+                        <div className="p-1.5 min-w-[220px]">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h3 className="font-bold text-gray-800 text-sm leading-tight">{login.clientName}</h3>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase flex-shrink-0" style={{ background: color + '22', color }}>
+                              {smartOnu?.status?.toUpperCase() || 'ATIVO'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 font-mono">{login.login}</p>
+                          {cto && <p className="text-xs mt-1"><strong>CTO:</strong> {cto.caixa} — Porta {login.ftth_porta || 'N/I'}</p>}
+                          <p className="text-xs"><strong>Sinal:</strong> <span style={{ color, fontWeight: 600 }}>{login.sinal_ultimo_atendimento as string || 'N/D'}</span></p>
+                          {smartOnu && (
+                            <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+                              <p className="text-[10px]"><strong>SmartOLT SN:</strong> {smartOnu.sn}</p>
+                              <p className="text-[10px]"><strong>Tipo ONU:</strong> {smartOnu.onu_type}</p>
+                              {smartOnu.last_offline_at && <p className="text-[10px] text-red-500"><strong>Offline em:</strong> {new Date(smartOnu.last_offline_at).toLocaleString('pt-BR')}</p>}
+                              <button className="mt-1 text-[9px] px-2 py-0.5 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 w-full"
+                                onClick={() => window.open(`https://ncbrasil.smartolt.com/onu/view/${smartOnu.id}`, '_blank')}>
+                                Abrir no SmartOLT →
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </InfoWindow>
                     )}
                   </AdvancedMarker>
-                );
-              })}
+                  {layers.cables && !isNaN(cLat) && !isNaN(cLng) && (
+                    <Polyline points={[{ lat, lng }, { lat: cLat, lng: cLng }]} color={color} weight={2} opacity={0.7} dashed={smartOnu?.status === 'offline'} />
+                  )}
+                </Frag>
+              );
+            })}
 
-              {/* Network Points */}
-              {apiLoaded && networkPoints.map(point => (
-                <AdvancedMarker key={point.id} position={{ lat: point.coordinates[0], lng: point.coordinates[1] }}>
-                  <div style={{
-                    backgroundColor: getStatusColor(point.status),
-                    color: 'white', borderRadius: '50%', width: '24px', height: '24px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                    fontSize: '12px', fontWeight: 'bold'
-                  }}>
-                    {point.type.charAt(0).toUpperCase()}
-                  </div>
+            {/* ---- Postes ---- */}
+            {apiLoaded && layers.postes && postes.map(poste => {
+              const lat = parseCoord(poste.latitude); const lng = parseCoord(poste.longitude);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              return (
+                <AdvancedMarker key={poste.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'poste', id: poste.id! })}>
+                  <PosteSvg />
+                  {activeInfoWindow?.type === 'poste' && activeInfoWindow.id === poste.id && (
+                    <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
+                      <div className="p-2">
+                        <p className="font-bold text-sm">{poste.descricao || poste.codigo || `Poste ${poste.id}`}</p>
+                        <p className="text-xs text-gray-500">Tipo: {poste.tipo || 'N/D'}</p>
+                      </div>
+                    </InfoWindow>
+                  )}
                 </AdvancedMarker>
-              ))}
-            </GoogleMap>
-          </APIProvider>
-        )}
-      </div>
+              );
+            })}
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4 items-center text-xs">
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div><span>Sinal OK</span></div>
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div><span>Alerta / Offline</span></div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
-              <span>Rompedura (LOS)</span>
-            </div>
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-purple-600"></div><span>CTO</span></div>
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-blue-900 border border-white"></div><span>OLT</span></div>
-            <div className="ml-auto flex items-center gap-2 font-bold text-blue-800">
-              <SignalIcon className="w-4 h-4" />
-              <span>{loadingOnus ? 'Carregando ONUs...' : `Total ONUs: ${onuPoints.length}`}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            {/* ---- POPs ---- */}
+            {apiLoaded && layers.pops && pops.map(pop => {
+              const lat = parseCoord(pop.latitude); const lng = parseCoord(pop.longitude);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              return (
+                <AdvancedMarker key={pop.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'pop', id: pop.id! })}>
+                  <PopSvg />
+                  {activeInfoWindow?.type === 'pop' && activeInfoWindow.id === pop.id && (
+                    <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
+                      <div className="p-2">
+                        <p className="font-bold text-sm">{pop.nome || pop.descricao || `POP ${pop.id}`}</p>
+                      </div>
+                    </InfoWindow>
+                  )}
+                </AdvancedMarker>
+              );
+            })}
+            {/* ---- Standalone Clients ---- */}
+            {apiLoaded && (layers as any).standalone && standaloneClients.map(client => {
+              const lat = parseCoord(client.latitude); const lng = parseCoord(client.longitude);
+              if (isNaN(lat) || isNaN(lng)) return null;
+              return (
+                <AdvancedMarker key={client.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'standalone', id: client.id! })}>
+                  <HomeSvg color="#94a3b8" />
+                  {activeInfoWindow?.type === 'standalone' && activeInfoWindow.id === client.id && (
+                    <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
+                      <div className="p-2 min-w-[200px]">
+                        <h3 className="font-bold text-slate-800">{client.razao || client.nome}</h3>
+                        <p className="text-xs text-slate-500">ID: {client.id} (Sem login ativo)</p>
+                        <p className="text-xs mt-1"><strong>Endereço:</strong> {client.endereco}, {client.numero}</p>
+                        <p className="text-xs"><strong>Bairro:</strong> {client.bairro}</p>
+                      </div>
+                    </InfoWindow>
+                  )}
+                </AdvancedMarker>
+              );
+            })}
+          </GoogleMap>
+        </APIProvider>
+      )}
+
+      {/* ===== BOTTOM STATUS BAR ===== */}
+      <div className="absolute bottom-3 left-0 right-0 flex justify-center z-20 pointer-events-none">
+        <div className="flex items-center gap-4 px-4 py-2 rounded-full text-xs pointer-events-auto"
+          style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af' }}>
+          <span>🏠 {logins.length} Logins</span>
+          <span className="text-white/20">|</span>
+          <span>🟢 {ctos.length} CTOs</span>
+          {olts.length > 0 && <><span className="text-white/20">|</span><span>📡 {olts.length} OLTs</span></>}
+          {techs.length > 0 && <><span className="text-white/20">|</span><span>👷 {techs.filter(t => t.status === 'online').length}/{techs.length} Técnicos</span></>}
+        </div>
+      </div>
     </div>
   );
 };

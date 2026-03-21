@@ -92,7 +92,7 @@ app.use('/api/ixc', createProxyMiddleware({
 }));
 
 app.use('/api/smartolt', createProxyMiddleware({
-    target: 'https://api.smartolt.com',
+    target: 'https://ncbrasil.smartolt.com',
     changeOrigin: true,
     pathRewrite: {
         '^/api/smartolt': '/api/v2',

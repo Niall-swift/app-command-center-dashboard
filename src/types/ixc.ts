@@ -212,3 +212,24 @@ export interface IXCUsageSeries {
   download: number;
   upload: number;
 }
+
+// Tipos para Postes
+export interface IXCPosteData {
+  id?: string;
+  descricao?: string;
+  codigo?: string;
+  latitude?: string;
+  longitude?: string;
+  tipo?: string;
+  [key: string]: unknown;
+}
+
+// Tipos para POPs (Pontos de Presença)
+export interface IXCPopData {
+  id?: string;
+  descricao?: string;
+  nome?: string;
+  latitude?: string;
+  longitude?: string;
+  [key: string]: unknown;
+}

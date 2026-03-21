@@ -7,12 +7,15 @@ class SmartOltService {
 
   constructor() {
     this.apiKey = import.meta.env.VITE_SMARTOLT_API_KEY || '';
-    const baseURL = import.meta.env.VITE_SMARTOLT_BASE_URL || 'https://api.smartolt.com/api/v2';
+
+    // Sempre usa o proxy local para evitar bloqueio de CORS no browser.
+    // O Vite (dev) e o Express (prod) reescrevem /api/smartolt -> https://api.smartolt.com/api/v2
+    const baseURL = '/api/smartolt';
     console.log('🔌 SmartOltService inicializado com baseURL:', baseURL);
     if (this.apiKey) {
       console.log('🔑 SmartOltService: API Key configurada.');
     } else {
-      console.warn('⚠️ SmartOltService: API Key ausente!');
+      console.warn('⚠️ SmartOltService: API Key ausente! Configure VITE_SMARTOLT_API_KEY no .env.local');
     }
 
     this.client = axios.create({
@@ -21,7 +24,15 @@ class SmartOltService {
         'X-Token': this.apiKey,
         'Accept': 'application/json',
       },
-      timeout: 15000,
+      timeout: 30000,
+    });
+
+    // Interceptador: injeta o token em cada requisição (como header e query param para compatibilidade)
+    this.client.interceptors.request.use((config) => {
+      if (this.apiKey) {
+        config.headers['X-Token'] = this.apiKey;
+      }
+      return config;
     });
   }
 
