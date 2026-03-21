@@ -51,6 +51,8 @@ export default function WhatsAppBulkSender() {
   const [searchResults, setSearchResults] = useState<WhapiBulkRecipient[]>([]);
   const [selectedClient, setSelectedClient] = useState<WhapiBulkRecipient | null>(null);
   const [sendingToClient, setSendingToClient] = useState(false);
+  const [testPhoneNumber, setTestPhoneNumber] = useState('');
+  const [isTestingAI, setIsTestingAI] = useState(false);
 
   // Carregar dados ao montar
   useEffect(() => {
@@ -422,6 +424,78 @@ export default function WhatsAppBulkSender() {
     } finally {
       setSendingToClient(false);
       setSelectedClient(null);
+    }
+  };
+
+  const handleSendAITest = async (type: 'billing' | 'blocked') => {
+    if (!testPhoneNumber) {
+      toast({
+        title: 'Número necessário',
+        description: 'Por favor, informe seu número de WhatsApp para o teste.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsTestingAI(true);
+    try {
+      let messageBody: string | null = null;
+      
+      if (type === 'billing') {
+        toast({
+          title: '🤖 Gerando Teste (Fatura)',
+          description: 'Aguarde um momento...',
+        });
+        messageBody = await generateAIBillingMessage({
+          nomeCliente: 'Cliente de Teste',
+          valor: 'R$ 149,90',
+          dataVencimento: formatDate(new Date().toISOString()),
+          diasAtraso: 5,
+          linkBoleto: 'https://preview.avl-telecom.com/teste-boleto',
+        });
+      } else {
+        toast({
+          title: '🤖 Gerando Teste (Bloqueio)',
+          description: 'Aguarde um momento...',
+        });
+        messageBody = await generateAIBlockedMessage({
+          nomeCliente: 'Cliente de Teste',
+          dataVencimento: formatDate(new Date().toISOString()),
+          totalFaturas: 2,
+          valorTotal: 'R$ 299,80',
+          linkBoleto: 'https://preview.avl-telecom.com/teste-bloqueio',
+        });
+      }
+
+      if (!messageBody) throw new Error('Falha ao gerar mensagem com IA.');
+
+      toast({
+        title: '📱 Enviando Teste...',
+        description: `Enviando para ${testPhoneNumber}`,
+      });
+
+      const result = await whapiService.sendMessage({
+        to: testPhoneNumber,
+        body: messageBody,
+        typing_time: 3000,
+      });
+
+      if (result.sent) {
+        toast({
+          title: '✅ Teste Enviado!',
+          description: 'Verifique seu WhatsApp para ver a mensagem gerada.',
+        });
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      toast({
+        title: '❌ Falha no Teste',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTestingAI(false);
     }
   };
 
@@ -799,18 +873,13 @@ export default function WhatsAppBulkSender() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Envio em Massa - WhatsApp</h1>
-            <p className="text-muted-foreground">
-              Envie notificações de cobrança para clientes com faturas em aberto
-            </p>
+            <h1 className="text-3xl font-bold">Envio em Massa WhatsApp</h1>
+            <p className="text-muted-foreground italic">Powered by Gemini AI 🤖</p>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-lg border">
+            <div className="flex items-center space-x-2 bg-muted p-2 rounded-lg border">
+              <Label htmlFor="warmup" className="cursor-pointer">Modo Aquecimento (Sem Link)</Label>
               <Switch id="warmup" checked={warmupMode} onCheckedChange={setWarmupMode} />
-              <Label htmlFor="warmup" className="flex items-center gap-1 cursor-pointer font-medium">
-                <Flame className={`h-4 w-4 ${warmupMode ? 'text-orange-500 fill-orange-500' : 'text-muted-foreground'}`} />
-                Modo Aquecimento
-              </Label>
             </div>
             <Button onClick={loadData} disabled={loading} variant="outline" className="min-w-[160px]">
               <Database className="mr-2 h-4 w-4" />
@@ -818,6 +887,52 @@ export default function WhatsAppBulkSender() {
             </Button>
           </div>
         </div>
+
+        {/* AI Testing Tools */}
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Flame className="w-5 h-5 text-orange-500" />
+              Teste de Mensagens IA
+            </CardTitle>
+            <CardDescription>
+              Teste a variabilidade e o humor das novas mensagens geradas pela inteligência artificial.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div className="space-y-2">
+                <Label htmlFor="test-phone">Seu WhatsApp (com DDD)</Label>
+                <Input 
+                  id="test-phone" 
+                  placeholder="Ex: 5511999999999" 
+                  value={testPhoneNumber}
+                  onChange={(e) => setTestPhoneNumber(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2 flex flex-wrap gap-2">
+                <Button 
+                  onClick={() => handleSendAITest('billing')} 
+                  disabled={isTestingAI} 
+                  variant="secondary"
+                  className="bg-white"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Testar Cobrança (Fatura)
+                </Button>
+                <Button 
+                  onClick={() => handleSendAITest('blocked')} 
+                  disabled={isTestingAI} 
+                  variant="secondary"
+                  className="bg-white"
+                >
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  Testar Alerta (Bloqueio)
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Search for Individual Client */}
         <Card className="border-blue-200 bg-blue-50/30">

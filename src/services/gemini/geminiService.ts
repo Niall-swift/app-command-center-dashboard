@@ -4,7 +4,7 @@
  */
 
 const GEMINI_API_KEY = 'AIzaSyA4Q6BN5vKPUQrEiEONprIknhS-loVYYo0';
-// Mantendo gemini-2.5-flash pois a key não tem acesso ao 1.5-pro.
+// Mantendo gemini-2.5-flash pois é o modelo que esta chave tem acesso.
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -38,11 +38,14 @@ REGRAS ESTRITAS:
 - Você DEVE escrever a data: *${dataVencimento}*
 - O motivo: ${situacao}.
 - Peça o pagamento com educação. 
+- Use um toque de humor leve e moderado na mensagem (ex: "sua internet está com saudades de você"), sem perder o profissionalismo.
+- Varie bem o texto para que não pareça repetitivo.
+- NUNCA encurte ou altere o link de pagamento. Ele deve ser escrito OBRIGATORIAMENTE por extenso exatamente como fornecido.
 - A PENÚLTIMA linha da sua mensagem OBRIGATORIAMENTE DEVE SER EXATAMENTE O TEXTO ABAIXO, SEM CORTAR NADA:
   👉 Segue o link para pagamento: ${linkBoleto}
-- A ÚLTIMA linha da sua mensagem deve ser a despedida: "Abraços da equipe AVL Telecom! (Caso já tenha pago, por favor desconsidere)".
+- A ÚLTIMA linha da sua mensagem DEVE SER EXATAMENTE: "_Mensagem automática gerada por IA (Gemini). Equipe AVL Telecom! (Caso já tenha pago, por favor desconsidere)_"
 
-Não pare de escrever até a despedida final.`;
+NUNCA PARE DE ESCREVER antes de incluir a assinatura acima. Se necessário, escreva uma mensagem mais curta para garantir que o link e a assinatura caibam.`;
 }
 
 /**
@@ -65,9 +68,9 @@ export async function generateAIBillingMessage(params: GeminiMessageParams): Pro
           },
         ],
         generationConfig: {
-          temperature: 0.2,
+          temperature: 0.7,
           topP: 0.95,
-          maxOutputTokens: 1500,
+          maxOutputTokens: 2048,
         },
       }),
     });
@@ -132,9 +135,13 @@ REGRAS OBRIGATÓRIAS:
 6. NUNCA use asteriscos duplos (**texto**). Use apenas *texto* para WhatsApp.
 7. Inclua 1 a 2 emojis no máximo.
 8. Ação esperada: Peça para responder a mensagem ou usar o link para regularizar e reativar a internet.
-9. Assine como um nome humano (ex: Estela, Josué, Luan) seguido de " – AVL Telecom".
-${linkBoleto ? '10. DEVE incluir o link de pagamento na penúltima linha exatamente assim: 👉 Link para pagamento: ' + linkBoleto : '10. NÃO inclua link de pagamento. O cliente deve responder para ser atendido.'}
-11. NUNCA PARE DE ESCREVER NO MEIO DA FRASE. Você DEVE terminar a mensagem com a assinatura.
+9. Use um toque de humor leve e moderado (ex: "queremos te ver navegando de novo e não apenas nas ondas do mar"), mas mantenha o respeito.
+10. Varie bem o texto para que não pareça repetitivo.
+11. NUNCA encurte ou altere o link de pagamento. Ele deve ser escrito OBRIGATORIAMENTE por extenso exatamente como fornecido.
+12. Assine como um nome humano (ex: Estela, Josué, Luan) seguido de " – AVL Telecom".
+${linkBoleto ? '13. DEVE incluir o link de pagamento na penúltima linha exatamente assim: 👉 Link para pagamento: ' + linkBoleto : '13. NÃO inclua link de pagamento. O cliente deve responder para ser atendido.'}
+14. A ÚLTIMA linha da sua mensagem DEVE SER EXATAMENTE: "_Mensagem automática gerada por IA (Gemini). Att, [Nome] – AVL Telecom_"
+15. NUNCA PARE DE ESCREVER NO MEIO DA FRASE. Você DEVE terminar a mensagem com a assinatura completa acima.
 
 ESTRUTURA DESEJADA:
 {Saudação}, ${primeiroNome}! {Emoji}
@@ -143,7 +150,7 @@ ESTRUTURA DESEJADA:
 
 {Instrução de como regularizar${linkBoleto ? ' (link abaixo + responder a mensagem)' : ' (responder a mensagem)'}}.
 ${linkBoleto ? '👉 Link para pagamento: ' + linkBoleto + '\n' : ''}
-_Att, Nome do Atendente – AVL Telecom_
+_Mensagem automática gerada por IA (Gemini). Att, Nome do Atendente – AVL Telecom_
 
 DADOS DO CLIENTE:
 - Nome: ${nomeCliente}${linkLinha}

@@ -52,8 +52,14 @@ interface Series {
   releaseDate: Date;
   status: 'ongoing' | 'completed' | 'cancelled';
   genres: string[];
+  category: string;
   seasons: Season[];
 }
+
+const CATEGORIES = [
+  "Ação", "Comédia", "Drama", "Suspense", "Terror", 
+  "Documentário", "Kids", "Anime", "Ficção Científica"
+];
 
 export default function Series() {
   const [series, setSeries] = useState<Series[]>([]);
@@ -71,6 +77,7 @@ export default function Series() {
   const [releaseDate, setReleaseDate] = useState('');
   const [status, setStatus] = useState<'ongoing' | 'completed' | 'cancelled'>('ongoing');
   const [genres, setGenres] = useState('');
+  const [category, setCategory] = useState(CATEGORIES[0]);
 
   // Seasons and episodes states
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -278,6 +285,7 @@ export default function Series() {
         releaseDate: new Date(releaseDate),
         status,
         genres: genres.split(',').map(g => g.trim()).filter(g => g),
+        category,
         createdAt: new Date(),
         updatedAt: new Date()
       });
@@ -399,6 +407,30 @@ export default function Series() {
       setUploading(false);
       setUploadProgress(0);
       setCurrentUploadStep('');
+    }
+  };
+  
+  const updateCategory = async (seriesId: string, currentCategory: string) => {
+    const newCategory = prompt('Nova categoria:', currentCategory);
+    if (!newCategory || newCategory === currentCategory) return;
+
+    try {
+      await updateDoc(doc(db, 'series', seriesId), {
+        category: newCategory,
+        updatedAt: new Date()
+      });
+      toast({
+        title: 'Sucesso',
+        description: 'Categoria atualizada com sucesso.',
+      });
+      loadSeries();
+    } catch (error) {
+      console.error('Erro ao atualizar categoria:', error);
+      toast({
+        title: 'Erro',
+        description: 'Erro ao atualizar categoria.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -532,6 +564,20 @@ export default function Series() {
                   onChange={(e) => setGenres(e.target.value)}
                   placeholder="Ação, Drama, Ficção Científica"
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="category">Categoria Principal</Label>
+                <select
+                  id="category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md bg-transparent"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Seasons Management */}
@@ -736,10 +782,13 @@ export default function Series() {
                       <div className="flex-1">
                         <h3 className="font-semibold text-lg">{serie.title}</h3>
                         <p className="text-sm text-gray-600 mt-1">{serie.overview}</p>
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
                             {serie.status === 'ongoing' ? 'Em andamento' : 
                              serie.status === 'completed' ? 'Concluída' : 'Cancelada'}
+                          </span>
+                          <span className="text-xs bg-muted px-2 py-1 rounded text-muted-foreground uppercase font-medium">
+                            {serie.category || 'Sem categoria'}
                           </span>
                           <span className="text-xs text-gray-500">
                             {serie.seasons?.length || 0} temporadas
@@ -772,6 +821,14 @@ export default function Series() {
                           }}
                         >
                           <Play className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Mudar categoria"
+                          onClick={() => serie.id && updateCategory(serie.id, serie.category)}
+                        >
+                          Cat
                         </Button>
                         <Button
                           size="sm"

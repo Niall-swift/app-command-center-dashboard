@@ -1,0 +1,212 @@
+﻿
+> vite_react_shadcn_ts@0.0.0 lint
+> eslint .
+
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\index.ts
+  268:36   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  277:42   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  310:40   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  334:9    error  'messageData' is never reassigned. Use 'const' instead  prefer-const
+  372:9    error  'cliente' is never reassigned. Use 'const' instead      prefer-const
+  441:188  error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  467:19   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  475:140  error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  479:19   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  497:46   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\ixcService.ts
+   35:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   85:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  145:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\ixcTypes.ts
+  38:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\services\aiService.ts
+  15:18  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\services\whatsappService.ts
+  23:60  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  30:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  36:81  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  36:97  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  47:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:83  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  65:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\functions\src\types.ts
+  17:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  34:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ixc\ClientContracts.tsx
+  36:6  warning  React Hook useEffect has a missing dependency: 'fetchContracts'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ixc\ClientTickets.tsx
+  23:6  warning  React Hook useEffect has a missing dependency: 'fetchTickets'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ixc\IXCClientDashboard.tsx
+  85:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ixc\NewTicketForm.tsx
+  51:6  warning  React Hook useEffect has a missing dependency: 'subjects.length'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ixc\TechnicalDiagnostics.tsx
+  52:6  warning  React Hook useEffect has a missing dependency: 'fetchLogins'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\network\NetworkMap.tsx
+  323:67  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\badge.tsx
+  36:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\button.tsx
+  56:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\form.tsx
+  168:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\navigation-menu.tsx
+  119:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\sidebar.tsx
+  760:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\sonner.tsx
+  29:19  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\components\ui\toggle.tsx
+  43:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\contexts\AuthContext.tsx
+  17:13  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  27:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  37:44  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\contexts\ChatNotificationContext.tsx
+  14:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\hooks\useIXC.ts
+   77:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  111:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\Chat.tsx
+  380:6  warning  React Hook useEffect has missing dependencies: 'clientMessages' and 'showNativeNotification'. Either include them or remove the dependency array                                                           react-hooks/exhaustive-deps
+  677:9  warning  The 'currentMessages' conditional could make the dependencies of useEffect Hook (at line 686) change on every render. To fix this, wrap the initialization of 'currentMessages' in its own useMemo() Hook  react-hooks/exhaustive-deps
+  696:6  warning  React Hook useEffect has a missing dependency: 'sendMediaMessage'. Either include it or remove the dependency array                                                                                        react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\IXCFinanceiro.tsx
+  14:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  15:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  16:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\IXCFinancial.tsx
+  14:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  15:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  16:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\RedemptionOrders.tsx
+   87:6   warning  React Hook useEffect has a missing dependency: 'fetchRedemptions'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  132:29  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\Rewards.tsx
+  53:6  warning  React Hook useEffect has a missing dependency: 'fetchData'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\RewardsManagement.tsx
+   57:6   warning  React Hook useEffect has a missing dependency: 'fetchRewards'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   90:40  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+  112:62  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+  295:93  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\Series.tsx
+  81:6  warning  React Hook useEffect has a missing dependency: 'loadSeries'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\pages\WhatsAppBulkSender.tsx
+   58:6   warning  React Hook useEffect has a missing dependency: 'loadData'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  214:71  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  214:85  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  267:35  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  275:18  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  287:34  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  586:14  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  617:62  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  869:38  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  871:41  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\server\real_backend.ts
+   37:13   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+   42:58   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+   42:84   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+   50:13   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+   76:76   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+   77:57   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  103:76   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  104:57   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  131:9    error  'messageData' is never reassigned. Use 'const' instead  prefer-const
+  153:9    error  'cliente' is never reassigned. Use 'const' instead      prefer-const
+  193:17   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  215:21   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  242:140  error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  245:17   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  278:46   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  294:17   error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\server\services\aiService.ts
+  15:18  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\server\services\ixcService.ts
+   35:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   85:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  145:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\server\services\ixcTypes.ts
+  38:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\server\services\whatsappService.ts
+  23:60  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  30:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  36:81  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  36:97  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  47:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:83  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  65:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\ixc\ixcService.ts
+   313:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   757:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   855:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1122:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1133:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\pointsService.ts
+  26:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\preMixService.ts
+  21:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  22:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\redemptionsService.ts
+  80:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\referralService.ts
+  21:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\smartolt\smartOltService.ts
+  72:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\services\whapi\whapiService.ts
+  446:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\types\rewards.ts
+  12:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  13:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  24:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  25:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  26:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\niall\OneDrive\├ürea de Trabalho\avl telecom\app-command-center-dashboard\src\utils\seriesUtils.ts
+  365:6  warning  React Hook useEffect has a missing dependency: 'loadEpisodes'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+Ô£û 116 problems (94 errors, 22 warnings)
+  4 errors and 0 warnings potentially fixable with the `--fix` option.
+

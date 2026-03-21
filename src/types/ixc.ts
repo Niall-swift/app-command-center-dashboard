@@ -15,6 +15,8 @@ export interface IXCContactData {
   bairro?: string;
   cep?: string;
   cidade?: string;
+  latitude?: string;
+  longitude?: string;
   obs?: string;
   lead: 'S' | 'N'; // S = Sim, N = Não
   ativo: 'S' | 'N'; // S = Ativo, N = Inativo
@@ -141,6 +143,19 @@ export interface IXCConexaoData {
   [key: string]: unknown;
 }
 
+// Tipos para Caixas FTTH (CTOs)
+export interface IXCCaixaData {
+  id?: string;
+  caixa: string;
+  id_setor?: string;
+  id_transmissor?: string;
+  latitude?: string;
+  longitude?: string;
+  capacidade?: string;
+  ocupacao?: string;
+  [key: string]: unknown;
+}
+
 // Tipos para Logins (PPPoE/Hotspot - radusuarios)
 export interface IXCLoginData {
   id?: string;
@@ -152,6 +167,11 @@ export interface IXCLoginData {
   ativo?: 'S' | 'N';
   online?: 'S' | 'N'; // Status calculado ou vindo da API
   grupo_nome?: string; // Nome do plano/grupo
+  latitude?: string;
+  longitude?: string;
+  id_caixa_ftth?: string;
+  ftth_porta?: string;
+  sinal_ultimo_atendimento?: string;
   [key: string]: unknown;
 }
 

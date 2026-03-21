@@ -13,6 +13,8 @@ export interface SmartOltOnu {
   last_online_at?: string;
   last_offline_at?: string;
   mac?: string;
+  latitude?: string;
+  longitude?: string;
 }
 
 export interface SmartOltSignal {
@@ -26,6 +28,18 @@ export interface SmartOltSignal {
   updated_at: string;
 }
 
+export interface SmartOltOlt {
+  id: string;
+  name: string;
+  ip: string;
+  telnet_port: string;
+  snmp_port: string;
+  hardware_version?: string;
+  software_version?: string;
+  uptime?: string;
+  temperature?: string;
+}
+
 export interface SmartOltResponse<T> {
   status: boolean;
   message: string;
@@ -35,5 +49,6 @@ export interface SmartOltResponse<T> {
 export interface SmartOltListResponse<T> {
   status: boolean;
   message: string;
-  onus: T[];
+  onus?: T[];
+  olts?: T[];
 }

@@ -11,7 +11,8 @@ import type {
   IXCPixData,
   IXCApiResponse,
   IXCUsageSeries,
-  IXCBandwidthUsage
+  IXCBandwidthUsage,
+  IXCCaixaData
 } from '@/types/ixc';
 
 export interface IXCParams {
@@ -876,6 +877,32 @@ class IXCService {
     return response.registros || [];
   }
 
+  /**
+   * Busca logins que possuem coordenadas geográficas
+   */
+  async getLoginsComCoordenadas(): Promise<IXCLoginData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'radusuarios.ativo',
+      query: 'S',
+      oper: '=',
+      page: '1',
+      rp: '1000',
+      sortname: 'radusuarios.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse<IXCLoginData>>('/radusuarios', data);
+    const logins = response.registros || [];
+    
+    return logins.filter(l => {
+      const latStr = String(l.latitude || '').replace(',', '.');
+      const lngStr = String(l.longitude || '').replace(',', '.');
+      const lat = parseFloat(latStr);
+      const lng = parseFloat(lngStr);
+      return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+    });
+  }
+
   // Buscar conexões ativas
   async getConexoesAtivas(idCliente?: string): Promise<IXCConexaoData[]> {
     const data: Partial<IXCParams> = idCliente ? {
@@ -898,6 +925,40 @@ class IXCService {
 
     const response = await this.makeRequest<IXCApiResponse<IXCConexaoData>>('/radpopconexao', data);
     return response.registros || [];
+  }
+
+  // ==================== MÉTODOS DE INFRAESTRUTURA (FTTH) ====================
+
+  /**
+   * Busca todas as caixas FTTH (CTOs)
+   */
+  async getCaixasFTTH(): Promise<IXCCaixaData[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'rad_caixa_ftth.id',
+      query: '0',
+      oper: '>',
+      page: '1',
+      rp: '1000',
+      sortname: 'rad_caixa_ftth.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse<IXCCaixaData>>('/rad_caixa_ftth', data);
+    return response.registros || [];
+  }
+
+  /**
+   * Busca caixas FTTH que possuem coordenadas geográficas
+   */
+  async getCaixasComCoordenadas(): Promise<IXCCaixaData[]> {
+    const caixas = await this.getCaixasFTTH();
+    return caixas.filter(c => {
+      const latStr = String(c.latitude || '').replace(',', '.');
+      const lngStr = String(c.longitude || '').replace(',', '.');
+      const lat = parseFloat(latStr);
+      const lng = parseFloat(lngStr);
+      return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+    });
   }
   // ==================== MÉTODOS DE BUSCA TOTAL (PAGINAÇÃO AUTOMÁTICA) ====================
 

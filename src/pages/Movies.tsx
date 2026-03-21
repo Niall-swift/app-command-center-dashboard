@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { storage, db } from '../config/firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -20,7 +20,13 @@ interface Movie {
   poster_path: string;
   backdrop_path: string;
   movie_url: string;
+  category: string;
 }
+
+const CATEGORIES = [
+  "Ação", "Comédia", "Drama", "Suspense", "Terror", 
+  "Documentário", "Kids", "Anime", "Ficção Científica"
+];
 
 export default function Movies() {
   const [movies, setMovies] = useState<Movie[]>([]);
@@ -33,6 +39,7 @@ export default function Movies() {
   // Form states
   const [title, setTitle] = useState('');
   const [overview, setOverview] = useState('');
+  const [category, setCategory] = useState(CATEGORIES[0]);
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [backdropFile, setBackdropFile] = useState<File | null>(null);
   const [movieFile, setMovieFile] = useState<File | null>(null);
@@ -188,6 +195,7 @@ export default function Movies() {
       await addDoc(collection(db, 'movies'), {
         title,
         overview,
+        category,
         poster_path: posterUrl,
         backdrop_path: backdropUrl,
         movie_url: movieUrl,
@@ -221,6 +229,29 @@ export default function Movies() {
       setUploading(false);
       setUploadProgress(0);
       setCurrentUploadStep('');
+    }
+  };
+
+  const updateCategory = async (movieId: string, currentCategory: string) => {
+    const newCategory = prompt('Nova categoria:', currentCategory);
+    if (!newCategory || newCategory === currentCategory) return;
+
+    try {
+      await updateDoc(doc(db, 'movies', movieId), {
+        category: newCategory
+      });
+      toast({
+        title: 'Sucesso',
+        description: 'Categoria atualizada com sucesso.',
+      });
+      loadMovies();
+    } catch (error) {
+      console.error('Erro ao atualizar categoria:', error);
+      toast({
+        title: 'Erro',
+        description: 'Erro ao atualizar categoria.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -265,6 +296,20 @@ export default function Movies() {
                   onChange={(e) => setOverview(e.target.value)}
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="category">Categoria</Label>
+                <select
+                  id="category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md bg-transparent"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -327,7 +372,12 @@ export default function Movies() {
                 <div key={movie.id} className="border rounded-lg p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{movie.title}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-lg">{movie.title}</h3>
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
+                          {movie.category || 'Sem categoria'}
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-600 mt-1">{movie.overview}</p>
                       {movie.poster_path && (
                         <img
@@ -345,6 +395,14 @@ export default function Movies() {
                         onClick={() => window.open(movie.movie_url, '_blank')}
                       >
                         <Play className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Mudar categoria"
+                        onClick={() => movie.id && updateCategory(movie.id, movie.category)}
+                      >
+                        Sub
                       </Button>
                       <Button
                         size="sm"

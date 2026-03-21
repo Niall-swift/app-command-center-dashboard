@@ -7,6 +7,7 @@ import {
   orderBy,
   where,
   addDoc,
+  deleteDoc,
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -20,6 +21,16 @@ export interface Winner {
   redeemed: boolean;
   createdAt: any;
   redeemedAt?: any;
+}
+
+export interface Raffle {
+  id: string;
+  title: string;
+  status: string; // "SORTEIO ATIVO" | "EM BREVE"
+  value: string; // e.g. "Grátis para Membros" | "Plano Gold"
+  date: string; // e.g. "TODO SÁBADO" | "DEZEMBRO"
+  icon?: string;
+  createdAt: any;
 }
 
 export const preMixService = {
@@ -68,6 +79,45 @@ export const preMixService = {
       });
     } catch (error) {
       console.error('Error marking as redeemed:', error);
+      throw error;
+    }
+  },
+
+  // --- Gestão de Sorteios ---
+
+  getRaffles: async (): Promise<Raffle[]> => {
+    try {
+      const q = query(collection(db, 'sorteiosPreMix'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : doc.data().createdAt,
+      })) as Raffle[];
+    } catch (error) {
+      console.error('Error fetching raffles:', error);
+      throw error;
+    }
+  },
+
+  addRaffle: async (raffle: Omit<Raffle, 'id' | 'createdAt'>): Promise<string> => {
+    try {
+      const docRef = await addDoc(collection(db, 'sorteiosPreMix'), {
+        ...raffle,
+        createdAt: serverTimestamp()
+      });
+      return docRef.id;
+    } catch (error) {
+      console.error('Error adding raffle:', error);
+      throw error;
+    }
+  },
+
+  deleteRaffle: async (id: string): Promise<void> => {
+    try {
+      await deleteDoc(doc(db, 'sorteiosPreMix', id));
+    } catch (error) {
+      console.error('Error deleting raffle:', error);
       throw error;
     }
   }
