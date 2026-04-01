@@ -61,6 +61,7 @@ const prizes = [
   "Chaleira Elétrica",
   "E-Book Quem Pensa em Enriquecer ",
   "E-Book O Segredo da Mente Milionária",
+"panela elétrica de arroz "
 ];
 
 export default function Raffle() {
