@@ -14,7 +14,10 @@ import type {
   IXCBandwidthUsage,
   IXCCaixaData,
   IXCPosteData,
-  IXCPopData
+  IXCPopData,
+  IXCFinancialCaixaData,
+  IXCPayableData,
+  IXCCashMovementData
 } from '@/types/ixc';
 
 export interface IXCParams {
@@ -25,6 +28,7 @@ export interface IXCParams {
   rp: string;
   sortname: string;
   sortorder: 'asc' | 'desc';
+  [key: string]: unknown; // Permite filtros extras como 'status', etc.
 }
 
 class IXCService {
@@ -364,7 +368,7 @@ class IXCService {
     
     // Filtrar apenas faturas abertas
     const faturas = response.registros || [];
-    return faturas.filter((f: IXCFaturaData) => !f.data_pagamento);
+    return faturas.filter((f: IXCFaturaData) => !f.pagamento_data);
   }
 
   // Buscar fatura por ID
@@ -406,7 +410,7 @@ class IXCService {
     
   // Filtrar apenas faturas não pagas
     const faturas = response.registros || [];
-    return faturas.filter((f: IXCFaturaData) => !f.data_pagamento);
+    return faturas.filter((f: IXCFaturaData) => !f.pagamento_data);
   }
 
   // Disparar envio de fatura por e-mail
@@ -480,7 +484,7 @@ class IXCService {
   /**
    * Busca resumo financeiro: Receita do dia, Receita do mês, Total a receber, Total vencido
    */
-  async getFinancialSummary(): Promise<{
+   async getFinancialSummary(idCaixa?: string): Promise<{
     todayRevenue: number;
     monthRevenue: number;
     totalOpen: number;
@@ -490,21 +494,38 @@ class IXCService {
     const today = new Date().toISOString().split('T')[0];
     const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
-    // 1. Receita do dia (pago hoje)
-    const todayPayments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
-      qtype: 'fn_areceber.data_pagamento',
+    const incomesParams: any = {
+      qtype: 'fn_areceber.pagamento_data',
       query: today,
       oper: '=',
-    });
-    const todayRevenue = todayPayments.reduce((acc, curr) => acc + parseFloat(curr.valor_pago || '0'), 0);
+    };
+    if (idCaixa) {
+        // No IXC, id_caixa_receb identifica onde entrou o dinheiro
+        // Nota: A API pode ter limitações em filtrar múltiplos campos via fetchAllRecords simples
+    }
+
+    // 1. Receita do dia (pago hoje)
+    const todayPayments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', incomesParams);
+    
+    // Filtrar por caixa se idCaixa for fornecido (filtro em memória se a API não suportar AND complexo)
+    const todayPaymentsFiltered = idCaixa 
+        ? todayPayments.filter(p => p.id_caixa_receb === idCaixa)
+        : todayPayments;
+
+    const todayRevenue = todayPaymentsFiltered.reduce((acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'), 0);
 
     // 2. Receita do mês (pago >= dia 1)
     const monthPayments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
-      qtype: 'fn_areceber.data_pagamento',
+      qtype: 'fn_areceber.pagamento_data',
       query: firstDayOfMonth,
       oper: '>=',
     });
-    const monthRevenue = monthPayments.reduce((acc, curr) => acc + parseFloat(curr.valor_pago || '0'), 0);
+    
+    const monthPaymentsFiltered = idCaixa
+        ? monthPayments.filter(p => p.id_caixa_receb === idCaixa)
+        : monthPayments;
+
+    const monthRevenue = monthPaymentsFiltered.reduce((acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'), 0);
 
     // 3. A Receber (Aberto)
     const openInvoices = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
@@ -513,7 +534,7 @@ class IXCService {
       oper: '=',
     });
     // Filtrar removendo os que já tem data de pagamento (segurança)
-    const trulyOpen = openInvoices.filter(f => !f.data_pagamento);
+    const trulyOpen = openInvoices.filter(f => !f.pagamento_data);
     const totalOpen = trulyOpen.reduce((acc, curr) => acc + parseFloat(curr.valor || '0'), 0);
 
     // 4. Vencido (Aberto e data_vencimento < hoje)
@@ -538,7 +559,7 @@ class IXCService {
     const startDateStr = startDate.toISOString().split('T')[0];
 
     const payments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
-      qtype: 'fn_areceber.data_pagamento',
+      qtype: 'fn_areceber.pagamento_data',
       query: startDateStr,
       oper: '>=',
     });
@@ -557,12 +578,12 @@ class IXCService {
     }
 
     payments.forEach(p => {
-        if (p.data_pagamento) {
-             const dateParts = p.data_pagamento.split('-'); // assumindo YYYY-MM-DD
+        if (p.pagamento_data) {
+             const dateParts = (p.pagamento_data as string).split('-'); // assumindo YYYY-MM-DD
              if(dateParts.length === 3) {
                  const displayDate = `${dateParts[2]}/${dateParts[1]}`;
                  const current = dailyMap.get(displayDate) || 0;
-                 dailyMap.set(displayDate, current + parseFloat(p.valor_pago || '0'));
+                 dailyMap.set(displayDate, current + parseFloat((p.pagamento_valor as string) || '0'));
              }
         }
     });
@@ -592,7 +613,7 @@ class IXCService {
     });
 
     const faturas = overdue.registros || [];
-    const openFaturas = faturas.filter(f => f.status === 'A' && !f.data_pagamento);
+    const openFaturas = faturas.filter(f => f.status === 'A' && !f.pagamento_data);
 
     // Agrupar por cliente
     const clientDebt = new Map<string, { nome: string; valor: number; id_cliente: string }>();
@@ -1064,11 +1085,15 @@ class IXCService {
         
         allRecords = [...allRecords, ...registros];
         
+        console.log(`[fetchAllRecords] ${endpoint}: Buscou ${registros.length} registros na página ${page}. Total acumulado: ${allRecords.length}`);
+        
         if (onProgress) {
           onProgress(allRecords.length);
         }
 
-        if (registros.length < rp) {
+        // Se o número de registros for menor que o solicitado, chegamos ao fim
+        // Ou se não houver registros
+        if (registros.length < rp || registros.length === 0) {
           hasMore = false;
         } else {
           page++;
@@ -1082,21 +1107,28 @@ class IXCService {
   }
 
   /**
-   * Busca TODOS os clientes ATIVOS recursivamente
-   * Filtra por cliente.ativo = 'S'
+   * Busca TODOS os clientes por status (Ativo/Inativo) recursivamente
+   * @param status 'S' para Ativo, 'N' para Inativo
    */
-  async fetchAllClientesAtivos(onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
+  async fetchAllClientesByStatus(status: 'S' | 'N', onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
     return this.fetchAllRecords<IXCClienteData>(
       '/cliente',
       {
         qtype: 'cliente.ativo',
-        query: 'S',
+        query: status,
         oper: '=',
         sortname: 'cliente.id',
         sortorder: 'desc',
       },
       onProgress
     );
+  }
+
+  /**
+   * Busca TODOS os clientes ATIVOS recursivamente
+   */
+  async fetchAllClientesAtivos(onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
+    return this.fetchAllClientesByStatus('S', onProgress);
   }
 
   /**
@@ -1117,7 +1149,7 @@ class IXCService {
       onProgress
     );
     // Filtrar localmente para garantir que não tem data de pagamento (garantia extra)
-    return faturas.filter(f => !f.data_pagamento);
+    return faturas.filter(f => !f.pagamento_data);
   }
 
   /**
@@ -1134,6 +1166,44 @@ class IXCService {
         oper: '=',
         sortname: 'cliente_contrato.id',
         sortorder: 'desc',
+      },
+      onProgress
+    );
+  }
+
+  /**
+   * Busca TODOS os contratos (ativos e inativos) para auditoria
+   */
+  async fetchAllContratos(onProgress?: (total: number) => void): Promise<IXCContratoData[]> {
+    return this.fetchAllRecords<IXCContratoData>(
+      '/cliente_contrato',
+      {
+        qtype: 'cliente_contrato.id',
+        query: '0',
+        oper: '>',
+        sortname: 'cliente_contrato.id',
+        sortorder: 'desc',
+      },
+      onProgress
+    );
+  }
+
+  /**
+   * Busca faturas pagas recentemente (últimos X dias)
+   */
+  async fetchRecentFaturasPagas(days: number = 180, onProgress?: (total: number) => void): Promise<IXCFaturaData[]> {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    // Formato YYYY-MM-DD
+    const dateStr = date.toISOString().split('T')[0];
+
+    return this.fetchAllRecords<IXCFaturaData>(
+      '/fn_areceber',
+      {
+        qtype: 'fn_areceber.pagamento_data',
+        query: dateStr,
+        oper: '>=',
+        'status': 'R' // Status 'R' (Recebido) confirmado via debug no console
       },
       onProgress
     );
@@ -1314,6 +1384,270 @@ class IXCService {
       return { eligible: true };
     } catch (error) {
       return { eligible: false };
+    }
+  }
+
+  // ==================== MÉTODOS FINANCEIROS (AVANÇADOS) ====================
+
+  /**
+   * Busca contas a pagar (fn_apagar)
+   */
+  async getAccountsPayable(days: number = 30): Promise<IXCPayableData[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    return this.fetchAllRecords<IXCPayableData>('/fn_apagar', {
+      qtype: 'fn_apagar.data_vencimento',
+      query: startDateStr,
+      oper: '>=',
+      sortname: 'fn_apagar.data_vencimento',
+      sortorder: 'desc',
+    });
+  }
+
+  /**
+   * Busca movimentações de caixa (fn_movim_caixa)
+   */
+  async getCashMovements(days: number = 30, idCaixa?: string): Promise<IXCCashMovementData[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    const params: any = {
+      qtype: 'fn_movim_caixa.data',
+      query: startDateStr,
+      oper: '>=',
+      sortname: 'fn_movim_caixa.data',
+      sortorder: 'desc',
+    };
+
+    if (idCaixa) {
+      params.qtype = 'fn_movim_caixa.id_caixa';
+      params.query = idCaixa;
+      params.oper = '=';
+    }
+
+    return this.fetchAllRecords<IXCCashMovementData>('/fn_movim_caixa', params);
+  }
+
+  /**
+   * Busca todos os caixas (fn_caixa)
+   */
+  async getCashAccounts(): Promise<IXCFinancialCaixaData[]> {
+    return this.fetchAllRecords<IXCFinancialCaixaData>('/fn_caixa', {
+      qtype: 'fn_caixa.id',
+      query: '0',
+      oper: '>',
+      sortname: 'fn_caixa.id',
+      sortorder: 'asc',
+    });
+  }
+
+  /**
+   * Cria um novo caixa
+   */
+  async createCashAccount(name: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const payload = {
+        descricao: name,
+        ativo: 'S'
+      };
+      await this.client.post('/fn_caixa', payload, {
+        headers: { 'Authorization': `Basic ${this.encodedToken}` }
+      });
+      return { success: true, message: 'Caixa criado com sucesso!' };
+    } catch (error: any) {
+      console.error('Erro ao criar caixa:', error);
+      return { success: false, message: error.response?.data?.message || 'Erro ao criar caixa.' };
+    }
+  }
+
+  /**
+   * Cria um novo lançamento de caixa (Entrada ou Saída)
+   */
+  async createCashMovement(data: {
+      id_caixa: string;
+      tipo: 'E' | 'S';
+      valor: string;
+      historico: string;
+      documento?: string;
+  }): Promise<{ success: boolean; message: string }> {
+      try {
+          const payload = {
+              ...data,
+              data: new Date().toISOString().slice(0, 19).replace('T', ' '),
+              status: 'C' // Confirmado
+          };
+          await this.client.post('/fn_movim_caixa', payload, {
+              headers: { 'Authorization': `Basic ${this.encodedToken}` }
+          });
+          return { success: true, message: 'Lançamento realizado com sucesso!' };
+      } catch (error: any) {
+          console.error('Erro ao criar lançamento:', error);
+          return { success: false, message: error.response?.data?.message || 'Erro ao realizar lançamento.' };
+      }
+  }
+
+  /**
+   * Realiza transferência entre caixas
+   */
+  async transferBetweenAccounts(fromId: string, toId: string, value: number): Promise<{ success: boolean; message: string }> {
+    try {
+        const valueStr = value.toFixed(2);
+        
+        // 1. Saída na origem
+        await this.createCashMovement({
+            id_caixa: fromId,
+            tipo: 'S',
+            valor: valueStr,
+            historico: `Saída p/ Transferência -> Caixa ${toId}`,
+            documento: 'TRANSF'
+        });
+
+        // 2. Entrada no destino
+        await this.createCashMovement({
+            id_caixa: toId,
+            tipo: 'E',
+            valor: valueStr,
+            historico: `Entrada vinda de Transferência <- Caixa ${fromId}`,
+            documento: 'TRANSF'
+        });
+
+        return { success: true, message: 'Transferência concluída com sucesso!' };
+    } catch (error: any) {
+        console.error('Erro na transferência:', error);
+        return { success: false, message: 'Falha ao processar transferência parcial.' };
+    }
+  }
+
+  /**
+   * Busca resumo financeiro completo (Entradas vs Saídas)
+   */
+  async getFullFinancialSummary(days: number = 30, idCaixa?: string): Promise<{
+    inflow: number;
+    outflow: number;
+    balance: number;
+    dailyData: { date: string; inflow: number; outflow: number }[];
+  }> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    // Buscar recebimentos (fn_areceber pagos)
+    const incomes = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
+        qtype: 'fn_areceber.pagamento_data',
+        query: startDateStr,
+        oper: '>=',
+    });
+
+    // Filtrar incomes por caixa se necessário
+    const incomesFiltered = idCaixa 
+        ? incomes.filter(p => p.id_caixa_receb === idCaixa)
+        : incomes;
+
+    // Buscar pagamentos (fn_apagar pagos)
+    const expenses = await this.fetchAllRecords<IXCPayableData>('/fn_apagar', {
+        qtype: 'fn_apagar.pagamento_data',
+        query: startDateStr,
+        oper: '>=',
+    });
+
+    // Filtrar expenses por caixa se necessário
+    // Nota: fn_apagar costuma ter id_caixa_pagam
+    const expensesFiltered = idCaixa
+        ? expenses.filter(p => p.id_caixa_pagam === idCaixa)
+        : expenses;
+
+    const dailyMap = new Map<string, { inflow: number; outflow: number }>();
+
+    // Inicializar mapa
+    for (let i = 0; i <= days; i++) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const displayDate = `${dateStr.split('-')[2]}/${dateStr.split('-')[1]}`;
+        dailyMap.set(displayDate, { inflow: 0, outflow: 0 });
+    }
+
+    let totalInflow = 0;
+    incomesFiltered.forEach(p => {
+        if (p.pagamento_data) {
+            const dateParts = (p.pagamento_data as string).split('-');
+            const displayDate = `${dateParts[2]}/${dateParts[1]}`;
+            const current = dailyMap.get(displayDate) || { inflow: 0, outflow: 0 };
+            const value = parseFloat((p.pagamento_valor as string) || '0');
+            dailyMap.set(displayDate, { ...current, inflow: current.inflow + value });
+            totalInflow += value;
+        }
+    });
+
+    let totalOutflow = 0;
+    expensesFiltered.forEach(p => {
+        if (p.pagamento_data) {
+            const dateParts = (p.pagamento_data as string).split('-');
+            const displayDate = `${dateParts[2]}/${dateParts[1]}`;
+            const current = dailyMap.get(displayDate) || { inflow: 0, outflow: 0 };
+            const value = parseFloat((p.pagamento_valor as string) || '0');
+            dailyMap.set(displayDate, { ...current, outflow: current.outflow + value });
+            totalOutflow += value;
+        }
+    });
+
+    return {
+        inflow: totalInflow,
+        outflow: totalOutflow,
+        balance: totalInflow - totalOutflow,
+        dailyData: Array.from(dailyMap.entries()).map(([date, data]) => ({
+            date,
+            inflow: data.inflow,
+            outflow: data.outflow
+        }))
+    };
+  }
+
+  // ==================== MÉTODOS DE FILIAIS ====================
+
+  /**
+   * Busca todas as filiais cadastradas no IXC
+   */
+  async getFiliais(): Promise<{ id: string; razao: string; nome_fantasia: string }[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'filial.id',
+      query: '0',
+      oper: '>',
+      page: '1',
+      rp: '100', // Geralmente poucas filiais
+      sortname: 'filial.id',
+      sortorder: 'asc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse<{ id: string; razao: string; nome_fantasia: string }>>('/filial', data);
+    return response.registros || [];
+  }
+
+  /**
+   * Atualiza dados de um cliente no IXC
+   */
+  async updateCliente(id: string, data: Partial<IXCClienteData>): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.client.put<any>(`/cliente/${id}`, data, {
+        headers: {
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ixcsoft': 'alterar',
+        },
+      });
+
+      if (response.data && response.data.type === 'error') {
+        const errorMsg = response.data.message?.replace(/<br \/>/g, ', ') || 'Erro de validação no IXC';
+        console.error(`Erro de validação IXC para cliente ${id}:`, errorMsg);
+        return { success: false, message: errorMsg };
+      }
+
+      return { success: true, message: 'Cliente atualizado com sucesso!' };
+    } catch (error: any) {
+      console.error(`Erro ao atualizar cliente ${id}:`, error);
+      return { success: false, message: error.response?.data?.message || 'Erro ao atualizar cliente.' };
     }
   }
 }

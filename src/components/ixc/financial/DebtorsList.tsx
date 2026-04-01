@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MessageCircle, ExternalLink, AlertTriangle, Send, Phone } from 'lucide-react';
+import { MessageCircle, ExternalLink, AlertTriangle, Send, Phone, Sparkles, Wand2, RefreshCcw } from 'lucide-react';
 import { ixcService } from '@/services/ixc/ixcService';
 import { whapiService } from '@/services/whapi/whapiService';
+import { generateIndividualDebtMessage } from '@/services/gemini/geminiService';
 import { toast } from 'sonner';
 import {
     Dialog,
@@ -26,6 +27,7 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
     const [loadingPhones, setLoadingPhones] = useState(false);
     const [sending, setSending] = useState(false);
     const [messagePreview, setMessagePreview] = useState('');
+    const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
     const handleOpenBilling = async (debtor: { nome: string; valor: number; id_cliente: string }) => {
         setSelectedDebtor(debtor);
@@ -53,6 +55,32 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
             setSelectedDebtor(null);
         } finally {
             setLoadingPhones(false);
+        }
+    };
+
+    const handleGenerateAIMessage = async () => {
+        if (!selectedDebtor) return;
+        
+        setIsGeneratingAI(true);
+        try {
+            const msg = await generateIndividualDebtMessage({
+                nomeCliente: selectedDebtor.nome,
+                valorOriginal: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDebtor.valor),
+                diasAtraso: 30, // Padrão ou buscar do IXC
+                dataVencimento: 'Verificar fatura' // Idem
+            });
+            
+            if (msg) {
+                setMessagePreview(msg);
+                toast.success('Abordagem humanizada gerada com IA!');
+            } else {
+                toast.error('Não foi possível gerar a mensagem com IA agora.');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Erro ao chamar o serviço de IA.');
+        } finally {
+            setIsGeneratingAI(false);
         }
     };
 
@@ -176,9 +204,25 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-700">Mensagem:</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-sm font-medium text-gray-700">Mensagem:</label>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1 font-bold text-xs"
+                                        onClick={handleGenerateAIMessage}
+                                        disabled={isGeneratingAI}
+                                    >
+                                        {isGeneratingAI ? (
+                                            <RefreshCcw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                            <Wand2 className="w-3 h-3" />
+                                        )}
+                                        Humanizar com IA
+                                    </Button>
+                                </div>
                                 <textarea 
-                                    className="w-full p-2 border rounded-md text-sm bg-gray-50 min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full p-3 border rounded-xl text-sm bg-gray-50 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-indigo-500 border-gray-200"
                                     value={messagePreview}
                                     onChange={(e) => setMessagePreview(e.target.value)}
                                 />

@@ -63,10 +63,10 @@ export interface IXCFaturaData {
   id?: string;
   id_cliente?: string;
   valor?: string;
-  valor_pago?: string;
+  pagamento_valor?: string;
   data_vencimento?: string;
-  data_pagamento?: string;
-  status?: 'A' | 'P' | 'C'; // Aberto, Pago, Cancelado
+  pagamento_data?: string;
+  status?: 'A' | 'R' | 'P' | 'C'; // Aberto, Recebido/Pago, Pendente, Cancelado
   nosso_numero?: string;
   linha_digitavel?: string;
   descricao?: string;
@@ -153,6 +153,40 @@ export interface IXCCaixaData {
   longitude?: string;
   capacidade?: string;
   ocupacao?: string;
+  [key: string]: unknown;
+}
+
+// Tipos Financeiros (fn_caixa, fn_apagar, fn_movim_caixa)
+export interface IXCFinancialCaixaData {
+  id?: string;
+  descricao?: string;
+  conta?: string;
+  saldo?: string;
+  ativo?: 'S' | 'N';
+  [key: string]: unknown;
+}
+
+export interface IXCPayableData {
+  id?: string;
+  id_fornecedor?: string;
+  fornecedor_nome?: string;
+  valor?: string;
+  valor_pago?: string;
+  data_vencimento?: string;
+  data_pagamento?: string;
+  status?: 'A' | 'P' | 'C';
+  descricao?: string;
+  [key: string]: unknown;
+}
+
+export interface IXCCashMovementData {
+  id?: string;
+  id_caixa?: string;
+  data?: string;
+  valor?: string;
+  tipo?: 'E' | 'S'; // E = Entrada, S = Saída
+  historico?: string;
+  documento?: string;
   [key: string]: unknown;
 }
 

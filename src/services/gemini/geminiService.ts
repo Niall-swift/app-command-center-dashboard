@@ -194,3 +194,106 @@ Retorne APENAS a mensagem final formatada.`;
     return null;
   }
 }
+
+export interface FinancialAnalysisParams {
+  inflow: string;
+  outflow: string;
+  balance: string;
+  debtTotal: string;
+  period: string;
+  topDebtors: Array<{ nome: string; valor: string }>;
+}
+
+/**
+ * Gera uma análise financeira humanizada para o gestor.
+ */
+export async function generateFinancialAnalysis(params: FinancialAnalysisParams): Promise<string | null> {
+  const { inflow, outflow, balance, debtTotal, period, topDebtors } = params;
+  
+  const debtorsText = topDebtors.map(d => `- ${d.nome}: *${d.valor}*`).join('\n');
+
+  const prompt = `Você é um consultor financeiro inteligente da AVL Telecom. Analise os seguintes dados financeiros do período de ${period} e gere um resumo humanizado, direto e estratégico para o gestor (Niall).
+
+DADOS:
+- Entradas: *${inflow}*
+- Saídas: *${outflow}*
+- Saldo Líquido: *${balance}*
+- Inadimplência Total: *${debtTotal}*
+
+PRINCIPAIS DEVEDORES CRÍTICOS:
+${debtorsText}
+
+REGRAS:
+1. Comece com uma saudação amigável (ex: "Fala, Niall!", "Tudo certo por aí?").
+2. Seja analítico mas humano. Comente se o saldo está positivo ou se a inadimplência está preocupante.
+3. Dê uma sugestão rápida de ação (ex: "Vale focar na cobrança desses top 10 aqui...").
+4. Use emojis moderados para destacar pontos.
+5. Formatação: Use apenas asteriscos simples (*) para negrito no WhatsApp.
+6. Assinatura: "_Análise inteligente gerada por IA (Gemini)._"
+
+Retorne APENAS o texto da mensagem.`;
+
+  try {
+    const response = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 1000 },
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch (error) {
+    console.error('❌ Erro ao gerar análise financeira:', error);
+    return null;
+  }
+}
+
+export interface IndividualDebtParams {
+  nomeCliente: string;
+  valorOriginal: string;
+  diasAtraso: number;
+  dataVencimento: string;
+  linkBoleto?: string;
+}
+
+/**
+ * Gera uma abordagem de cobrança ÚNICA e hiper-humanizada para um devedor específico.
+ */
+export async function generateIndividualDebtMessage(params: IndividualDebtParams): Promise<string | null> {
+  const { nomeCliente, valorOriginal, diasAtraso, dataVencimento, linkBoleto } = params;
+  const primeiroNome = nomeCliente.trim().split(' ')[0];
+
+  const prompt = `Gere uma mensagem de WhatsApp ÚNICA, amigável e descontraída para o cliente ${nomeCliente} que está com uma fatura de *${valorOriginal}* vencida há ${diasAtraso} dias (vencimento em ${dataVencimento}).
+
+REGRAS:
+1. Tom: Muito humano, use gírias leves se fizer sentido, seja empático (ex: "vimos que o boleto acabou ficando pra trás no corre do dia...").
+2. NUNCA pareça um robô de cobrança padrão.
+3. Use o primeiro nome: ${primeiroNome}.
+4. Obrigatoriamente inclua o valor (*${valorOriginal}*) e a data (*${dataVencimento}*).
+5. Se houver link (${linkBoleto}), inclua-o de forma natural.
+6. A assinatura final deve ser: "_Atenciosamente, Equipe de Sucesso AVL Telecom_".
+
+Retorne APENAS o texto.`;
+
+  try {
+    const response = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 800 },
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch (error) {
+    console.error('❌ Erro ao gerar cobrança individual:', error);
+    return null;
+  }
+}

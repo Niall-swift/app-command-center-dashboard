@@ -61,6 +61,8 @@
     "framer-motion": "^12.15.0",
     "http-proxy-middleware": "^3.0.5",
     "input-otp": "^1.2.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
