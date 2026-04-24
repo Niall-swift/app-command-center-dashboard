@@ -61,7 +61,7 @@ const prizes = [
   "Chaleira Elétrica",
   "E-Book Quem Pensa em Enriquecer ",
   "E-Book O Segredo da Mente Milionária",
-"panela elétrica de arroz ",
+  "panela elétrica de arroz ",
 "CAIXA DE BOMBON GAROTO"
 ];
 

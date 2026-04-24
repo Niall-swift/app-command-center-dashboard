@@ -189,24 +189,27 @@ export default function Chat() {
     setError(null);
 
     try {
+      // @ts-ignore - Verificando projeto conectado
+      console.log("🚀 DEBUG: Conectado ao Projeto Firebase:", db._nodeClientConfig?.projectId || "avl-telecom");
+      
       const chatRef = collection(db, "chat");
-      console.log("Referência da collection criada:", chatRef);
+      console.log("🔍 DEBUG: Escutando coleção 'chat' em:", chatRef.path);
 
       // Primeiro, vamos verificar se há documentos na collection
       getDocs(chatRef).then((snapshot) => {
         console.log(
-          "Verificação inicial - documentos encontrados:",
+          "📊 Verificação inicial - documentos encontrados:",
           snapshot.docs.length
         );
 
         if (snapshot.docs.length === 0) {
-          console.log("Collection vazia, criando dados de exemplo...");
-          createSampleData();
+          console.log("Collection vazia. Aguardando mensagens reais...");
+          // createSampleData(); // Silenciado para não confundir o usuário
         }
       });
 
-      // Criar uma query para ordenar e limitar os resultados
-      const q = query(chatRef, orderBy("lastMessageTime", "desc"), limit(50));
+      // Criar uma query simples para teste (sem ordenação que pode filtrar documentos)
+      const q = query(chatRef, limit(50));
 
       const unsubscribe = onSnapshot(
         q,
@@ -230,6 +233,7 @@ export default function Chat() {
               phone: data.phone,
               cpf: data.cpf,
               cep: data.cep,
+              source: data.source || 'app',
             };
           });
 
@@ -310,6 +314,7 @@ export default function Chat() {
               mediaType: data.mediaType,
               mediaUrl: data.mediaUrl,
               mediaName: data.mediaName,
+              source: data.source,
             };
           });
 
@@ -896,6 +901,30 @@ export default function Chat() {
                   className="pl-10"
                 />
               </motion.div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="w-full mt-2 bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 gap-2 text-[10px] h-7"
+                onClick={async () => {
+                  try {
+                    const testId = "teste_" + Date.now();
+                    console.log("🚀 Iniciando teste de escrita manual...");
+                    const { doc, setDoc } = await import("firebase/firestore");
+                    await setDoc(doc(db, "chat", testId), {
+                      name: "🔧 TESTE DE CONEXÃO",
+                      lastMessage: "Se você vê isso, o painel está CONECTADO!",
+                      lastMessageTime: new Date(),
+                      source: 'app'
+                    });
+                    alert("✅ Sucesso! O painel gravou no Firebase. Verifique se apareceu um novo item 'TESTE DE CONEXÃO' na lista.");
+                  } catch (e: any) {
+                    alert("❌ Erro de conexão: " + e.message);
+                  }
+                }}
+              >
+                <Settings className="w-3 h-3" />
+                Testar Conexão Firebase
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-96 overflow-y-auto">
@@ -957,8 +986,13 @@ export default function Chat() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
-                              <h4 className="font-medium text-sm truncate">
+                              <h4 className="font-medium text-sm truncate flex items-center gap-2">
                                 {client.name}
+                                {client.source === 'whatsapp' && (
+                                  <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] h-4 px-1">
+                                    WhatsApp
+                                  </Badge>
+                                )}
                               </h4>
                               {client.unreadCount > 0 && (
                                 <motion.div
@@ -1141,13 +1175,18 @@ export default function Chat() {
                               <span className="text-xs text-gray-500">
                                 {message.user}
                               </span>
-                              <span className="text-xs text-gray-400">
-                                {message.timestamp.toLocaleTimeString("pt-BR", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </span>
-                            </div>
+                               <span className="text-xs text-gray-400">
+                                 {message.timestamp.toLocaleTimeString("pt-BR", {
+                                   hour: "2-digit",
+                                   minute: "2-digit",
+                                 })}
+                               </span>
+                               {message.source === 'whatsapp' && (
+                                 <span className="text-[10px] text-green-600 font-bold ml-1 flex items-center gap-0.5">
+                                   WA
+                                 </span>
+                               )}
+                             </div>
                           </motion.div>
                           {message.isAdmin && (
                             <Avatar className="w-8 h-8">

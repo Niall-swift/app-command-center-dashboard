@@ -8,6 +8,7 @@ export interface Message {
   mediaType?: 'image' | 'audio';
   mediaUrl?: string;
   mediaName?: string;
+  source?: 'whatsapp' | 'app' | 'system';
 }
 
 export interface UserDetails {
@@ -63,4 +64,5 @@ export interface Client {
   city?: string;
   state?: string;
   instagram?: string;
+  source?: 'whatsapp' | 'app';
 }

@@ -1,7 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import {WhapiService} from "./whapiService";
-import {ClientData, WelcomeMessageLog, UserSession} from "./types";
+import {ClientData, WelcomeMessageLog, UserSession, WhapiResponse} from "./types";
 import { IXCBackendService } from "./ixcService";
 import { AiService, Intent } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
@@ -33,10 +32,10 @@ export const onNewRaffleRegistration = functions.firestore
       return null;
     }
 
-    const whapiApiKey = "37oG32qZ2Ltk15Pm3aOs9il1JOYfYOdM";
-    const whapiBaseUrl = "https://gate.whapi.cloud";
+    const whapiApiKey = process.env.WHAPI_API_KEY || "";
+    const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
 
-    if (!whapiApiKey) {
+    if (!whapiApiKey || whapiApiKey === "") {
       console.error("❌ WHAPI_API_KEY não configurado!");
       await updateClientWithError(userId, "Configuração de API não encontrada");
       return null;
@@ -52,8 +51,14 @@ export const onNewRaffleRegistration = functions.firestore
     }
 
     try {
-      const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
-      const result = await whapiService.sendWelcomeMessage(clientName, clientPhone);
+      const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
+      const response = await waService.sendTextMessage(clientPhone, `Olá ${clientName}! Seja bem-vindo à AVL Telecom.`);
+      
+      const result: WhapiResponse = {
+        sent: !!response.id,
+        id: response.id,
+        message: "Mensagem enviada via WhatsAppService",
+      };
 
       const log: WelcomeMessageLog = {
         clientId: userId,
@@ -118,8 +123,14 @@ export const onDashboardMessageSent = functions.firestore
 
     console.log(`📤 Replicando resposta do painel para: ${chatId}`);
 
-    const whatsappApiKey = process.env.WHAPI_API_KEY || "37oG32qZ2Ltk15Pm3aOs9il1JOYfYOdM";
+    const whatsappApiKey = process.env.WHAPI_API_KEY || "";
     const whatsappBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
+    
+    if (!whatsappApiKey) {
+      console.error("❌ WHAPI_API_KEY não configurado no ambiente!");
+      return null;
+    }
+
     const waService = new WhatsAppService(whatsappBaseUrl, whatsappApiKey);
 
     try {
@@ -339,14 +350,29 @@ export const whatsappWebhook = functions.runWith({
     const isGroup = from?.includes("@g.us") || from?.includes("@group");
     const fromMe = messageData.from_me === true || messageData.fromMe === true || messageData.key?.fromMe === true;
 
-    if (!from || (!text && !selectionId) || isGroup || fromMe) {
+    // Extrair nome do remetente (preferência para pushname da Whapi)
+    const senderName = messageData.from_name || messageData.pushname || payload.contacts?.[0]?.pushname || "Cliente WhatsApp";
+
+    if (!from || (!text && !selectionId && !messageData.media) || isGroup || fromMe) {
+      const reason = !from ? "Sem remetente" : 
+                     (!text && !selectionId && !messageData.media) ? "Sem conteúdo" :
+                     isGroup ? "Mensagem de grupo" :
+                     fromMe ? "Mensagem própria (fromMe)" : "Desconhecido";
+                     
+      console.log(`⏭️ Webhook ignorado. Motivo: ${reason} | From: ${from} | Texto: ${text}`);
       res.status(200).send("Ignored");
       return;
     }
 
     const cleanPhone = from.replace(/\D/g, "");
-    const ixcService = new IXCBackendService(process.env.IXC_HOST!, process.env.IXC_TOKEN!);
-    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL!, process.env.WHAPI_API_KEY!);
+    console.log(`📩 Mensagem recebida de ${senderName} (${cleanPhone}): ${text || "[Mídia]"}`);
+    
+    // --- LOG PARA DASHBOARD (PRIMEIRA COISA A FAZER) ---
+    // Gravamos logo para aparecer no painel sem atraso
+    await logMessageToDashboard(cleanPhone, text || "Mídia recebida", false, "whatsapp", senderName.split(' ')[0]);
+
+    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
+    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
     // --- CONTROLE ADMIN ---
@@ -370,8 +396,7 @@ export const whatsappWebhook = functions.runWith({
 
     // --- LOG PARA DASHBOARD ---
     let cliente = await ixcService.getClienteByPhone(cleanPhone);
-    const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : undefined;
-    await logMessageToDashboard(cleanPhone, text || `Selecionou ${selectionId}`, false, "whatsapp", firstName, cliente);
+    const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : senderName.split(' ')[0];
 
     if (text?.startsWith("#debug")) {
       await waService.sendTextMessage(from, `🛠️ DEBUG: ${cleanPhone} | ID: ${cliente?.id || "N/A"}`);
@@ -474,16 +499,29 @@ async function sendWelcomeMenu(from: string, waService: WhatsAppService, isFallb
 
 async function logMessageToDashboard(cleanPhone: string, content: string, isAdmin: boolean, source?: string, firstName?: string, cliente?: any) {
   try {
+    console.log(`📡 [LOG-DASHBOARD] Iniciando gravação para: ${cleanPhone}`);
     const chatRef = db.collection("chat").doc(cleanPhone);
     const serverTimestamp = admin.firestore.FieldValue.serverTimestamp();
-    const update: any = { lastMessage: content, lastMessageTime: serverTimestamp };
+    
+    const update: any = { 
+      lastMessage: content, 
+      lastMessageTime: serverTimestamp,
+      source: source || (isAdmin ? "system" : "whatsapp"),
+      updatedAt: serverTimestamp
+    };
+
     if (!isAdmin) {
       update.unreadCount = admin.firestore.FieldValue.increment(1);
       update.name = firstName || cliente?.razao || "Cliente WhatsApp";
       update.phone = cleanPhone;
       if (cliente?.id) update.ixc_id = cliente.id;
+      update.isOnline = true;
     }
+
+    console.log("📡 [LOG-DASHBOARD] Tentando atualizar documento principal...");
     await chatRef.set(update, { merge: true });
+    console.log("📡 [LOG-DASHBOARD] Documento principal atualizado. Gravando mensagem...");
+
     await chatRef.collection("mensagens").add({
       user: isAdmin ? "AVL Bot" : (firstName || "Cliente"),
       content,
@@ -491,7 +529,11 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
       isAdmin,
       source: source || (isAdmin ? "system" : "whatsapp"),
     });
-  } catch (err) { console.error("Log error:", err); }
+    
+    console.log(`✅ [LOG-DASHBOARD] SUCESSO TOTAL para ${cleanPhone}`);
+  } catch (err: any) { 
+    console.error("❌ [LOG-DASHBOARD] ERRO FATAL:", err.message, err.stack); 
+  }
 }
 
 async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCBackendService, waService: WhatsAppService) {

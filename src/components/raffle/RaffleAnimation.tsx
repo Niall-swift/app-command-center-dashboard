@@ -25,9 +25,8 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
               exit={{ opacity: 0, scale: 0.8 }}
               className="text-center"
             >
-              {/* Floating participants */}
-              <div className="relative h-48 mb-6">
-                {selectedClients.map((client, index) => (
+              <div className="relative h-48 mb-6 overflow-hidden">
+                {selectedClients.slice(0, 15).map((client, index) => (
                   <motion.div
                     key={client.id}
                     className="absolute"
@@ -54,16 +53,15 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
                     rotate: [0, 180, 360, 540]
                     }}
                     transition={{
-                      duration: 2,
+                      duration: 3 + index * 0.1, // Variar a duração para ser mais aleatório
                       repeat: Infinity,
-                      delay: index * 0.2,
                       ease: "easeInOut"
                     }}
                   >
                     <Avatar className="w-12 h-12 border-2 border-white shadow-lg">
-                      <AvatarImage src={client.avatar} alt={client.name} />
+                      <AvatarImage src={client.avatar} alt={client.name || 'Participante'} />
                       <AvatarFallback className="bg-purple-200 text-purple-700 font-bold">
-                        {client.name.charAt(0)}
+                        {(client.name || 'P').charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                   </motion.div>
@@ -166,9 +164,9 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
                   className="relative"
                 >
                   <Avatar className="w-24 h-24 border-4 border-yellow-400 shadow-xl">
-                    <AvatarImage src={winner.avatar} alt={winner.name} />
+                    <AvatarImage src={winner.avatar} alt={winner.name || 'Vencedor'} />
                     <AvatarFallback className="bg-purple-200 text-purple-700 text-2xl font-bold">
-                      {winner.name.charAt(0)}
+                      {(winner.name || 'V').charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <motion.div
@@ -181,8 +179,8 @@ export default function RaffleAnimation({ isRaffling, winner, selectedClients }:
                 </motion.div>
                 
                 <div>
-                  <h4 className="text-2xl font-bold text-gray-900">{winner.name}</h4>
-                  <p className="text-purple-600 font-semibold">@{winner.name.toLowerCase().replace(' ', '')}</p>
+                  <h4 className="text-2xl font-bold text-gray-900">{winner.name || 'Participante VIP'}</h4>
+                  <p className="text-purple-600 font-semibold">@{(winner.name || 'vencedor').toLowerCase().replace(/\s+/g, '')}</p>
                 </div>
               </motion.div>
             </motion.div>

@@ -230,7 +230,7 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
       ctx.fillStyle = 'white';
       ctx.font = `bold ${avatarR * 0.9}px Arial`;
       ctx.textAlign = 'center';
-      ctx.fillText(winner.name.charAt(0).toUpperCase(), avatarX, avatarY + avatarR * 0.32);
+      ctx.fillText((winner.name || 'V').charAt(0).toUpperCase(), avatarX, avatarY + avatarR * 0.32);
     }
 
     // ── Winner name ───────────────────────────────────────────────────────────
@@ -238,13 +238,14 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
     ctx.font = 'bold 80px Arial';
     ctx.textAlign = 'center';
     // Split name if too long
-    const nameParts = winner.name.split(' ');
-    if (nameParts.length > 2 || winner.name.length > 18) {
+    const safeName = winner.name || 'Participante VIP';
+    const nameParts = safeName.split(' ');
+    if (nameParts.length > 2 || safeName.length > 18) {
       const mid = Math.ceil(nameParts.length / 2);
       ctx.fillText(nameParts.slice(0, mid).join(' '), W / 2, 975);
       ctx.fillText(nameParts.slice(mid).join(' '), W / 2, 1070);
     } else {
-      ctx.fillText(winner.name, W / 2, 1020);
+      ctx.fillText(safeName, W / 2, 1020);
     }
 
     // ── Prize box ─────────────────────────────────────────────────────────────
@@ -300,7 +301,8 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
     const dataUrl = await generateCardImage();
     if (!dataUrl) return;
     const link = document.createElement('a');
-    link.download = `vencedor_${winner.name.replace(/\s+/g, '_')}.png`;
+    const safeNameUrl = (winner.name || 'Vencedor').replace(/\s+/g, '_');
+    link.download = `vencedor_${safeNameUrl}.png`;
     link.href = dataUrl;
     link.click();
   };
@@ -312,13 +314,13 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
       return;
     }
     setSending(true);
-    const congratsMessage = `🎉 *PARABÉNS ${winner.name.toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ *AVL Telecom* agradece a sua participação! ✨`;
+    const congratsMessage = `🎉 *PARABÉNS ${(winner.name || 'PARTICIPANTE').toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ *AVL Telecom* agradece a sua participação! ✨`;
     try {
       const dataUrl = await generateCardImage();
       if (!dataUrl) throw new Error('Erro ao gerar o card');
       const result = await whapiService.sendImage({ to: phoneNumber, imageDataUrl: dataUrl, caption: congratsMessage });
       if (result.sent) {
-        toast({ title: '✅ Card enviado!', description: `Card enviado para ${winner.name} via WhatsApp.` });
+        toast({ title: '✅ Card enviado!', description: `Card enviado para ${winner.name || 'Vencedor'} via WhatsApp.` });
       } else {
         throw new Error(result.error || 'Falha no envio');
       }
@@ -450,10 +452,10 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                       <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
                     </div>
                   ) : effectiveAvatar ? (
-                    <img src={effectiveAvatar} alt={winner.name} className="w-full h-full object-cover" crossOrigin="anonymous" />
+                    <img src={effectiveAvatar} alt={winner.name || 'Vencedor'} className="w-full h-full object-cover" crossOrigin="anonymous" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-4xl font-black text-white" style={{ background: 'linear-gradient(135deg, #6D28D9, #2D1B69)' }}>
-                      {winner.name.charAt(0).toUpperCase()}
+                      {(winner.name || 'V').charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
@@ -475,7 +477,7 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                 className="text-2xl font-black text-white mb-1 leading-tight"
                 style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
               >
-                {winner.name}
+                {winner.name || 'Participante VIP'}
               </motion.h3>
 
               <motion.p

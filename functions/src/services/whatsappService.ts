@@ -13,6 +13,7 @@ export class WhatsAppService {
   constructor(baseURL: string, apiKey: string) {
     this.client = axios.create({
       baseURL,
+      timeout: 30000,
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -28,7 +29,7 @@ export class WhatsAppService {
       });
       return response.data;
     } catch (error: any) {
-      console.error('Erro ao enviar mensagem WhatsApp:', error.response?.data || error.message);
+      console.error('❌ Erro ao enviar mensagem WhatsApp:', error.response?.data || error.message);
       throw error;
     }
   }
@@ -45,17 +46,20 @@ export class WhatsAppService {
       });
       return response.data;
     } catch (error: any) {
-      console.error('Erro ao enviar lista WhatsApp:', error.response?.data || error.message);
+      console.error('❌ Erro ao enviar lista WhatsApp:', error.response?.data || error.message);
       throw error;
     }
   }
 
   async sendMediaMessage(to: string, mediaUrl: string, caption?: string): Promise<any> {
     try {
-      // O endpoint pode variar dependendo se é imagem ou documento
-      // Com base na lista do usuário, vou usar /messages/image como padrão se for imagem
-      const endpoint = mediaUrl.toLowerCase().endsWith('.pdf') ? '/messages/document' : '/messages/image';
+      const isPdf = mediaUrl.toLowerCase().includes('.pdf');
+      const isVideo = mediaUrl.toLowerCase().includes('.mp4');
+      let endpoint = '/messages/image';
       
+      if (isPdf) endpoint = '/messages/document';
+      else if (isVideo) endpoint = '/messages/video';
+
       const response = await this.client.post(endpoint, {
         to: this.formatPhone(to),
         media: mediaUrl,
@@ -63,16 +67,21 @@ export class WhatsAppService {
       });
       return response.data;
     } catch (error: any) {
-      console.error('Erro ao enviar mídia WhatsApp:', error.response?.data || error.message);
+      console.error('❌ Erro ao enviar mídia WhatsApp:', error.response?.data || error.message);
       throw error;
     }
   }
 
   private formatPhone(phone: string): string {
     let clean = phone.replace(/\D/g, '');
-    if (!clean.startsWith('55')) {
+    
+    // Se tiver 11 dígitos (com DDD) e não tiver o 55, adiciona
+    if (clean.length >= 10 && !clean.startsWith('55')) {
       clean = '55' + clean;
     }
+    
+    // Whapi geralmente prefere o formato sem o 9 extra para alguns DDDs, 
+    // mas o formato internacional padrão costuma funcionar.
     return clean;
   }
 }

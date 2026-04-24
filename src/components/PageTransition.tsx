@@ -8,25 +8,35 @@ interface PageTransitionProps {
 const pageVariants = {
   initial: {
     opacity: 0,
-    x: -20, // Reduced distance
-    scale: 0.99 // Subtle scale
+    y: 12,
+    scale: 0.985,
+    filter: 'blur(4px)',
   },
   in: {
     opacity: 1,
-    x: 0,
-    scale: 1
+    y: 0,
+    scale: 1,
+    filter: 'blur(0px)',
   },
   out: {
     opacity: 0,
-    x: 20, // Reduced distance
-    scale: 0.99
-  }
+    y: -8,
+    scale: 1.01,
+    filter: 'blur(4px)',
+  },
 };
 
 const pageTransition = {
-  type: "tween",
-  ease: "anticipate",
-  duration: 0.3 // Slightly faster
+  type: 'spring',
+  stiffness: 320,
+  damping: 32,
+  mass: 0.8,
+};
+
+const exitTransition = {
+  type: 'tween',
+  ease: 'easeIn',
+  duration: 0.18,
 };
 
 const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(
@@ -40,6 +50,7 @@ const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(
         variants={pageVariants}
         transition={pageTransition}
         className="w-full h-full"
+        style={{ willChange: 'transform, opacity, filter' }}
       >
         {children}
       </motion.div>
