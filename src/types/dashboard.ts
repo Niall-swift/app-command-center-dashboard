@@ -65,4 +65,6 @@ export interface Client {
   state?: string;
   instagram?: string;
   source?: 'whatsapp' | 'app';
+  tags?: string[];
+  aiEnabled?: boolean;
 }

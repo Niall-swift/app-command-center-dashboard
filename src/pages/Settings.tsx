@@ -9,7 +9,8 @@ import { Settings2, Plus, Trash2, MessageSquare, UserPlus, Bot, Power } from 'lu
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
 import { db } from '@/config/firebase';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, orderBy, addDoc, deleteDoc } from 'firebase/firestore';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from '@/components/ui/switch';
 import { Label as LabelUI } from '@/components/ui/label';
 import { ixcService } from '@/services/ixc/ixcService';
@@ -56,34 +57,12 @@ export default function Settings() {
     }
   ]);
 
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([
-    {
-      id: '1',
-      name: 'João Silva',
-      email: 'joao@empresa.com',
-      role: 'tecnico',
-      status: 'ativo',
-      createdAt: '2024-01-15'
-    },
-    {
-      id: '2',
-      name: 'Maria Santos',
-      email: 'maria@empresa.com',
-      role: 'atendente',
-      status: 'ativo',
-      createdAt: '2024-01-10'
-    }
-  ]);
 
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
-  // Estados para adicionar usuário
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'tecnico' | 'atendente'>('atendente');
-  const [isAddingUser, setIsAddingUser] = useState(false);
+
 
   // Estado do Robô WhatsApp
   const [botActive, setBotActive] = useState<boolean | null>(null);
@@ -362,34 +341,68 @@ export default function Settings() {
     setCustomMessages(customMessages.filter(msg => msg.id !== id));
   };
 
-  const handleAddUser = () => {
+
+  const [teamUsers, setTeamUsers] = useState<any[]>([]);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserAvatar, setNewUserAvatar] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'tecnico' | 'atendente'>('atendente');
+  const [isAddingUser, setIsAddingUser] = useState(false);
+
+  // Carregar usuários do Firestore
+  React.useEffect(() => {
+    const q = query(collection(db, "attendants"), orderBy("name", "asc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setTeamUsers(data);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddUser = async () => {
     if (newUserName.trim() && newUserEmail.trim()) {
-      const newUser: TeamUser = {
-        id: Date.now().toString(),
-        name: newUserName,
-        email: newUserEmail,
-        role: newUserRole,
-        status: 'ativo',
-        createdAt: new Date().toISOString().split('T')[0]
-      };
-      setTeamUsers([...teamUsers, newUser]);
-      setNewUserName('');
-      setNewUserEmail('');
-      setNewUserRole('atendente');
-      setIsAddingUser(false);
+      try {
+        await addDoc(collection(db, "attendants"), {
+          name: newUserName,
+          email: newUserEmail,
+          avatar: newUserAvatar || `https://avatar.iran.liara.run/username?username=${newUserName}`,
+          role: newUserRole,
+          status: 'ativo',
+          createdAt: new Date().toISOString()
+        });
+        setNewUserName('');
+        setNewUserEmail('');
+        setNewUserAvatar('');
+        setIsAddingUser(false);
+        toast.success('Usuário cadastrado com sucesso!');
+      } catch (e) {
+        toast.error('Erro ao cadastrar usuário');
+      }
     }
   };
 
-  const handleDeleteUser = (id: string) => {
-    setTeamUsers(teamUsers.filter(user => user.id !== id));
+  const handleDeleteUser = async (id: string) => {
+    if (confirm('Deseja realmente remover este usuário?')) {
+      try {
+        await deleteDoc(doc(db, "attendants", id));
+        toast.success('Usuário removido');
+      } catch (e) {
+        toast.error('Erro ao remover');
+      }
+    }
   };
 
-  const toggleUserStatus = (id: string) => {
-    setTeamUsers(teamUsers.map(user => 
-      user.id === id 
-        ? { ...user, status: user.status === 'ativo' ? 'inativo' : 'ativo' as 'ativo' | 'inativo' }
-        : user
-    ));
+  const toggleUserStatus = async (id: string, currentStatus: string) => {
+    try {
+      await setDoc(doc(db, "attendants", id), {
+        status: currentStatus === 'ativo' ? 'inativo' : 'ativo'
+      }, { merge: true });
+    } catch (e) {
+      toast.error('Erro ao atualizar status');
+    }
   };
 
   const getRoleBadgeColor = (role: string) => {
@@ -858,23 +871,36 @@ export default function Settings() {
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Função
-                        </label>
-                        <Select value={newUserRole} onValueChange={(value: 'tecnico' | 'atendente') => setNewUserRole(value)}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecione a função" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="atendente">Atendente</SelectItem>
-                            <SelectItem value="tecnico">Técnico</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            URL da Foto (Avatar)
+                          </label>
+                          <Input
+                            value={newUserAvatar}
+                            onChange={(e) => setNewUserAvatar(e.target.value)}
+                            placeholder="https://link-da-foto.jpg"
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Função
+                          </label>
+                          <Select value={newUserRole} onValueChange={(value: 'tecnico' | 'atendente') => setNewUserRole(value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione a função" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="atendente">Atendente</SelectItem>
+                              <SelectItem value="tecnico">Técnico</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                          <Button onClick={handleAddUser} size="sm">
+                          <Button onClick={handleAddUser} size="sm" className="bg-blue-600 hover:bg-blue-700">
                             Salvar Usuário
                           </Button>
                         </motion.div>
@@ -911,28 +937,36 @@ export default function Settings() {
                       className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow"
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h4 className="font-medium text-gray-900">{user.name}</h4>
-                            <Badge className={getRoleBadgeColor(user.role)}>
-                              {user.role === 'tecnico' ? 'Técnico' : 'Atendente'}
-                            </Badge>
-                            <Badge className={getStatusBadgeColor(user.status)}>
-                              {user.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                            </Badge>
-                          </div>
-                          <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>E-mail:</strong> {user.email}</p>
-                            <p><strong>Cadastrado em:</strong> {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
+                        <div className="flex items-center gap-4 flex-1">
+                          <Avatar className="w-12 h-12 border">
+                            <AvatarImage src={user.avatar} />
+                            <AvatarFallback className="bg-slate-100 text-slate-500 font-bold">
+                              {user.name[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-1">
+                              <h4 className="font-bold text-gray-900">{user.name}</h4>
+                              <Badge className={getRoleBadgeColor(user.role)}>
+                                {user.role === 'tecnico' ? 'Técnico' : 'Atendente'}
+                              </Badge>
+                              <Badge className={getStatusBadgeColor(user.status)}>
+                                {user.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-gray-600 space-y-0.5">
+                              <p><strong>E-mail:</strong> {user.email}</p>
+                              <p><strong>Cadastrado em:</strong> {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                             <Button
-                              onClick={() => toggleUserStatus(user.id)}
+                              onClick={() => toggleUserStatus(user.id, user.status)}
                               variant="outline"
                               size="sm"
-                              className={user.status === 'ativo' ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
+                              className={user.status === 'ativo' ? 'text-orange-600 hover:text-orange-700 border-orange-200' : 'text-green-600 hover:text-green-700 border-green-200'}
                             >
                               {user.status === 'ativo' ? 'Desativar' : 'Ativar'}
                             </Button>

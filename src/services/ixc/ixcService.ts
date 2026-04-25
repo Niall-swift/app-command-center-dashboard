@@ -99,6 +99,73 @@ class IXCService {
     return response.registros[0];
   }
 
+  // Buscar cliente por telefone (celular ou fixo)
+  async getClienteByPhone(phone: string): Promise<IXCClienteData | null> {
+    console.log(`🔍 Iniciando busca no IXC para o telefone: ${phone}`);
+    
+    // Limpar o número para buscar apenas dígitos
+    // Se vier do WhatsApp, pode vir como 552299887766
+    let cleanPhone = phone.replace(/\D/g, '');
+    
+    // Se começar com 55 e tiver mais de 10 dígitos, tenta tirar o 55 para a busca
+    if (cleanPhone.startsWith('55') && cleanPhone.length > 10) {
+      cleanPhone = cleanPhone.substring(2);
+    }
+
+    console.log(`📱 Telefone limpo para busca: ${cleanPhone}`);
+    
+    // Preparar termos de busca:
+    const ddd = cleanPhone.slice(0, 2);
+    const rest = cleanPhone.slice(2);
+    
+    let formattedCel = "";
+    let formattedFix = "";
+    
+    if (rest.length === 9) { // Celular com 9
+      formattedCel = `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
+      formattedFix = `(${ddd}) ${rest.slice(1, 5)}-${rest.slice(5)}`;
+    } else if (rest.length === 8) { // Fixo ou Celular sem 9
+      formattedCel = `(${ddd}) 9${rest.slice(0, 4)}-${rest.slice(4)}`;
+      formattedFix = `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+    }
+
+    const searchTerms = [
+      formattedCel,
+      formattedFix,
+      `%${cleanPhone.slice(-8).split('').join('%')}%`, // Fallback ultra-flexível
+    ].filter(t => t !== "");
+    
+    const fields = ['cliente.telefone_celular', 'cliente.whatsapp', 'cliente.telefone', 'cliente.telefone_comercial'];
+    
+    for (const term of searchTerms) {
+      for (const field of fields) {
+        console.log(`📡 Tentando campo: ${field} com termo: ${term}`);
+        const data: Partial<IXCParams> = {
+          qtype: field,
+          query: term,
+          oper: term.includes('%') ? 'LIKE' : '=', // Usa = se for formato exato
+          page: '1',
+          rp: '1',
+          sortname: 'cliente.id',
+          sortorder: 'desc',
+        };
+
+        try {
+          const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+          if (response.registros && response.registros.length > 0) {
+            console.log(`✅ Cliente encontrado! Campo: ${field}, Termo: ${term}`, response.registros[0].razao);
+            return response.registros[0];
+          }
+        } catch (e) {
+          // Silencioso para continuar tentando
+        }
+      }
+    }
+
+    console.warn(`⚠️ Nenhum cliente encontrado no IXC para o telefone ${phone}`);
+    return null;
+  }
+
   // Buscar cliente por nome
   async getClienteByNome(nome: string): Promise<IXCClienteData[]> {
     const data: Partial<IXCParams> = {
@@ -120,6 +187,43 @@ class IXCService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.id',
       query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+      sortname: 'cliente.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    
+    if (!response.registros || response.registros.length === 0) {
+      return null;
+    }
+
+    return response.registros[0];
+  }
+
+  // Buscar cliente por CPF/CNPJ
+  async getClienteByCPF(cpf: string): Promise<IXCClienteData | null> {
+    // Primeiro, limpamos para ter apenas números
+    const numbers = cpf.replace(/\D/g, '');
+    
+    let formattedCPF = cpf;
+    
+    // Se for um CPF (11 dígitos), formatamos no padrão xxx.xxx.xxx-xx
+    if (numbers.length === 11) {
+      formattedCPF = numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    } 
+    // Se for um CNPJ (14 dígitos), formatamos no padrão xx.xxx.xxx/xxxx-xx
+    else if (numbers.length === 14) {
+      formattedCPF = numbers.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    }
+
+    console.log(`🔍 Josué buscando cliente no IXC com documento formatado: ${formattedCPF}`);
+
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente.cnpj_cpf',
+      query: formattedCPF,
       oper: '=',
       page: '1',
       rp: '1',
@@ -337,7 +441,7 @@ class IXCService {
       page: '1',
       rp: '1000',
       sortname: 'fn_areceber.data_vencimento',
-      sortorder: 'desc',
+      sortorder: 'asc',
     };
 
     const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
