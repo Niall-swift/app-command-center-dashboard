@@ -86,8 +86,22 @@ export const aiService = {
       const chat = model.startChat({ history: history.slice(0, -1) });
       const lastMessage = messages[messages.length - 1].content || "";
       
-      // Enviar mensagem para o Josué
-      let result = await chat.sendMessage(`Cliente ${clientName} diz: ${lastMessage}`);
+      // Função auxiliar para tentar a requisição até 5 vezes caso o servidor do Google esteja lotado
+      const sendMessageWithRetry = async (messagePayload: any, retries = 5): Promise<any> => {
+        try {
+          return await chat.sendMessage(messagePayload);
+        } catch (error: any) {
+          if (retries > 0 && error.message?.includes("503")) {
+            console.warn(`⚠️ Servidor do Google lotado (503). Tentando novamente em 5 segundos... (Restam ${retries - 1} tentativas)`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            return sendMessageWithRetry(messagePayload, retries - 1);
+          }
+          throw error;
+        }
+      };
+
+      // Enviar mensagem para o Josué usando o sistema de tentativas
+      let result = await sendMessageWithRetry(`Cliente ${clientName} diz: ${lastMessage}`);
       let response = result.response;
       
       // Lógica de Function Calling (Loop para tratar múltiplas chamadas se necessário)
@@ -99,7 +113,6 @@ export const aiService = {
         if (call.name === "get_client_info") {
           const client = await ixcService.getClienteByCPF(call.args.cpf as string);
           if (client) {
-            // Buscar contratos também para ter o ID do contrato para desbloqueio futuro
             const contracts = await ixcService.getContratosByCliente(client.id);
             toolResult = { 
               status: "sucesso", 
@@ -127,13 +140,16 @@ export const aiService = {
         }
 
         // Enviar o resultado da ferramenta de volta para o Josué gerar a resposta final
-        result = await chat.sendMessage([{ functionResponse: { name: call.name, response: toolResult } }]);
+        result = await sendMessageWithRetry([{ functionResponse: { name: call.name, response: toolResult } }]);
         response = result.response;
       }
 
       return response.text();
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Erro no Josué:", error);
+      if (error.message?.includes("503")) {
+        return "Puxa, meus servidores estão passando por uma instabilidade momentânea (muito movimento hoje!). Você poderia mandar um 'Oi' de novo daqui a um minutinho? 🙏";
+      }
       return "Puxa, deu um tilt aqui no meu sistema... 😵 Pode repetir o que você precisa? O Josué aqui está pronto para tentar de novo!";
     }
   }

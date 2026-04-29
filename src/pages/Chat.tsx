@@ -166,46 +166,80 @@ export default function Chat() {
     };
   }, [selectedClient]);
 
-  // Lógica de Processamento da IA
+  const [globalAiEnabled, setGlobalAiEnabled] = useState(() => {
+    return localStorage.getItem('globalAiEnabled') === 'true';
+  });
+  
   useEffect(() => {
-    const processAIMessage = async () => {
-      if (!selectedClient) return;
-      
-      const messages = clientMessages[selectedClient.id] || [];
-      if (messages.length === 0) return;
+    localStorage.setItem('globalAiEnabled', globalAiEnabled.toString());
+  }, [globalAiEnabled]);
 
-      const lastMessage = messages[messages.length - 1];
-      
-      console.log("🔍 Verificando IA para:", selectedClient.name, {
-        aiEnabled: selectedClient.aiEnabled,
-        lastMessageUser: lastMessage.user,
-        isAdmin: lastMessage.isAdmin,
-        isNew: lastMessage.id !== lastProcessedMessageId,
-        content: lastMessage.content
-      });
+  const previousClientsRef = useRef<Client[]>([]);
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
-      if (!selectedClient.aiEnabled) return;
+  // Lógica de Processamento da IA Global (Monitora todos os clientes recebendo novas mensagens)
+  useEffect(() => {
+    const triggerAiForClient = async (client: Client) => {
+      try {
+        console.log(`🚀 DISPARANDO IA PARA (Background): ${client.name}`);
+        const mensagensRef = collection(db, "chat", client.id, "mensagens");
+        const q = query(mensagensRef, orderBy("timestamp", "desc"), limit(10));
+        const snapshot = await getDocs(q);
+        const messages = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+               id: doc.id,
+               user: data.user,
+               content: data.content,
+               timestamp: data.timestamp?.toDate() || new Date(),
+               isAdmin: data.isAdmin || false,
+               source: data.source
+            } as Message;
+        }).reverse(); // Colocar na ordem cronológica correta
 
-      const isFromClient = !lastMessage.isAdmin;
-      const isNew = lastMessage.id !== lastProcessedMessageId;
-      const isText = !!lastMessage.content;
-
-      if (isFromClient && isNew && isText) {
-        console.log(`🚀 DISPARANDO IA PARA: ${selectedClient.name}`);
-        setLastProcessedMessageId(lastMessage.id || null);
+        const response = await aiService.generateResponse(messages, client.name);
         
-        try {
-          const response = await aiService.generateResponse(messages, selectedClient.name);
-          await handleSendMessage(response);
-          console.log(`✅ IA RESPONDEU: ${selectedClient.name}`);
-        } catch (error) {
-          console.error("❌ ERRO CRÍTICO NA IA:", error);
-        }
+        const message: any = {
+            user: "Josué (IA)",
+            content: response,
+            timestamp: new Date(),
+            isAdmin: true,
+            source: 'app'
+        };
+        await addDoc(collection(db, "chat", client.id, "mensagens"), message);
+        await setDoc(doc(db, "chat", client.id), {
+            lastMessage: response,
+            lastMessageTime: new Date(),
+            unreadCount: 0 // Zera o unread porque respondemos
+        }, { merge: true });
+
+        console.log(`✅ IA RESPONDEU PARA: ${client.name}`);
+      } catch (e) {
+        console.error("❌ ERRO NA IA BACKGROUND:", e);
       }
     };
 
-    processAIMessage();
-  }, [clientMessages, selectedClient, lastProcessedMessageId]);
+    clients.forEach(client => {
+      const prevClient = previousClientsRef.current.find(c => c.id === client.id);
+      
+      if (prevClient) {
+        // Se a hora da última mensagem mudou E o cliente tem mensagens não lidas (mensagem dele, não nossa)
+        if (client.lastMessageTime > prevClient.lastMessageTime && client.unreadCount > 0) {
+           const messageIdentifier = `${client.id}_${client.lastMessageTime.getTime()}`;
+           
+           if (!processedMessageIdsRef.current.has(messageIdentifier)) {
+              processedMessageIdsRef.current.add(messageIdentifier);
+              
+              if (globalAiEnabled || client.aiEnabled) {
+                 triggerAiForClient(client);
+              }
+           }
+        }
+      }
+    });
+
+    previousClientsRef.current = clients;
+  }, [clients, globalAiEnabled]);
 
   const handleSendMessage = async (text?: string, media?: { type: 'image' | 'audio', url: string }) => {
     const messageText = text || newMessage;
@@ -343,10 +377,19 @@ export default function Chat() {
                 </Badge>
               </h2>
               <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400" onClick={testNotificationSound}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  title={`IA Global: ${globalAiEnabled ? 'ON' : 'OFF'}`}
+                  className={`h-8 w-8 rounded-full transition-colors ${globalAiEnabled ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`} 
+                  onClick={() => setGlobalAiEnabled(!globalAiEnabled)}
+                >
+                  <Bot className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100" onClick={testNotificationSound}>
                   <Bell className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400" onClick={() => setShowDebugPanel(!showDebugPanel)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100" onClick={() => setShowDebugPanel(!showDebugPanel)}>
                   <Bug className="w-4 h-4" />
                 </Button>
               </div>
