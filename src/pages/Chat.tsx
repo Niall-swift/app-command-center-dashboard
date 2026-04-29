@@ -86,7 +86,9 @@ export default function Chat() {
     const q = query(chatRef, limit(50));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const clientsData = snapshot.docs.map((doc) => {
+      const clientsData = snapshot.docs
+        .filter((doc) => doc.id.length <= 15) // Ignora IDs muito longos (grupos do WhatsApp têm 18+ dígitos)
+        .map((doc) => {
         const data = doc.data();
         return {
           id: doc.id,

@@ -344,10 +344,15 @@ export const whatsappWebhook = functions.runWith({
     const payload = req.body;
     let messageData = payload.data || (payload.messages && payload.messages[0]) || payload;
 
-    const from = messageData.from || messageData.chatId || messageData.chat_id || messageData.sender || messageData.key?.remoteJid;
+    const chatIdField = messageData.chat_id || messageData.chatId || messageData.key?.remoteJid || "";
+    const senderField = messageData.from || messageData.sender || "";
+    
+    const from = senderField || chatIdField;
     const text = messageData.body || messageData.text?.body || messageData.message?.conversation || (typeof messageData.text === "string" ? messageData.text : undefined);
     const selectionId = messageData.list_reply?.id || messageData.button_reply?.id;
-    const isGroup = from?.includes("@g.us") || from?.includes("@group");
+    
+    // Agora verificamos explicitamente o ID do chat e o remetente para ter certeza absoluta se é grupo
+    const isGroup = chatIdField.includes("@g.us") || senderField.includes("@g.us") || messageData.isGroup === true || from?.includes("@group");
     const fromMe = messageData.from_me === true || messageData.fromMe === true || messageData.key?.fromMe === true;
 
     // Extrair nome do remetente (preferência para pushname da Whapi)
