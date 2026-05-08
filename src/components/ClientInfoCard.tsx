@@ -24,7 +24,7 @@ import {
 import { ixcService } from "@/services/ixc/ixcService";
 import { IXCClienteData, IXCContratoData, IXCFaturaData } from "@/types/ixc";
 import { db } from "@/config/firebase";
-import { doc, updateDoc, arrayUnion, arrayRemove, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, collection, addDoc } from "firebase/firestore";
 import { toast } from "sonner";
 
 interface ClientInfoCardProps {
@@ -84,6 +84,17 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
       await updateDoc(doc(db, "chat", clientId), {
         aiEnabled: newStatus
       });
+      
+      // Adicionar nota interna de histórico
+      await addDoc(collection(db, "chat", clientId, "mensagens"), {
+        user: "Sistema",
+        content: `🔄 Atendimento alterado para modo ${newStatus ? 'IA (Josué)' : 'HUMANO'}`,
+        timestamp: new Date(),
+        isAdmin: true,
+        isPrivate: true,
+        source: 'system'
+      });
+
       toast.success(newStatus ? "🤖 IA Ativada para este cliente" : "👤 IA Desativada - Atendimento Humano");
     } catch (error) {
       toast.error("Erro ao alterar status da IA");

@@ -5,10 +5,11 @@ export interface Message {
   timestamp: Date;
   avatar?: string;
   isAdmin?: boolean;
-  mediaType?: 'image' | 'audio';
+  mediaType?: 'image' | 'audio' | 'video' | 'document';
   mediaUrl?: string;
   mediaName?: string;
   source?: 'whatsapp' | 'app' | 'system';
+  isPrivate?: boolean;
 }
 
 export interface UserDetails {
@@ -67,4 +68,5 @@ export interface Client {
   source?: 'whatsapp' | 'app';
   tags?: string[];
   aiEnabled?: boolean;
+  protocol?: string;
 }

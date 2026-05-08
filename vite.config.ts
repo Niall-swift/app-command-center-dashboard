@@ -40,6 +40,12 @@ export default defineConfig(({ mode }) => ({
           servername: 'ncbrasil.smartolt.com',
         }),
       },
+      '/api/whapi': {
+        target: 'https://gate.whapi.cloud',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/whapi/, ''),
+      },
     },
   },
   plugins: [

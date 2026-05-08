@@ -119,7 +119,7 @@ export const onDashboardMessageSent = functions.firestore
     const messageData = snapshot.data();
     const chatId = context.params.chatId; // Telefone limpo
 
-    if (messageData.isAdmin !== true) return null;
+    if (messageData.isAdmin !== true || messageData.isPrivate === true) return null;
 
     console.log(`📤 Replicando resposta do painel para: ${chatId}`);
 
@@ -370,11 +370,35 @@ export const whatsappWebhook = functions.runWith({
     }
 
     const cleanPhone = from.replace(/\D/g, "");
-    console.log(`📩 Mensagem recebida de ${senderName} (${cleanPhone}): ${text || "[Mídia]"}`);
+
+    // DEBUG: Log do objeto completo para entender a estrutura de mídia que está chegando
+    console.log(`📩 [WHAPI-DEBUG] Mensagem de ${from}:`, JSON.stringify(messageData));
+
+    // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
+    const type = messageData.type;
+    let mediaUrl = messageData.link || messageData.url || null;
+    let mediaType = null;
+
+    if (type === 'image' || messageData.image) {
+      mediaUrl = messageData.image?.link || messageData.link || messageData.url;
+      mediaType = 'image';
+    } else if (type === 'audio' || type === 'voice' || messageData.audio || messageData.voice) {
+      mediaUrl = messageData.audio?.link || messageData.voice?.link || messageData.link || messageData.url;
+      mediaType = 'audio';
+    } else if (type === 'video' || messageData.video) {
+      mediaUrl = messageData.video?.link || messageData.link || messageData.url;
+      mediaType = 'video';
+    } else if (type === 'document' || messageData.document) {
+      mediaUrl = messageData.document?.link || mediaUrl;
+      mediaType = 'document';
+    }
+
+    const content = text || (mediaType === 'image' ? '📎 Foto' : mediaType === 'audio' ? '🎵 Áudio' : mediaType === 'document' ? '📄 Documento' : '📎 Mídia');
+
+    console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
     
-    // --- LOG PARA DASHBOARD (PRIMEIRA COISA A FAZER) ---
-    // Gravamos logo para aparecer no painel sem atraso
-    await logMessageToDashboard(cleanPhone, text || "Mídia recebida", false, "whatsapp", senderName.split(' ')[0]);
+    // --- LOG PARA DASHBOARD ---
+    await logMessageToDashboard(cleanPhone, content, false, "whatsapp", senderName.split(' ')[0], null, mediaUrl, mediaType);
 
     const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
     const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
@@ -502,7 +526,7 @@ async function sendWelcomeMenu(from: string, waService: WhatsAppService, isFallb
   return menuText;
 }
 
-async function logMessageToDashboard(cleanPhone: string, content: string, isAdmin: boolean, source?: string, firstName?: string, cliente?: any) {
+async function logMessageToDashboard(cleanPhone: string, content: string, isAdmin: boolean, source?: string, firstName?: string, cliente?: any, mediaUrl?: string | null, mediaType?: string | null) {
   try {
     console.log(`📡 [LOG-DASHBOARD] Iniciando gravação para: ${cleanPhone}`);
     const chatRef = db.collection("chat").doc(cleanPhone);
@@ -533,6 +557,8 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
       timestamp: serverTimestamp,
       isAdmin,
       source: source || (isAdmin ? "system" : "whatsapp"),
+      mediaUrl: mediaUrl || null,
+      mediaType: mediaType || null,
     });
     
     console.log(`✅ [LOG-DASHBOARD] SUCESSO TOTAL para ${cleanPhone}`);

@@ -31,6 +31,8 @@ import Rewards from "./pages/Rewards";
 import Leaderboard from "./pages/Leaderboard";
 import MyReferrals from "./pages/MyReferrals";
 import IXCClientDetails from "./pages/IXCClientDetails";
+import IXCDici from "./pages/IXCDici";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +58,8 @@ function AnimatedRoutes() {
         <Route path="/ixc/cliente/:id" element={<IXCClientDetails />} />
         <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
         <Route path="/ixc/tickets" element={<IXCTickets />} />
+        <Route path="/ixc/dici" element={<IXCDici />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />
         <Route path="/redemption-orders" element={<RedemptionOrders />} />

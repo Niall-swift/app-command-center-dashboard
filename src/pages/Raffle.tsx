@@ -329,7 +329,7 @@ export default function Raffle() {
                       ))}
                     </optgroup>
                     <optgroup label="Prêmios Padrão">
-                      {prizes.map((p) => <option key={p} value={p}>{p}</option>)}
+                      {prizes.map((p, index) => <option key={index} value={p}>{p}</option>)}
                     </optgroup>
                   </select>
                 </CardContent>

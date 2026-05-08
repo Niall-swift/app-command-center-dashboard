@@ -35,8 +35,9 @@ export default async function handler(req, res) {
     // Codificar token usando Buffer (padrão Node.js)
     const encodedToken = Buffer.from(IXC_TOKEN).toString('base64');
 
-    // Extrair o path da requisição
-    const path = req.url.replace('/api/ixc', '');
+    // Extrair o path da requisição sem a query string
+    const urlObj = new URL(req.url, 'http://localhost');
+    const path = urlObj.pathname.replace('/api/ixc', '');
     const url = `${IXC_HOST}${path}`;
 
     // Fazer requisição para o IXC

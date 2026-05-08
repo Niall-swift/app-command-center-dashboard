@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: "AIzaSyADXsd9RRb5EUk_JLXVspcTWaNi0b2Zck0",
@@ -21,11 +22,12 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // WhatsApp API configuration (CallMeBot)
 export const WHATSAPP_API_KEY = import.meta.env.VITE_WHATSAPP_API_KEY || '';
 export const WHATSAPP_API_URL = 'https://api.callmebot.com/whatsapp.php';
 
-export default {db, auth, storage, googleProvider};
+export default {db, auth, storage, googleProvider, functions};
 //         <div className="flex items-center justify-between">

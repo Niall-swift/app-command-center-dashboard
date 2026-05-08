@@ -55,6 +55,15 @@ class IXCService {
 
     // Codificar token para autenticação
     this.encodedToken = token ? btoa(token) : '';
+
+    // Adicionar interceptor para remover o header de Authorization
+    // se o token estiver vazio (como no caso de produção usando Vercel Proxy)
+    this.client.interceptors.request.use((config) => {
+      if (!this.encodedToken && config.headers) {
+        delete config.headers['Authorization'];
+      }
+      return config;
+    });
   }
 
   private async makeRequest<T>(
@@ -62,12 +71,15 @@ class IXCService {
     data: Partial<IXCParams>
   ): Promise<T> {
     try {
-      const response = await this.client.post<T>(endpoint, data, {
-        headers: {
-          'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'listar',
-        },
-      });
+      const headers: Record<string, string> = {
+        'ixcsoft': 'listar',
+      };
+
+      if (this.encodedToken) {
+        headers['Authorization'] = `Basic ${this.encodedToken}`;
+      }
+
+      const response = await this.client.post<T>(endpoint, data, { headers });
 
       return response.data;
     } catch (error) {
@@ -892,20 +904,39 @@ class IXCService {
 
   // ==================== MÉTODOS DE PLANOS ====================
 
-  // Buscar todos os planos
-  async getAllPlanos(): Promise<IXCPlanoData[]> {
-    const data: Partial<IXCParams> = {
-      qtype: 'produto.id',
-      query: '0',
-      oper: '>',
-      page: '1',
-      rp: '1000',
-      sortname: 'produto.descricao',
-      sortorder: 'asc',
-    };
+  // Buscar todos os planos de venda (Internet)
+  async getAllVdPlanos(onProgress?: (total: number) => void): Promise<IXCPlanoData[]> {
+    const endpoints = ['/vd_plano', '/produto', '/plano'];
+    
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`Tentando buscar planos em: ${endpoint}`);
+        const qtype = endpoint === '/produto' ? 'produto.id' : `${endpoint.substring(1)}.id`;
+        const results = await this.fetchAllRecords<IXCPlanoData>(
+          endpoint,
+          { qtype, query: '0', oper: '>', sortname: qtype, sortorder: 'asc' },
+          onProgress
+        );
+        
+        if (results.length > 0) {
+          console.log(`✅ Sucesso ao buscar planos em ${endpoint}: ${results.length} encontrados.`);
+          return results;
+        }
+      } catch (e) {
+        console.warn(`Falha ao buscar planos em ${endpoint}, tentando próximo...`);
+      }
+    }
+    
+    return [];
+  }
 
-    const response = await this.makeRequest<IXCApiResponse<IXCPlanoData>>('/produto', data);
-    return response.registros || [];
+  // Buscar todos os produtos
+  async getAllPlanos(onProgress?: (total: number) => void): Promise<IXCPlanoData[]> {
+    return await this.fetchAllRecords<IXCPlanoData>(
+      '/produto',
+      { qtype: 'produto.id', query: '0', oper: '>', sortname: 'produto.descricao', sortorder: 'asc' },
+      onProgress
+    );
   }
 
   // Buscar plano por ID
@@ -1185,7 +1216,7 @@ class IXCService {
 
       try {
         const response = await this.makeRequest<IXCApiResponse<T>>(endpoint, data);
-        const registros = response.registros || [];
+        const registros = (response.registros || response.rows || []) as T[];
         
         allRecords = [...allRecords, ...registros];
         
@@ -1754,8 +1785,25 @@ class IXCService {
       return { success: false, message: error.response?.data?.message || 'Erro ao atualizar cliente.' };
     }
   }
+
+  /**
+   * Busca TODOS os contratos ATIVOS recursivamente
+   */
+  async fetchAllContratosAtivos(onProgress?: (total: number) => void): Promise<IXCContratoData[]> {
+    return this.fetchAllRecords<IXCContratoData>(
+      '/cliente_contrato',
+      {
+        qtype: 'cliente_contrato.status',
+        query: 'A',
+        oper: '=',
+        sortname: 'cliente_contrato.id',
+        sortorder: 'desc',
+      },
+      onProgress
+    );
+  }
 }
 
 // Exportar instância única do serviço
 export const ixcService = new IXCService();
-export default IXCService;
+export default ixcService;
