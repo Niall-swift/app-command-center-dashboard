@@ -4,6 +4,8 @@ import {ClientData, WelcomeMessageLog, UserSession, WhapiResponse} from "./types
 import { IXCBackendService } from "./ixcService";
 import { AiService, Intent } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
+import axios from "axios";
+import * as https from "https";
 
 // Inicializar Firebase Admin
 if (admin.apps.length === 0) {
@@ -587,3 +589,100 @@ async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCB
     await logMessageToDashboard(cliente.phone || from, msg, true, "system", cliente.razao?.split(' ')[0]);
   }
 }
+
+/**
+ * 🌐 Proxy seguro para a API do IXC
+ * Permite que o app hospedado na Vercel consuma a API do IXC
+ * sem problemas de CORS ou exposição do IXC_TOKEN no browser.
+ */
+export const ixcProxy = functions.https.onRequest(async (req, res) => {
+  // Configurar cabeçalhos de CORS manualmente
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, ixcsoft"
+  );
+
+  // Tratar requisição OPTIONS (Preflight do CORS)
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
+  // Obter host do ambiente ou usar padrão real
+  let IXC_HOST = process.env.IXC_HOST || "https://coopertecisp.com.br/webservice/v1";
+  if (IXC_HOST.includes("/api/ixc")) {
+    IXC_HOST = "https://coopertecisp.com.br/webservice/v1";
+  }
+  const IXC_TOKEN = process.env.IXC_TOKEN;
+
+  try {
+    if (!IXC_TOKEN) {
+      res.status(500).json({
+        error: "Configuration Error",
+        message: "IXC_TOKEN is missing in Firebase environment variables",
+        debug: {
+          host: IXC_HOST,
+          hasToken: false,
+        },
+      });
+      return;
+    }
+
+    const encodedToken = Buffer.from(IXC_TOKEN).toString("base64");
+
+    // Extrair o sub-path a ser encaminhado para a API
+    let subpath = req.path || "";
+    
+    // Garantir que não duplique a rota da cloud function caso venha na URL original
+    if (subpath.startsWith("/ixcProxy")) {
+      subpath = subpath.substring("/ixcProxy".length);
+    }
+
+    const url = `${IXC_HOST}${subpath}`;
+    console.log(`🌐 Proxying ${req.method} request to IXC: ${url}`);
+
+    const response = await axios({
+      method: req.method,
+      url: url,
+      data: req.body,
+      params: req.query,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Basic ${encodedToken}`,
+        "ixcsoft": (req.headers.ixcsoft as string) || "listar",
+      },
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: false,
+      }),
+    });
+
+    res.status(response.status).json(response.data);
+  } catch (error: any) {
+    console.error("❌ Erro no Proxy IXC do Firebase:", error.message);
+
+    const errorResponse = {
+      error: "Proxy Error",
+      message: error.message,
+      debug: {
+        host: IXC_HOST,
+        url: error.config?.url,
+        hasToken: !!IXC_TOKEN,
+        status: error.response?.status,
+        data: error.response?.data,
+      },
+    };
+
+    if (error.response) {
+      res.status(error.response.status).json({
+        ...errorResponse,
+        error: "Upstream API Error",
+        message: typeof error.response.data === "object" ? JSON.stringify(error.response.data) : error.response.data || error.message,
+      });
+    } else {
+      res.status(500).json(errorResponse);
+    }
+  }
+});
