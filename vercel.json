@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/ixc/:path*",
-            "destination": "/api/ixc"
+            "destination": "https://us-central1-avl-telecom.cloudfunctions.net/ixcProxy/:path*"
         },
         {
             "source": "/api/smartolt/:path*",
