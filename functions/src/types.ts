@@ -32,6 +32,7 @@ export interface UserSession {
   lastIntent?: string;
   state?: 'IDLE' | 'WAITING_FOR_CPF';
   pendingAction?: 'request_invoice' | 'trust_unlock' | null;
+  pausedUntil?: any;
   updatedAt: any;
   phone: string;
 }

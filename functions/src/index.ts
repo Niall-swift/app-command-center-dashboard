@@ -485,6 +485,15 @@ export const whatsappWebhook = functions.runWith({
     const sessionSnap = await sessionRef.get();
     const session = sessionSnap.data() as UserSession | undefined;
 
+    // --- VERIFICAÇÃO DE PAUSA (ATENDIMENTO HUMANO) ---
+    if (session?.pausedUntil) {
+      const pausedDate = session.pausedUntil.toDate ? session.pausedUntil.toDate() : new Date(session.pausedUntil);
+      if (pausedDate > new Date()) {
+        console.log(`⏸️ Bot pausado para ${cleanPhone} até ${pausedDate}. Mensagem entregue ao humano.`);
+        res.status(200).send("OK"); return;
+      }
+    }
+
     // --- ESTADO: AGUARDANDO CPF ---
     const isOnlyDigits = /^\d+$/.test((text || "").trim());
     const pureNumbers = (text || "").replace(/\D/g, "");
@@ -526,10 +535,19 @@ export const whatsappWebhook = functions.runWith({
       await processInvoiceRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
     } else if (finalIntent === "trust_unlock") {
       await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
-    } else if (finalIntent === "human_support") {
-      const msg = "🎧 Vou te transferir para um atendente humano. Aguarde.";
+    } else if (finalIntent === "human_support" || finalIntent === "other") {
+      const isOther = finalIntent === "other";
+      const msg = isOther 
+        ? "Entendi. Vou te transferir para um de nossos especialistas. Aguarde um momento. 🎧"
+        : "🎧 Vou te transferir para um atendente humano. Aguarde um instante.";
+      
       await waService.sendTextMessage(from, msg);
       await logMessageToDashboard(cleanPhone, msg, true, "system");
+      
+      // Pausa o bot por 1 hora (3600000 ms) para este cliente
+      const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
+      await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
+      console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: ${finalIntent})`);
     } else {
       console.log(`📋 Enviando menu de boas-vindas para ${cleanPhone}`);
       const menu = await sendWelcomeMenu(from, waService, false, firstName);
