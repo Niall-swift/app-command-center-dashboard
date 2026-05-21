@@ -148,7 +148,8 @@ export class IXCBackendService {
       const response = await this.client.post<{ link: string }>(`/get_boleto/${idFatura}`, { id: idFatura }, {
         headers: { 'Authorization': `Basic ${this.encodedToken}` }
       });
-      return response.data?.link || null;
+      const link = response.data?.link;
+      return (typeof link === 'string' && link.startsWith('http')) ? link : null;
     } catch (error) {
       return null;
     }
@@ -159,7 +160,8 @@ export class IXCBackendService {
       const response = await this.client.post<{ qrcode_text: string }>(`/get_pix_qrcode/${idFatura}`, { id: idFatura }, {
         headers: { 'Authorization': `Basic ${this.encodedToken}` }
       });
-      return response.data?.qrcode_text || null;
+      const pix = response.data?.qrcode_text;
+      return (typeof pix === 'string' && pix.trim() !== '') ? pix : null;
     } catch (error) {
       return null;
     }

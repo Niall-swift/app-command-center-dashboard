@@ -492,10 +492,18 @@ export const whatsappWebhook = functions.runWith({
       await waService.sendTextMessage(from, "🔍 Buscando cadastro...");
       const clienteByDoc = await ixcService.getClienteByCpfCnpj(pureNumbers);
       if (clienteByDoc) {
-        await sessionRef.set({ state: "IDLE" }, { merge: true });
-        await handleInvoiceRequest(clienteByDoc, from, ixcService, waService);
+        await sessionRef.set({ state: "IDLE", pendingAction: null }, { merge: true });
+        
+        if (session?.pendingAction === "trust_unlock") {
+          await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, clienteByDoc);
+        } else if (session?.pendingAction === "request_invoice") {
+          await handleInvoiceRequest(clienteByDoc, from, ixcService, waService);
+        } else {
+          const firstName = clienteByDoc.razao ? clienteByDoc.razao.split(' ')[0] : undefined;
+          await sendWelcomeMenu(from, waService, false, firstName);
+        }
       } else {
-        await waService.sendTextMessage(from, "❌ Não localizado. Digite novamente.");
+        await waService.sendTextMessage(from, "❌ Não localizado. Verifique se o CPF/CNPJ está correto e digite novamente.");
       }
       res.status(200).send("OK"); return;
     }
@@ -548,7 +556,7 @@ async function processInvoiceRequest(from: string, cleanPhone: string, ixcServic
   if (cliente) {
     await handleInvoiceRequest(cliente, from, ixcService, waService);
   } else {
-    await sessionRef.set({ state: "WAITING_FOR_CPF", phone: cleanPhone }, { merge: true });
+    await sessionRef.set({ state: "WAITING_FOR_CPF", pendingAction: "request_invoice", phone: cleanPhone }, { merge: true });
     const msg = "🤔 Não achei seu cadastro pelo telefone. Me informe seu *CPF ou CNPJ* (apenas números).";
     await waService.sendTextMessage(from, msg);
     await logMessageToDashboard(cleanPhone, msg, true, "system");
@@ -632,10 +640,17 @@ async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCB
   for (const fat of faturas) {
     await ixcService.sendEmailFatura(fat.id);
     const pix = fat.pix_copia_e_cola || await ixcService.getPix(fat.id);
-    const link = fat.gateway_link || fat.link_getwere || fat.url_boleto || await ixcService.getBoleto(fat.id);
+    
+    // Evitar [Function: link]
+    let link: string | null = fat.gateway_link || fat.link_getwere || fat.url_boleto || null;
+    if (typeof link !== 'string' || link.trim() === '') {
+      link = await ixcService.getBoleto(fat.id);
+    }
+    
     let msg = `📅 *Vencimento: ${fat.data_vencimento}*\n💰 *Valor: R$ ${fat.valor}*\n📧 Fatura enviada por e-mail.`;
-    if (pix) msg += `\n\n💎 *PIX:*\n\`${pix}\``;
-    if (link) msg += `\n\n💳 *Link:*\n${link}`;
+    if (pix && typeof pix === 'string') msg += `\n\n💎 *PIX:*\n\`${pix}\``;
+    if (link && typeof link === 'string' && link.startsWith('http')) msg += `\n\n💳 *Link do Boleto:*\n${link}`;
+
     await waService.sendTextMessage(from, msg);
     await logMessageToDashboard(cliente.phone || from, msg, true, "system", cliente.razao?.split(' ')[0]);
   }
@@ -643,7 +658,7 @@ async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCB
 
 async function processTrustUnlockRequest(from: string, cleanPhone: string, ixcService: IXCBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
   if (!cliente) {
-    await sessionRef.set({ state: "WAITING_FOR_CPF", phone: cleanPhone }, { merge: true });
+    await sessionRef.set({ state: "WAITING_FOR_CPF", pendingAction: "trust_unlock", phone: cleanPhone }, { merge: true });
     const msg = "🤔 Para liberar a sua internet, me informe seu *CPF ou CNPJ* (apenas números).";
     await waService.sendTextMessage(from, msg);
     await logMessageToDashboard(cleanPhone, msg, true, "system");
