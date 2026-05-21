@@ -2,7 +2,7 @@
 export interface IXCParams {
   qtype: string;
   query: string;
-  oper: '==' | '=' | '>' | '<' | '>=' | '<=' | 'LIKE';
+  oper: '==' | '=' | '>' | '<' | '>=' | '<=' | 'LIKE' | 'L';
   page: string;
   rp: string;
   sortname: string;

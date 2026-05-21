@@ -78,7 +78,7 @@ export class IXCBackendService {
         const data: Partial<IXCParams> = {
           qtype: field,
           query: term,
-          oper: term.includes('%') ? 'LIKE' : '=',
+          oper: term.includes('%') ? 'L' : '=',
           page: '1',
           rp: '1',
         };
