@@ -147,4 +147,65 @@ export class IXCBackendService {
       return false;
     }
   }
+
+  async getContratosByCliente(idCliente: string): Promise<any[]> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente_contrato.id_cliente',
+      query: idCliente,
+      oper: '=',
+      page: '1',
+      rp: '10',
+      sortname: 'cliente_contrato.id',
+      sortorder: 'desc',
+    };
+
+    const response = await this.makeRequest<IXCApiResponse<any>>('/cliente_contrato', data);
+    return response.registros || [];
+  }
+
+  async unlockContract(idContrato: string): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`🔓 Tentando desbloquear contrato ID: ${idContrato}...`);
+      const payload = { id: idContrato };
+
+      const response = await this.client.post('/desbloqueio_confianca', payload, {
+        headers: {
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ixcsoft': 'inserir'
+        }
+      });
+      
+      console.log('📦 Resposta Desbloqueio (inserir):', response.data);
+      
+      const isSuccess = (data: any) => {
+        if (Array.isArray(data) && data.length > 0) return true;
+        if (!data) return false;
+        if (data.type === 'error' || data.status === 'erro') return false;
+        if (data.type === 'success' || data.status === 'sucesso' || (data.id && String(data.id).length > 0)) return true;
+        return false;
+      };
+
+      if (isSuccess(response.data)) {
+         return { success: true, message: Array.isArray(response.data) ? response.data[0] : (response.data.message || 'Contrato desbloqueado em confiança com sucesso!') };
+      }
+
+      // Fallback
+      const responseListar = await this.client.post('/desbloqueio_confianca', payload, {
+        headers: {
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ixcsoft': 'listar'
+        }
+      });
+
+      if (isSuccess(responseListar.data)) {
+         return { success: true, message: Array.isArray(responseListar.data) ? responseListar.data[0] : (responseListar.data.message || 'Contrato desbloqueado em confiança com sucesso!') };
+      }
+
+      return { success: false, message: responseListar.data?.message || responseListar.data?.aviso || 'Não foi possível liberar a confiança no momento.' };
+    } catch (error: any) {
+      console.error('Erro ao desbloquear contrato:', error.message);
+      const errorMsg = error.response?.data?.message || error.response?.data?.aviso || 'Erro ao processar desbloqueio. Verifique permissões.';
+      return { success: false, message: errorMsg };
+    }
+  }
 }

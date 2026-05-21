@@ -2,7 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import {ClientData, WelcomeMessageLog, UserSession, WhapiResponse} from "./types";
 import { IXCBackendService } from "./ixcService";
-import { AiService, Intent } from "./services/aiService";
+import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
 import axios from "axios";
 import * as https from "https";
@@ -506,7 +506,7 @@ export const whatsappWebhook = functions.runWith({
     let finalIntent = localResult.intent;
 
     if (selectionId) {
-      finalIntent = selectionId === "opt_invoice" ? "request_invoice" : selectionId === "opt_support" ? "human_support" : "other";
+      finalIntent = selectionId === "opt_invoice" ? "request_invoice" : selectionId === "opt_support" ? "human_support" : selectionId === "opt_unlock" ? "trust_unlock" : "other";
     } else if (finalIntent === "other" && geminiApiKey) {
       const aiService = new AiService(geminiApiKey);
       const aiResult = await aiService.detectIntent(text || "");
@@ -516,6 +516,8 @@ export const whatsappWebhook = functions.runWith({
     // --- RESPOSTA ---
     if (finalIntent === "request_invoice") {
       await processInvoiceRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
+    } else if (finalIntent === "trust_unlock") {
+      await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
     } else if (finalIntent === "human_support") {
       const msg = "🎧 Vou te transferir para um atendente humano. Aguarde.";
       await waService.sendTextMessage(from, msg);
@@ -533,11 +535,12 @@ export const whatsappWebhook = functions.runWith({
   }
 });
 
-function detectIntentLocal(text: string): { intent: Intent } {
+function detectIntentLocal(text: string): { intent: string } {
   const t = text.toLowerCase().trim();
   if (["oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"].includes(t)) return { intent: 'greeting' };
-  if (t === "1" || t.includes("fatura") || t.includes("boleto") || t.includes("pix")) return { intent: 'request_invoice' };
-  if (t === "2" || t.includes("suporte") || t.includes("atendente")) return { intent: 'human_support' };
+  if (t === "1" || t.includes("fatura") || t.includes("boleto") || t.includes("pix") || t.includes("pagamento") || t.includes("2 via") || t.includes("segunda via")) return { intent: 'request_invoice' };
+  if (t === "2" || t.includes("suporte") || t.includes("atendente") || t.includes("humano")) return { intent: 'human_support' };
+  if (t === "3" || t.includes("desbloqueio") || t.includes("confiança") || t.includes("liberar") || t.includes("sem internet") || t.includes("liberação")) return { intent: 'trust_unlock' };
   return { intent: 'other' };
 }
 
@@ -554,7 +557,7 @@ async function processInvoiceRequest(from: string, cleanPhone: string, ixcServic
 
 async function sendWelcomeMenu(from: string, waService: WhatsAppService, isFallback: boolean, firstName?: string) {
   const greeting = firstName ? `Olá ${firstName}! 👋` : "Olá! 👋";
-  const menuText = `${greeting} Sou o assistente da *AVL Telecom*. 🤖\n\n1. 📄 *Minha Fatura*\n2. 🎧 *Suporte Humano*\n3. ⚙️ *Outros*`;
+  const menuText = `${greeting} Sou o assistente da *AVL Telecom*. 🤖\n\n1. 📄 *Minha Fatura*\n2. 🎧 *Suporte Humano*\n3. 🔓 *Desbloqueio de Confiança*\n4. ⚙️ *Outros*`;
   
   if (isFallback) {
     await waService.sendTextMessage(from, menuText);
@@ -563,6 +566,7 @@ async function sendWelcomeMenu(from: string, waService: WhatsAppService, isFallb
       const sections = [{ title: "Opções", rows: [
         { id: "opt_invoice", title: "Minha Fatura" },
         { id: "opt_support", title: "Suporte Humano" },
+        { id: "opt_unlock", title: "Desbloqueio de Confiança" },
         { id: "opt_other", title: "Outros" }
       ]}];
       console.log(`📡 Enviando List Message para ${from}`);
@@ -635,6 +639,42 @@ async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCB
     await waService.sendTextMessage(from, msg);
     await logMessageToDashboard(cliente.phone || from, msg, true, "system", cliente.razao?.split(' ')[0]);
   }
+}
+
+async function processTrustUnlockRequest(from: string, cleanPhone: string, ixcService: IXCBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
+  if (!cliente) {
+    await sessionRef.set({ state: "WAITING_FOR_CPF", phone: cleanPhone }, { merge: true });
+    const msg = "🤔 Para liberar a sua internet, me informe seu *CPF ou CNPJ* (apenas números).";
+    await waService.sendTextMessage(from, msg);
+    await logMessageToDashboard(cleanPhone, msg, true, "system");
+    return;
+  }
+
+  await waService.sendTextMessage(from, `⏳ ${cliente.razao?.split(' ')[0] || "Cliente"}, aguarde um momento. Verificando possibilidade de desbloqueio...`);
+
+  // Busca contratos
+  const contratos = await ixcService.getContratosByCliente(cliente.id);
+  if (contratos.length === 0) {
+    const msg = "❌ Não encontramos nenhum contrato ativo para este cadastro.";
+    await waService.sendTextMessage(from, msg);
+    await logMessageToDashboard(cleanPhone, msg, true, "system", cliente.razao?.split(' ')[0]);
+    return;
+  }
+
+  // Tenta o primeiro contrato. Em cenários reais, poderia buscar qual está bloqueado especificamente.
+  const contratoAlvo = contratos.find((c: any) => c.status === 'CM' || c.status === 'B' || c.status_internet === 'CM') || contratos[0];
+  
+  const result = await ixcService.unlockContract(contratoAlvo.id);
+  
+  let msg = "";
+  if (result.success) {
+    msg = `✅ *Sinal Liberado!*\n\n${result.message}\n\nPor favor, **reinicie seu roteador** (tire da tomada por 10 segundos) e aguarde a conexão estabilizar.`;
+  } else {
+    msg = `⚠️ *Aviso:*\n\n${result.message}\n\nCaso já tenha realizado o pagamento, ele será compensado em breve. Se precisar de ajuda, escolha a opção "Suporte Humano".`;
+  }
+
+  await waService.sendTextMessage(from, msg);
+  await logMessageToDashboard(cleanPhone, msg, true, "system", cliente.razao?.split(' ')[0]);
 }
 
 /**
