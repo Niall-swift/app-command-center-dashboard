@@ -61,6 +61,7 @@ export class IXCBackendService {
     const searchTerms = [formattedCel, formattedFix, `%${cleanPhone.slice(-8).split('').join('%')}%`].filter(t => t !== "");
     const fields = ['cliente.telefone_celular', 'cliente.fone_whatsapp', 'cliente.telefone', 'cliente.telefone_comercial'];
 
+    const promises = [];
     for (const term of searchTerms) {
       for (const field of fields) {
         const data: Partial<IXCParams> = {
@@ -70,17 +71,17 @@ export class IXCBackendService {
           page: '1',
           rp: '1',
         };
-        try {
-          const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
-          if (response.registros && response.registros.length > 0) {
-            return response.registros[0];
-          }
-        } catch (e) {
-          // continue
-        }
+        promises.push(
+          this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data)
+            .then(res => res.registros && res.registros.length > 0 ? res.registros[0] : null)
+            .catch(() => null)
+        );
       }
     }
-    return null;
+
+    const results = await Promise.all(promises);
+    const found = results.find(r => r !== null);
+    return found || null;
   }
 
   async getClienteByCpfCnpj(cpfCnpj: string): Promise<IXCClienteData | null> {
