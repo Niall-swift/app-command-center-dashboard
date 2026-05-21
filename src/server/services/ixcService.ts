@@ -46,7 +46,7 @@ export class IXCBackendService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.fone_whatsapp',
       query: `%${cleanPhone}`,
-      oper: 'LIKE',
+      oper: 'L',
       page: '1',
       rp: '1',
     };
@@ -73,7 +73,7 @@ export class IXCBackendService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.cnpj_cpf',
       query: `%${cleanCpfCnpj}%`, // Usar LIKE para ser mais flexível com formatação
-      oper: 'LIKE',
+      oper: 'L',
       page: '1',
       rp: '1',
     };

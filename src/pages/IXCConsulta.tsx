@@ -99,7 +99,7 @@ const IXCConsulta: React.FC = () => {
           const emailResults = await ixcService.searchClientes(
             'cliente.email',
             searchState.searchValue,
-            'LIKE'
+            'L'
           );
           results = emailResults.registros as IXCClienteData[];
           break;
@@ -108,7 +108,7 @@ const IXCConsulta: React.FC = () => {
           const whatsappResults = await ixcService.searchClientes(
             'cliente.fone_whatsapp',
             searchState.searchValue,
-            'LIKE'
+            'L'
           );
           results = whatsappResults.registros as IXCClienteData[];
           break;

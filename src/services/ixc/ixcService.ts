@@ -23,7 +23,7 @@ import type {
 export interface IXCParams {
   qtype: string;
   query: string;
-  oper: '=' | '>' | '<' | '>=' | '<=' | 'LIKE';
+  oper: '=' | '>' | '<' | '>=' | '<=' | 'L';
   page: string;
   rp: string;
   sortname: string;
@@ -155,7 +155,7 @@ class IXCService {
         const data: Partial<IXCParams> = {
           qtype: field,
           query: term,
-          oper: term.includes('%') ? 'LIKE' : '=', // Usa = se for formato exato
+          oper: term.includes('%') ? 'L' : '=', // Usa = se for formato exato
           page: '1',
           rp: '1',
           sortname: 'cliente.id',
@@ -183,7 +183,7 @@ class IXCService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.nome',
       query: `%${nome}%`,
-      oper: 'LIKE',
+      oper: 'L',
       page: '1',
       rp: '1000',
       sortname: 'cliente.nome',
@@ -262,7 +262,7 @@ class IXCService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.id',
       query: '', // Query vazia para buscar todos
-      oper: 'LIKE', // LIKE funciona melhor que = para buscar todos
+      oper: 'L', // LIKE funciona melhor que = para buscar todos
       page: page.toString(),
       rp: rp.toString(),
       sortname,
@@ -277,7 +277,7 @@ class IXCService {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.cidade',
       query: `%${cidade}%`,
-      oper: 'LIKE',
+      oper: 'L',
       page: '1',
       rp: '1000',
       sortname: 'cliente.cidade',
@@ -324,7 +324,7 @@ class IXCService {
   async searchClientes(
     qtype: string,
     query: string,
-    oper: '=' | '>' | '<' | 'LIKE' = 'LIKE',
+    oper: '=' | '>' | '<' | 'L' = 'L',
     page: number = 1,
     rp: number = 100,
     sortname: string = 'cliente.id',
@@ -802,7 +802,7 @@ class IXCService {
     const data: Partial<IXCParams> = {
       qtype: 'su_oss_chamado.status',
       query: 'Aberto',
-      oper: 'LIKE',
+      oper: 'L',
       page: '1',
       rp: '1000',
       sortname: 'su_oss_chamado.id',
