@@ -450,8 +450,12 @@ export const whatsappWebhook = functions.runWith({
 
     console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
     
+    // --- BUSCA CLIENTE ANTES DO DASHBOARD ---
+    let cliente = await ixcService.getClienteByPhone(cleanPhone);
+    const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : senderName.split(' ')[0];
+
     // --- LOG PARA DASHBOARD ---
-    await logMessageToDashboard(cleanPhone, content, false, "whatsapp", senderName.split(' ')[0], null, mediaUrl, mediaType);
+    await logMessageToDashboard(cleanPhone, content, false, "whatsapp", firstName, cliente, mediaUrl, mediaType);
 
     // --- CONTROLE ADMIN ---
     const normalizedText = text?.toLowerCase().trim();
@@ -471,10 +475,6 @@ export const whatsappWebhook = functions.runWith({
     if (botConfig.exists && botConfig.data()?.active === false) {
       res.status(200).send("Disabled"); return;
     }
-
-    // --- LOG PARA DASHBOARD ---
-    let cliente = await ixcService.getClienteByPhone(cleanPhone);
-    const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : senderName.split(' ')[0];
 
     if (text?.startsWith("#debug")) {
       await waService.sendTextMessage(from, `🛠️ DEBUG: ${cleanPhone} | ID: ${cliente?.id || "N/A"}`);
