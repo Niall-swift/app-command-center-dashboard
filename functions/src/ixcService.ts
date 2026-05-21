@@ -39,51 +39,76 @@ export class IXCBackendService {
   }
 
   async getClienteByPhone(phone: string): Promise<IXCClienteData | null> {
-    // Limpar telefone para busca
-    const cleanPhone = phone.replace(/\D/g, '').slice(-9); // Pegar os últimos 9 dígitos para ser mais flexível
+    console.log(`🔍 Iniciando busca no IXC para o telefone: ${phone}`);
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('55') && cleanPhone.length > 10) {
+      cleanPhone = cleanPhone.substring(2);
+    }
     
-    // Tentar fone_whatsapp
-    const data: Partial<IXCParams> = {
-      qtype: 'cliente.fone_whatsapp',
-      query: `%${cleanPhone}`,
-      oper: 'LIKE',
-      page: '1',
-      rp: '1',
-    };
-
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
-    if (response.registros && response.registros.length > 0) {
-      return response.registros[0];
+    const ddd = cleanPhone.slice(0, 2);
+    const rest = cleanPhone.slice(2);
+    let formattedCel = "";
+    let formattedFix = "";
+    
+    if (rest.length === 9) {
+      formattedCel = `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
+      formattedFix = `(${ddd}) ${rest.slice(1, 5)}-${rest.slice(5)}`;
+    } else if (rest.length === 8) {
+      formattedCel = `(${ddd}) 9${rest.slice(0, 4)}-${rest.slice(4)}`;
+      formattedFix = `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
     }
 
-    // Tentar telefone_celular
-    data.qtype = 'cliente.telefone_celular';
-    const response2 = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
-    if (response2.registros && response2.registros.length > 0) {
-      return response2.registros[0];
-    }
+    const searchTerms = [formattedCel, formattedFix, `%${cleanPhone.slice(-8).split('').join('%')}%`].filter(t => t !== "");
+    const fields = ['cliente.telefone_celular', 'cliente.fone_whatsapp', 'cliente.telefone', 'cliente.telefone_comercial'];
 
+    for (const term of searchTerms) {
+      for (const field of fields) {
+        const data: Partial<IXCParams> = {
+          qtype: field,
+          query: term,
+          oper: term.includes('%') ? 'LIKE' : '=',
+          page: '1',
+          rp: '1',
+        };
+        try {
+          const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+          if (response.registros && response.registros.length > 0) {
+            return response.registros[0];
+          }
+        } catch (e) {
+          // continue
+        }
+      }
+    }
     return null;
   }
 
   async getClienteByCpfCnpj(cpfCnpj: string): Promise<IXCClienteData | null> {
-    const cleanCpfCnpj = cpfCnpj.replace(/\D/g, '');
-    console.log(`🔍 Buscando cliente por CPF/CNPJ: ${cleanCpfCnpj}`);
+    const numbers = cpfCnpj.replace(/\D/g, '');
+    let formattedCpfCnpj = cpfCnpj;
+    
+    if (numbers.length === 11) {
+      formattedCpfCnpj = numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    } else if (numbers.length === 14) {
+      formattedCpfCnpj = numbers.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    }
+
+    console.log(`🔍 Buscando cliente por CPF/CNPJ: ${formattedCpfCnpj}`);
     
     const data: Partial<IXCParams> = {
       qtype: 'cliente.cnpj_cpf',
-      query: `%${cleanCpfCnpj}%`, // Usar LIKE para ser mais flexível com formatação
-      oper: 'LIKE',
+      query: formattedCpfCnpj,
+      oper: '=',
       page: '1',
       rp: '1',
     };
 
     try {
       const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
-      console.log(`📊 Resultado busca CPF/CNPJ (${cleanCpfCnpj}): Found ${response.registros?.length || 0} records`);
+      console.log(`📊 Resultado busca CPF/CNPJ (${formattedCpfCnpj}): Found ${response.registros?.length || 0} records`);
       return (response.registros && response.registros.length > 0) ? response.registros[0] : null;
     } catch (err: any) {
-      console.error(`❌ Erro ao buscar CPF/CNPJ (${cleanCpfCnpj}):`, err.message);
+      console.error(`❌ Erro ao buscar CPF/CNPJ (${formattedCpfCnpj}):`, err.message);
       return null;
     }
   }
