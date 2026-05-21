@@ -125,6 +125,24 @@ export class IXCBackendService {
     }
   }
 
+  async getClienteById(id: string): Promise<IXCClienteData | null> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente.id',
+      query: id,
+      oper: '=',
+      page: '1',
+      rp: '1',
+    };
+
+    try {
+      const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+      return (response.registros && response.registros.length > 0) ? response.registros[0] : null;
+    } catch (err: any) {
+      console.error(`❌ Erro ao buscar cliente por ID (${id}):`, err.message);
+      return null;
+    }
+  }
+
   async getFaturasAbertas(idCliente: string): Promise<IXCFaturaData[]> {
     const data: Partial<IXCParams> = {
       qtype: 'fn_areceber.id_cliente',
@@ -141,6 +159,29 @@ export class IXCBackendService {
     
     // Filtrar apenas faturas abertas (status 'A' e sem data de pagamento)
     return faturas.filter(f => f.status === 'A' && !f.data_pagamento);
+  }
+
+  async getFaturasPagasHoje(): Promise<IXCFaturaData[]> {
+    const today = new Date();
+    const formattedDate = today.toISOString().split('T')[0]; // "YYYY-MM-DD"
+
+    const data: Partial<IXCParams> = {
+      qtype: 'fn_areceber.data_pagamento',
+      query: formattedDate,
+      oper: '=',
+      page: '1',
+      rp: '100', // Pega as últimas 100 do dia
+    };
+
+    try {
+      const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+      const faturas = response.registros || [];
+      // Filtra para garantir status Pago (P) ou Recebido (R)
+      return faturas.filter(f => f.status === 'P' || f.status === 'R' || f.data_pagamento === formattedDate);
+    } catch (error: any) {
+      console.error("❌ Erro ao buscar faturas pagas hoje:", error.message);
+      return [];
+    }
   }
 
   async getBoleto(idFatura: string): Promise<string | null> {

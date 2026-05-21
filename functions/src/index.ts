@@ -1023,3 +1023,72 @@ export const sendCustomNotification = functions.https.onCall(async (data, contex
     throw new functions.https.HttpsError("internal", error.message);
   }
 });
+
+/**
+ * Robô Sentinela: Verifica faturas pagas a cada 10 minutos
+ * e envia agradecimento via WhatsApp se ainda não enviou.
+ */
+export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes").onRun(async (context) => {
+  console.log("⏰ [CRON] Iniciando verificação de faturas pagas...");
+  
+  try {
+    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
+    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
+    
+    const faturasPagas = await ixcService.getFaturasPagasHoje();
+    if (faturasPagas.length === 0) {
+      console.log("ℹ️ [CRON] Nenhuma fatura paga encontrada para o dia de hoje.");
+      return;
+    }
+
+    console.log(`🔍 [CRON] Encontradas ${faturasPagas.length} faturas pagas hoje. Verificando notificações...`);
+
+    const notifiedRef = db.collection("notified_payments");
+    
+    for (const fatura of faturasPagas) {
+      const doc = await notifiedRef.doc(fatura.id).get();
+      if (doc.exists) {
+        // Já notificado
+        continue;
+      }
+
+      // Notificar cliente
+      const idCliente = fatura.id_cliente;
+      if (!idCliente) continue;
+
+      const cliente = await ixcService.getClienteById(idCliente);
+      if (!cliente) continue;
+
+      const phone = cliente.telefone_celular || cliente.fone_whatsapp;
+      if (!phone) continue;
+
+      const cleanPhone = phone.replace(/\D/g, "");
+      if (cleanPhone.length < 10) continue;
+
+      const firstName = cliente.razao ? cliente.razao.split(" ")[0] : "Cliente";
+      const valorStr = fatura.valor_pago || fatura.valor;
+      let msg = `✅ *Olá, ${firstName}!*\n\nPassando para avisar que nosso sistema identificou e deu baixa no pagamento da sua fatura`;
+      if (valorStr) {
+        msg += ` no valor de *R$ ${valorStr}*`;
+      }
+      msg += `.\n\nMuito obrigado! A AVL Telecom agradece a sua parceria. 🚀`;
+
+      console.log(`💬 [CRON] Enviando agradecimento para ${cleanPhone} (Fatura ${fatura.id})`);
+      await waService.sendTextMessage(cleanPhone, msg);
+      
+      // Registrar no dashboard para histórico
+      await logMessageToDashboard(cleanPhone, msg, true, "system", firstName, cliente);
+
+      // Marcar como notificado
+      await notifiedRef.doc(fatura.id).set({
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        phone: cleanPhone,
+        valor: valorStr
+      });
+    }
+
+    console.log("✅ [CRON] Verificação finalizada com sucesso.");
+  } catch (error: any) {
+    console.error("❌ [CRON] Erro durante a execução:", error.message);
+  }
+});

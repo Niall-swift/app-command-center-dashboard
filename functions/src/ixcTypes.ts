@@ -27,7 +27,7 @@ export interface IXCFaturaData {
   valor_pago?: string;
   data_vencimento: string;
   data_pagamento?: string;
-  status: 'A' | 'P' | 'C';
+  status: 'A' | 'P' | 'C' | 'R';
   pix_copia_e_cola?: string;
   url_boleto?: string;
   gateway_link?: string;
