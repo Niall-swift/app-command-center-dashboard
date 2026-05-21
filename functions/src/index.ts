@@ -376,35 +376,82 @@ export const whatsappWebhook = functions.runWith({
     // DEBUG: Log do objeto completo para entender a estrutura de mídia que está chegando
     console.log(`📩 [WHAPI-DEBUG] Mensagem de ${from}:`, JSON.stringify(messageData));
 
+    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
+    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+
     // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
     const type = messageData.type;
     let mediaUrl = messageData.link || messageData.url || null;
     let mediaType = null;
+    let mediaIdToDownload = null;
+    let mimeType = null;
+    let fileNameToSave = null;
 
     if (type === 'image' || messageData.image) {
       mediaUrl = messageData.image?.link || messageData.link || messageData.url;
+      mediaIdToDownload = messageData.image?.id || (type === 'image' ? messageData.id : null);
+      mimeType = messageData.image?.mime_type || 'image/jpeg';
       mediaType = 'image';
     } else if (type === 'audio' || type === 'voice' || messageData.audio || messageData.voice) {
       mediaUrl = messageData.audio?.link || messageData.voice?.link || messageData.link || messageData.url;
+      mediaIdToDownload = messageData.audio?.id || messageData.voice?.id || ((type === 'audio' || type === 'voice') ? messageData.id : null);
+      mimeType = messageData.audio?.mime_type || messageData.voice?.mime_type || 'audio/ogg';
       mediaType = 'audio';
     } else if (type === 'video' || messageData.video) {
       mediaUrl = messageData.video?.link || messageData.link || messageData.url;
+      mediaIdToDownload = messageData.video?.id || (type === 'video' ? messageData.id : null);
+      mimeType = messageData.video?.mime_type || 'video/mp4';
       mediaType = 'video';
     } else if (type === 'document' || messageData.document) {
       mediaUrl = messageData.document?.link || mediaUrl;
+      mediaIdToDownload = messageData.document?.id || (type === 'document' ? messageData.id : null);
+      mimeType = messageData.document?.mime_type || 'application/pdf';
+      fileNameToSave = messageData.document?.file_name || messageData.document?.filename;
       mediaType = 'document';
     }
 
-    const content = text || (mediaType === 'image' ? '📎 Foto' : mediaType === 'audio' ? '🎵 Áudio' : mediaType === 'document' ? '📄 Documento' : '📎 Mídia');
+    if (mediaIdToDownload && !mediaUrl && process.env.WHAPI_API_KEY) {
+      try {
+        console.log(`⏳ Baixando mídia da Whapi... ID: ${mediaIdToDownload}`);
+        const mediaBuffer = await waService.downloadMedia(mediaIdToDownload);
+        
+        const { randomUUID } = require("crypto");
+        const token = randomUUID();
+        const bucket = admin.storage().bucket("avl-telecom.appspot.com");
+        
+        // Determinar extensão
+        let ext = "";
+        if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = ".jpg";
+        else if (mimeType.includes("png")) ext = ".png";
+        else if (mimeType.includes("ogg")) ext = ".ogg";
+        else if (mimeType.includes("mp4")) ext = ".mp4";
+        else if (mimeType.includes("pdf")) ext = ".pdf";
+        
+        let finalFileName = fileNameToSave || `${mediaIdToDownload}${ext}`;
+        const filePath = `chat_media/${finalFileName}`;
+        const file = bucket.file(filePath);
+        
+        await file.save(mediaBuffer, {
+          metadata: {
+            contentType: mimeType,
+            metadata: { firebaseStorageDownloadTokens: token }
+          }
+        });
+        
+        mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${token}`;
+        console.log(`✅ Mídia baixada e enviada para o Storage: ${mediaUrl}`);
+      } catch (err: any) {
+        console.error("❌ Falha ao processar download de mídia:", err.message);
+      }
+    }
+
+    const content = text || (mediaType === 'image' ? '📎 Foto' : mediaType === 'audio' ? '🎵 Áudio' : mediaType === 'document' ? '📄 Documento' : mediaType === 'video' ? '🎥 Vídeo' : '📎 Mídia');
 
     console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
     
     // --- LOG PARA DASHBOARD ---
     await logMessageToDashboard(cleanPhone, content, false, "whatsapp", senderName.split(' ')[0], null, mediaUrl, mediaType);
-
-    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
-    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
-    const geminiApiKey = process.env.GEMINI_API_KEY;
 
     // --- CONTROLE ADMIN ---
     const normalizedText = text?.toLowerCase().trim();
@@ -684,5 +731,222 @@ export const ixcProxy = functions.https.onRequest(async (req, res) => {
     } else {
       res.status(500).json(errorResponse);
     }
+  }
+});
+
+/**
+ * 🚀 Função invocável para disparar a verificação de faturas manualmente.
+ */
+export const triggerInvoiceCheckManual = functions.https.onCall(async (data, context) => {
+  console.log("⏰ Iniciando verificação MANUAL de faturas solicitada pelo Dashboard...");
+
+  try {
+    const usersRef = admin.firestore().collection("users");
+    const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
+
+    if (querySnapshot.empty) {
+      console.log("ℹ️ Nenhum usuário com token FCM encontrado.");
+      return { success: true, sent: 0, message: "Nenhum usuário com token FCM encontrado." };
+    }
+
+    const IXC_TOKEN = process.env.IXC_TOKEN || "";
+    const auth = Buffer.from(IXC_TOKEN).toString("base64");
+
+    const notifications: Promise<any>[] = [];
+
+    for (const doc of querySnapshot.docs) {
+      const userData = doc.data();
+      const userId = doc.id;
+      const ixcId = userData.clientId || userId;
+      const token = userData.fcmToken;
+
+      try {
+        const response = await axios.post(
+          "https://coopertecisp.com.br/webservice/v1/fn_areceber",
+          {
+            qtype: "fn_areceber.id_cliente",
+            query: ixcId,
+            oper: "=",
+            page: "1",
+            rp: "50",
+            sortname: "fn_areceber.data_vencimento",
+            sortorder: "asc",
+            grid_param: JSON.stringify([
+              {TB: "fn_areceber.liberado", OP: "=", P: "S"},
+              {TB: "fn_areceber.status", OP: "=", P: "A"},
+            ]),
+          },
+          {
+            headers: {Authorization: `Basic ${auth}`, ixcsoft: "listar"},
+            timeout: 10000,
+          }
+        );
+
+        const invoices = response.data?.registros || [];
+
+        for (const inv of invoices) {
+          if (inv.status !== "A") continue;
+
+          let dueDate: Date;
+          if (inv.data_vencimento.includes("-")) {
+            const [year, month, day] = inv.data_vencimento.split("-");
+            dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          } else {
+            const [day, month, year] = inv.data_vencimento.split("/");
+            dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          }
+
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const diffTime = dueDate.getTime() - today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          let shouldNotify = false;
+          let title = "⚠️ Fatura AVL";
+          let body = "";
+          let color = "#F59E0B";
+
+          if (diffDays === 1 || diffDays === 2) {
+            shouldNotify = true;
+            title = "⏰ Lembrete de Fatura";
+            body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
+          } else if (diffDays === 0) {
+            shouldNotify = true;
+            title = "🚨 Vence HOJE";
+            body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
+            color = "#EF4444";
+          } else if (diffDays < 0 && diffDays >= -15) {
+            shouldNotify = true;
+            title = "🚫 Fatura Vencida";
+            body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
+            color = "#B91C1C";
+          }
+
+          if (shouldNotify) {
+            const message = {
+              notification: {
+                title: title,
+                body: body,
+              },
+              data: {
+                type: "invoice_reminder",
+                screen: "Boletos",
+                invoiceId: inv.id,
+                valor: inv.valor,
+              },
+              android: {
+                priority: "high" as any,
+                notification: {
+                  channelId: "alerts",
+                  color: color,
+                },
+              },
+              token: token,
+            };
+            notifications.push(
+              admin.messaging().send(message).catch((e) => {
+                console.error(`Erro ao notificar token ${token}:`, e.message);
+              })
+            );
+          }
+        }
+      } catch (userError: any) {
+        console.error(`❌ Erro ao verificar faturas para usuário ${userId}:`, userError.message);
+      }
+    }
+
+    await Promise.all(notifications);
+    console.log(`✅ Verificação MANUAL concluída. Enviadas ${notifications.length} notificações.`);
+    return { success: true, sent: notifications.length, message: `Foram enviadas ${notifications.length} notificações.` };
+  } catch (error: any) {
+    console.error("❌ Erro global no triggerInvoiceCheckManual:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 🚀 Função invocável para enviar notificações customizadas do Dashboard.
+ */
+export const sendCustomNotification = functions.https.onCall(async (data, context) => {
+  const { title, body, userId, target } = data;
+
+  if (!title || !body) {
+    throw new functions.https.HttpsError("invalid-argument", "Título e corpo são obrigatórios.");
+  }
+
+  try {
+    let tokens: { token: string, userId: string, userData: any }[] = [];
+
+    if (target === "all") {
+      const usersRef = admin.firestore().collection("users");
+      const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
+      querySnapshot.forEach(doc => {
+        const docData = doc.data();
+        if (docData.fcmToken) tokens.push({ token: docData.fcmToken, userId: doc.id, userData: docData });
+      });
+    } else if (userId) {
+      const userDoc = await admin.firestore().collection("users").doc(userId).get();
+      if (userDoc.exists && userDoc.data()?.fcmToken) {
+        tokens.push({ token: userDoc.data()!.fcmToken, userId: userDoc.id, userData: userDoc.data() });
+      }
+    }
+
+    if (tokens.length === 0) {
+      return { success: false, sent: 0, message: "Nenhum usuário ou token encontrado para enviar a notificação." };
+    }
+
+    const message = {
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: {
+        type: "custom",
+        screen: data.screen || "HomePage",
+      },
+      android: {
+        priority: "high" as any,
+        notification: {
+          channelId: "alerts",
+          color: "#5a56c9",
+        },
+      },
+    };
+
+    // Firebase Messaging só aceita enviar multicast para até 500 tokens por vez.
+    const notifications: Promise<any>[] = [];
+    const tokenBatches: typeof tokens[] = [];
+    
+    for (let i = 0; i < tokens.length; i += 500) {
+      const tokenBatch = tokens.slice(i, i + 500);
+      tokenBatches.push(tokenBatch);
+      const stringTokens = tokenBatch.map(t => t.token);
+      notifications.push(admin.messaging().sendEachForMulticast({ ...message, tokens: stringTokens }));
+    }
+
+    const responses = await Promise.all(notifications);
+    
+    let successCount = 0;
+    responses.forEach((res, batchIndex) => {
+      successCount += res.successCount;
+      
+      // Tratar tokens falhos
+      if (res.failureCount > 0) {
+        res.responses.forEach((resp: any, i: number) => {
+          if (!resp.success) {
+            const errCode = resp.error?.code;
+            if (errCode === 'messaging/registration-token-not-registered' || errCode === 'messaging/invalid-registration-token') {
+              console.error(`Token inválido para usuário ${tokenBatches[batchIndex][i].userId}`);
+            }
+          }
+        });
+      }
+    });
+
+    return { success: true, sent: successCount, message: `Notificação enviada com sucesso para ${successCount} dispositivos.` };
+  } catch (error: any) {
+    console.error("❌ Erro ao enviar notificação customizada:", error);
+    throw new functions.https.HttpsError("internal", error.message);
   }
 });

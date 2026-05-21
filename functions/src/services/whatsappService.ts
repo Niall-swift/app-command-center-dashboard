@@ -84,4 +84,16 @@ export class WhatsAppService {
     // mas o formato internacional padrão costuma funcionar.
     return clean;
   }
+
+  async downloadMedia(mediaId: string): Promise<Buffer> {
+    try {
+      const response = await this.client.get(`/media/${mediaId}`, {
+        responseType: 'arraybuffer'
+      });
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      console.error('❌ Erro ao baixar mídia WhatsApp da Whapi:', error.response?.data || error.message);
+      throw error;
+    }
+  }
 }
