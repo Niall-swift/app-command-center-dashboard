@@ -25,10 +25,21 @@ export class IXCBackendService {
     data: Partial<IXCParams>
   ): Promise<T> {
     try {
-      const response = await this.client.post<T>(endpoint, data, {
+      // Garantir que a chamada seja feita para a API (v1) e não para a URL base que pode retornar HTML
+      let apiUrl = this.client.defaults.baseURL || "";
+      if (apiUrl.endsWith('/api/ixc')) {
+        apiUrl = apiUrl.replace('/api/ixc', ''); // Corrige caso o host tenha /api/ixc sobrando
+      }
+      
+      const fullEndpoint = endpoint.startsWith('/webservice/v1') ? endpoint : `/webservice/v1${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+      
+      const response = await axios.post<T>(`${apiUrl}${fullEndpoint}`, data, {
+        timeout: 15000,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
         headers: {
           'Authorization': `Basic ${this.encodedToken}`,
           'ixcsoft': 'listar',
+          'Content-Type': 'application/json',
         },
       });
       return response.data;
