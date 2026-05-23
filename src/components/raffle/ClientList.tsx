@@ -34,9 +34,22 @@ export default function ClientList({
   const allSelected = clients.length > 0 && clients.every(client => isSelected(client));
 
   // Filter clients based on search term
-  const filteredClients = clients.filter(client =>
-    client.name && client.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredClients = clients.filter(client => {
+    const term = searchTerm.toLowerCase();
+    const termDigits = term.replace(/\D/g, '');
+    
+    const matchName = client.name?.toLowerCase().includes(term);
+    
+    const clientCpf = client.cpf || '';
+    const matchCpf = clientCpf.toLowerCase().includes(term) || 
+      (termDigits.length > 0 && clientCpf.replace(/\D/g, '').includes(termDigits));
+      
+    const clientPhone = client.phone || '';
+    const matchPhone = clientPhone.toLowerCase().includes(term) || 
+      (termDigits.length > 0 && clientPhone.replace(/\D/g, '').includes(termDigits));
+      
+    return matchName || matchCpf || matchPhone;
+  });
 
   const handleSelectAll = () => {
     if (allSelected) {
@@ -117,7 +130,7 @@ export default function ClientList({
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
               type="text"
-              placeholder="Pesquisar participante..."
+              placeholder="Pesquisar por nome, CPF ou telefone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"

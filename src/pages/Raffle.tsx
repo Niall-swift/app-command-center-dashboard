@@ -97,7 +97,7 @@ export default function Raffle() {
           return {
             id: doc.id,
             name: data.name || data.nome,
-            phone: data.whatsapp || '',
+            phone: data.whatsapp || data.telefone || data.celular || data.telefone_celular || '',
             cep: data.cep || '',
             cpf: data.cpf || '',
             instagram: data.instagram || '',

@@ -157,8 +157,38 @@ export class IXCBackendService {
     const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
     const faturas = response.registros || [];
     
-    // Filtrar apenas faturas abertas (status 'A' e sem data de pagamento)
-    return faturas.filter(f => f.status === 'A' && !f.data_pagamento);
+    const openFaturas = faturas.filter(f => f.status === 'A' && !f.data_pagamento);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const atrasadas: IXCFaturaData[] = [];
+    const futuras: IXCFaturaData[] = [];
+
+    for (const f of openFaturas) {
+      let dueDate: Date;
+      if (f.data_vencimento.includes("-")) {
+        const [year, month, day] = f.data_vencimento.split("-");
+        dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      } else {
+        const [day, month, year] = f.data_vencimento.split("/");
+        dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      }
+      
+      if (dueDate < today) {
+        atrasadas.push(f);
+      } else {
+        futuras.push(f);
+      }
+    }
+
+    // Se houver faturas atrasadas, retorna apenas as atrasadas
+    if (atrasadas.length > 0) {
+      return atrasadas;
+    }
+
+    // Caso contrário, retorna no máximo as 2 próximas faturas a vencer
+    return futuras.slice(0, 2);
   }
 
   async getFaturasPagasHoje(): Promise<IXCFaturaData[]> {
