@@ -17,7 +17,7 @@ export class AiService {
   constructor(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
     // Usar model com alias 'latest' ou string curta para maior compatibilidade
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   }
 
   async detectIntent(message: string): Promise<AiResponse> {

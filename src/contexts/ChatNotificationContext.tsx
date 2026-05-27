@@ -25,80 +25,79 @@ interface ChatNotificationProviderProps {
 
 export const ChatNotificationProvider: React.FC<ChatNotificationProviderProps> = ({ children }) => {
   const [unreadMessages, setUnreadMessages] = useState<Record<string, number>>({});
-  const [processedMessages, setProcessedMessages] = useState<Set<string>>(new Set());
   const { isEnabled, playNotificationSound, showChatNotification } = useNotifications();
   const { toast } = useToast();
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  
+  // Usar ref para o processedMessages evita re-render loops e re-assinaturas
+  const processedMessagesRef = useRef<Set<string>>(new Set());
+
+  // Ref para dependências do hook de notificação
+  const notifRefs = useRef({ isEnabled, playNotificationSound, showChatNotification, toast });
+  useEffect(() => {
+    notifRefs.current = { isEnabled, playNotificationSound, showChatNotification, toast };
+  }, [isEnabled, playNotificationSound, showChatNotification, toast]);
 
   useEffect(() => {
-    console.log("Iniciando listener global de notificações de chat...");
+    console.log("Iniciando listener global otimizado de notificações de chat...");
 
     try {
       // Listener para todos os clientes
       const chatRef = collection(db, "chat");
-      const q = query(chatRef, orderBy("lastMessageTime", "desc"));
+      const q = query(chatRef, orderBy("lastMessageTime", "desc"), limit(200));
 
       const unsubscribe = onSnapshot(
         q,
-        (clientsSnapshot) => {
-          console.log("Clientes atualizados para notificações globais:", clientsSnapshot.docs.length);
+        (snapshot) => {
+          // 1. Atualizar a contagem total de mensagens não lidas
+          const newUnreadMap: Record<string, number> = {};
+          
+          snapshot.docs.forEach((doc) => {
+            const data = doc.data();
+            const unreadCount = data.unreadCount || 0;
+            if (unreadCount > 0) {
+               newUnreadMap[doc.id] = unreadCount;
+            }
+          });
+          
+          setUnreadMessages(newUnreadMap);
 
-          clientsSnapshot.docs.forEach((clientDoc) => {
-            const clientId = clientDoc.id;
-            const clientData = clientDoc.data();
-            const clientName = clientData.name || "Cliente";
+          // 2. Disparar notificações apenas para modificações ou adições recentes
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added" || change.type === "modified") {
+              const clientData = change.doc.data();
+              const clientId = change.doc.id;
+              const unreadCount = clientData.unreadCount || 0;
+              
+              if (unreadCount > 0) {
+                 const clientName = clientData.name || "Cliente";
+                 const lastMsg = clientData.lastMessage || "Nova mensagem";
+                 const lastMsgTime = clientData.lastMessageTime?.toMillis?.() || 0;
+                 
+                 // Identificador único para a mensagem (para não notificar duas vezes a mesma)
+                 const messageIdentifier = `${clientId}_${lastMsgTime}`;
 
-            // Listener para mensagens de cada cliente
-            const messagesRef = collection(db, "chat", clientId, "mensagens");
-            const messagesQuery = query(messagesRef, orderBy("timestamp", "desc"), limit(1));
+                 if (!processedMessagesRef.current.has(messageIdentifier)) {
+                     processedMessagesRef.current.add(messageIdentifier);
+                     
+                     console.log(`Nova mensagem global detectada de ${clientName}:`, lastMsg);
+                     
+                     const { isEnabled, playNotificationSound, showChatNotification, toast } = notifRefs.current;
 
-            const unsubscribeMessages = onSnapshot(
-              messagesQuery,
-              (messagesSnapshot) => {
-                if (!messagesSnapshot.empty) {
-                  const latestMessage = messagesSnapshot.docs[0];
-                  const messageData = latestMessage.data();
-                  const messageId = latestMessage.id;
+                     if (isEnabled) {
+                         playNotificationSound();
+                     }
 
-                  // Verificar se é uma nova mensagem do cliente (não admin)
-                  if (!messageData.isAdmin && !processedMessages.has(messageId)) {
-                    console.log(`Nova mensagem global detectada de ${clientName}:`, messageData.content);
+                     showChatNotification(clientName, lastMsg);
 
-                    // Adicionar à lista de mensagens processadas
-                    setProcessedMessages(prev => new Set([...prev, messageId]));
-
-                    // Atualizar contador de mensagens não lidas
-                    setUnreadMessages(prev => ({
-                      ...prev,
-                      [clientId]: (prev[clientId] || 0) + 1
-                    }));
-
-                    // Tocar som de notificação se ativado
-                    if (isEnabled) {
-                      playNotificationSound();
-                    }
-
-                    // Mostrar notificação do navegador
-                    showChatNotification(clientName, messageData.content);
-
-                    // Mostrar toast de notificação
-                    toast({
-                      title: `Nova mensagem de ${clientName}`,
-                      description: messageData.content.length > 100
-                        ? messageData.content.substring(0, 100) + "..."
-                        : messageData.content,
-                      duration: 4000,
-                    });
-                  }
-                }
-              },
-              (error) => {
-                console.error(`Erro ao ouvir mensagens de ${clientId}:`, error);
+                     toast({
+                       title: `Nova mensagem de ${clientName}`,
+                       description: lastMsg.length > 100 ? lastMsg.substring(0, 100) + "..." : lastMsg,
+                       duration: 4000,
+                     });
+                 }
               }
-            );
-
-            // Armazenar função de unsubscribe para este cliente
-            // Nota: Em produção, seria melhor gerenciar múltiplos unsubscribes
+            }
           });
         },
         (error) => {
@@ -117,7 +116,7 @@ export const ChatNotificationProvider: React.FC<ChatNotificationProviderProps> =
     } catch (error) {
       console.error("Erro ao configurar listener global de notificações:", error);
     }
-  }, [isEnabled, playNotificationSound, showChatNotification, toast, processedMessages]);
+  }, []);
 
   // Calcular total de mensagens não lidas
   const totalUnreadCount = Object.values(unreadMessages).reduce((sum, count) => sum + count, 0);
@@ -132,4 +131,4 @@ export const ChatNotificationProvider: React.FC<ChatNotificationProviderProps> =
       {children}
     </ChatNotificationContext.Provider>
   );
-};
+};

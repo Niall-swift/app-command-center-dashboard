@@ -49,12 +49,14 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
   const [invoices, setInvoices] = useState<IXCFaturaData[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>([]);
 
-  // Carregar tags do Firestore em tempo real
+  // Carregar tags e status da IA do Firestore em tempo real
   useEffect(() => {
     if (!clientId) return;
     const unsub = onSnapshot(doc(db, "chat", clientId), (snap) => {
       if (snap.exists()) {
-        setActiveTags(snap.data().tags || []);
+        const data = snap.data();
+        setActiveTags(data.tags || []);
+        setAiEnabled(data.aiEnabled || false);
       }
     });
     return () => unsub();
@@ -62,20 +64,6 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
 
   const [faturasCount, setFaturasCount] = useState(0);
   const [aiEnabled, setAiEnabled] = useState(false);
-
-  useEffect(() => {
-    if (!clientId) return;
-    
-    // Escutar mudanças no documento do cliente para pegar o status da IA e tags
-    const unsub = onSnapshot(doc(db, "chat", clientId), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        setAiEnabled(data.aiEnabled || false);
-      }
-    });
-
-    return () => unsub();
-  }, [clientId]);
 
   const toggleAI = async () => {
     if (!clientId) return;

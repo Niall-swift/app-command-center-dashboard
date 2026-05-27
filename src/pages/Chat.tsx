@@ -141,10 +141,10 @@ export default function Chat() {
     if (!selectedClient) return;
 
     const mensagensRef = collection(db, "chat", selectedClient.id, "mensagens");
-    const q = query(mensagensRef, orderBy("timestamp", "asc"));
+    const q = query(mensagensRef, orderBy("timestamp", "desc"), limit(50));
 
     unsubscribeRef.current = onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map((doc) => {
+      const messages = [...snapshot.docs].reverse().map((doc) => {
         const data = doc.data();
         return {
           id: doc.id,
