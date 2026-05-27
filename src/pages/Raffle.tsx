@@ -103,6 +103,7 @@ export default function Raffle() {
             instagram: data.instagram || '',
             avatar: data.imageUrl || '',
             address: data.address || '',
+            bairro: data.bairro || data.neighborhood || '',
             city: data.city || '',
             state: data.state || '',
             lastMessage: '',

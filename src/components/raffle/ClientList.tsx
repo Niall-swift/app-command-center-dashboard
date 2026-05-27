@@ -8,6 +8,13 @@ import { Users, Check, CheckCheck, X, Search, Eye, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ParticipantDetailsModal from './ParticipantDetailsModal';
 import type { Client } from '@/types/dashboard';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface ClientListProps {
   clients: Client[];
@@ -27,14 +34,21 @@ export default function ClientList({
   onDeleteClient,
 }: ClientListProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedBairro, setSelectedBairro] = useState('all');
   const [selectedParticipant, setSelectedParticipant] = useState<Client | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
+  const bairros = Array.from(new Set(clients.map(c => c.bairro?.trim()).filter(Boolean))).sort();
 
   const isSelected = (client: Client) => selectedClients.some(c => c.id === client.id);
   const allSelected = clients.length > 0 && clients.every(client => isSelected(client));
 
   // Filter clients based on search term
   const filteredClients = clients.filter(client => {
+    if (selectedBairro !== 'all' && client.bairro?.trim() !== selectedBairro) {
+      return false;
+    }
+
     const term = searchTerm.toLowerCase();
     const termDigits = term.replace(/\D/g, '');
     
@@ -125,16 +139,35 @@ export default function ClientList({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {/* Search Bar */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              type="text"
-              placeholder="Pesquisar por nome, CPF ou telefone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          {/* Filters */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                type="text"
+                placeholder="Pesquisar por nome, CPF ou telefone..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            {bairros.length > 0 && (
+              <div className="w-full sm:w-64">
+                <Select value={selectedBairro} onValueChange={setSelectedBairro}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filtrar por Bairro" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os bairros</SelectItem>
+                    {bairros.map((bairro) => (
+                      <SelectItem key={bairro as string} value={bairro as string}>
+                        {bairro as string}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -167,7 +200,10 @@ export default function ClientList({
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{client.name || 'Unknown'}</p>
-                        <p className="text-sm text-gray-500">@{client.name ? client.name.toLowerCase().replace(' ', '') : 'unknown'}</p>
+                        <div className="flex flex-col text-sm text-gray-500">
+                          <span>@{client.name ? client.name.toLowerCase().replace(' ', '') : 'unknown'}</span>
+                          {client.bairro && <span>📍 {client.bairro}</span>}
+                        </div>
                       </div>
                     </div>
                     
