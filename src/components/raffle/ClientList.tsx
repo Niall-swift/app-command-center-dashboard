@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Check, CheckCheck, X, Search, Eye, Trash2 } from 'lucide-react';
+import { Users, Check, CheckCheck, X, Search, Eye, Trash2, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ParticipantDetailsModal from './ParticipantDetailsModal';
 import type { Client } from '@/types/dashboard';
@@ -49,18 +49,57 @@ export default function ClientList({
       return false;
     }
 
-    const term = searchTerm.toLowerCase();
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+
     const termDigits = term.replace(/\D/g, '');
     
-    const matchName = client.name?.toLowerCase().includes(term);
+    // Name check
+    const clientName = String(client.name || '').toLowerCase();
+    const matchName = clientName.includes(term);
     
-    const clientCpf = client.cpf || '';
+    // CPF check
+    const clientCpf = String(client.cpf || '');
+    const clientCpfDigits = clientCpf.replace(/\D/g, '');
     const matchCpf = clientCpf.toLowerCase().includes(term) || 
-      (termDigits.length > 0 && clientCpf.replace(/\D/g, '').includes(termDigits));
+      (termDigits.length > 0 && clientCpfDigits.includes(termDigits));
       
-    const clientPhone = client.phone || '';
-    const matchPhone = clientPhone.toLowerCase().includes(term) || 
-      (termDigits.length > 0 && clientPhone.replace(/\D/g, '').includes(termDigits));
+    // Phone/WhatsApp check
+    const clientPhone = String(client.phone || '');
+    const clientPhoneDigits = clientPhone.replace(/\D/g, '');
+    
+    // Normalize country code "55" for Brazil
+    const cleanDigits = (digits: string) => {
+      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+        return digits.substring(2);
+      }
+      return digits;
+    };
+
+    const normPhoneDigits = cleanDigits(clientPhoneDigits);
+    const normTermDigits = cleanDigits(termDigits);
+
+    let matchPhone = false;
+    
+    // 1. Check if the raw phone contains the search term
+    if (clientPhone.toLowerCase().includes(term)) {
+      matchPhone = true;
+    } 
+    // 2. Check if the digits match (with or without 55 prefix)
+    else if (termDigits.length > 0) {
+      if (clientPhoneDigits.includes(termDigits) || termDigits.includes(clientPhoneDigits)) {
+        matchPhone = true;
+      } else if (normPhoneDigits.includes(normTermDigits) || normTermDigits.includes(normPhoneDigits)) {
+        matchPhone = true;
+      } else {
+        // Match last 8 digits (ignoring DDD and 9th digit differences) if at least 8 digits are searched
+        const last8Phone = normPhoneDigits.slice(-8);
+        const last8Term = normTermDigits.slice(-8);
+        if (last8Phone.length === 8 && last8Term.length === 8 && last8Phone === last8Term) {
+          matchPhone = true;
+        }
+      }
+    }
       
     return matchName || matchCpf || matchPhone;
   });
@@ -200,8 +239,13 @@ export default function ClientList({
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{client.name || 'Unknown'}</p>
-                        <div className="flex flex-col text-sm text-gray-500">
+                        <div className="flex flex-col text-sm text-gray-500 gap-0.5">
                           <span>@{client.name ? client.name.toLowerCase().replace(' ', '') : 'unknown'}</span>
+                          {client.phone && (
+                            <span className="flex items-center gap-1 text-xs text-gray-500">
+                              <Phone className="w-3.5 h-3.5 text-blue-500" /> {client.phone}
+                            </span>
+                          )}
                           {client.bairro && <span>📍 {client.bairro}</span>}
                         </div>
                       </div>
