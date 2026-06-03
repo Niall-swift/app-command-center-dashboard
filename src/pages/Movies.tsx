@@ -21,6 +21,8 @@ interface Movie {
   backdrop_path: string;
   movie_url: string;
   category: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 const CATEGORIES = [
@@ -199,6 +201,8 @@ export default function Movies() {
         poster_path: posterUrl,
         backdrop_path: backdropUrl,
         movie_url: movieUrl,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
       setUploadProgress(100);
@@ -238,7 +242,8 @@ export default function Movies() {
 
     try {
       await updateDoc(doc(db, 'movies', movieId), {
-        category: newCategory
+        category: newCategory,
+        updatedAt: new Date()
       });
       toast({
         title: 'Sucesso',
