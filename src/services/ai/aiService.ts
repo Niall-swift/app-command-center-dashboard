@@ -7,7 +7,7 @@ const GEMINI_API_KEY = 'AIzaSyA4Q6BN5vKPUQrEiEONprIknhS-loVYYo0';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // Definição das ferramentas (Tools) que o Josué pode usar
-const tools = [
+const tools: any[] = [
   {
     functionDeclarations: [
       {

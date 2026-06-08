@@ -32,6 +32,7 @@ import Leaderboard from "./pages/Leaderboard";
 import MyReferrals from "./pages/MyReferrals";
 import IXCClientDetails from "./pages/IXCClientDetails";
 import IXCDici from "./pages/IXCDici";
+import IXCActiveClientsExport from "./pages/IXCActiveClientsExport";
 import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
@@ -59,6 +60,7 @@ function AnimatedRoutes() {
         <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
         <Route path="/ixc/tickets" element={<IXCTickets />} />
         <Route path="/ixc/dici" element={<IXCDici />} />
+        <Route path="/ixc/exportar-ativos" element={<IXCActiveClientsExport />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />

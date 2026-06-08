@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   MessageSquare, Send, FileText, BarChart3, Bot, Home,
   Settings, Gift, Package, Wrench, Map, Film, Tv,
-  Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell,
+  Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -36,6 +36,7 @@ const ixcMenuItems = [
   { title: "Financeiro",           url: "/ixc/financeiro",  icon: DollarSign },
   { title: "Tickets de Suporte",   url: "/ixc/tickets",     icon: Ticket },
   { title: "Relatório DICI",       url: "/ixc/dici",        icon: FileSpreadsheet },
+  { title: "Exportar Clientes",    url: "/ixc/exportar-ativos", icon: Download },
 ];
 
 const containerVariants = {

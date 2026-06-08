@@ -104,7 +104,7 @@ export async function compressVideo(
   // Ler arquivo de saída
   const data = await ffmpeg.readFile(outputName);
   // Cast necessário: FFmpeg retorna Uint8Array<SharedArrayBuffer>, mas Blob espera ArrayBuffer
-  const outputBlob = new Blob([data as Uint8Array<ArrayBuffer>], { type: 'video/mp4' });
+  const outputBlob = new Blob([data as any], { type: 'video/mp4' });
 
   // Limpar arquivos temporários
   await ffmpeg.deleteFile(inputName);

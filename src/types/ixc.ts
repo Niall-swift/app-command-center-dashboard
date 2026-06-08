@@ -20,7 +20,7 @@ export interface IXCContactData {
   obs?: string;
   lead: 'S' | 'N'; // S = Sim, N = Não
   ativo: 'S' | 'N'; // S = Ativo, N = Inativo
-  [key: string]: unknown; // Permite campos adicionais da API
+  [key: string]: any; // Permite campos adicionais da API
 }
 
 export type IXCClienteData = IXCContactData;
@@ -55,7 +55,7 @@ export interface IXCContratoData {
   plano?: string;
   velocidade_download?: string;
   velocidade_upload?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Faturas/Contas a Receber
@@ -77,7 +77,7 @@ export interface IXCFaturaData {
   url_boleto?: string;
   pix_qrcode?: string; // QR Code em base64 ou link
   pix_copia_e_cola?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface IXCPixData {
@@ -101,7 +101,7 @@ export interface IXCTicketData {
   tecnico?: string;
   tipo?: string;
   mensagem?: string; // Adicionado para exibir descrição/mensagem inicial
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Planos/Produtos
@@ -113,7 +113,7 @@ export interface IXCPlanoData {
   velocidade_upload?: string;
   tipo?: string;
   ativo?: 'S' | 'N';
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Equipamentos
@@ -126,7 +126,7 @@ export interface IXCEquipamentoData {
   mac?: string;
   ip?: string;
   status?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Conexões (sessões ativas)
@@ -140,7 +140,7 @@ export interface IXCConexaoData {
   status?: string;
   data_conexao?: string;
   data_desconexao?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Caixas FTTH (CTOs)
@@ -153,7 +153,7 @@ export interface IXCCaixaData {
   longitude?: string;
   capacidade?: string;
   ocupacao?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos Financeiros (fn_caixa, fn_apagar, fn_movim_caixa)
@@ -163,7 +163,7 @@ export interface IXCFinancialCaixaData {
   conta?: string;
   saldo?: string;
   ativo?: 'S' | 'N';
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface IXCPayableData {
@@ -176,7 +176,7 @@ export interface IXCPayableData {
   data_pagamento?: string;
   status?: 'A' | 'P' | 'C';
   descricao?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface IXCCashMovementData {
@@ -187,7 +187,7 @@ export interface IXCCashMovementData {
   tipo?: 'E' | 'S'; // E = Entrada, S = Saída
   historico?: string;
   documento?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para Logins (PPPoE/Hotspot - radusuarios)
@@ -206,7 +206,7 @@ export interface IXCLoginData {
   id_caixa_ftth?: string;
   ftth_porta?: string;
   sinal_ultimo_atendimento?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para respostas da API
@@ -255,7 +255,7 @@ export interface IXCPosteData {
   latitude?: string;
   longitude?: string;
   tipo?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Tipos para POPs (Pontos de Presença)
@@ -265,5 +265,5 @@ export interface IXCPopData {
   nome?: string;
   latitude?: string;
   longitude?: string;
-  [key: string]: unknown;
+  [key: string]: any;
 }

@@ -258,7 +258,7 @@ class IXCService {
     rp: number = 1000,
     sortname: string = 'cliente.id',
     sortorder: 'asc' | 'desc' = 'desc'
-  ): Promise<IXCApiResponse> {
+  ): Promise<IXCApiResponse<IXCClienteData>> {
     const data: Partial<IXCParams> = {
       qtype: 'cliente.id',
       query: '', // Query vazia para buscar todos
