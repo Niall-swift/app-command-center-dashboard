@@ -156,27 +156,12 @@ export default function IXCActiveClientsExport() {
         }
       });
 
-      // 3. Buscar faturas em aberto
-      setStatusMessage('Buscando datas de vencimento...');
-      setProgress(75);
-      const invoices = await ixcService.fetchAllFaturasAbertas((totalInvoices) => {
-        setProgress(Math.min(95, 75 + Math.floor((totalInvoices / 1000) * 20)));
-        setStatusMessage(`Buscando faturas... (${totalInvoices} carregadas)`);
-      });
+      // 3. Enriquecer clientes com dados dos contratos e dia de vencimento
+      setStatusMessage('Processando e vinculando dados...');
+      setProgress(85);
 
-      const clientInvoicesMap = new Map<string, string>();
-      invoices.forEach(f => {
-        if (f.id_cliente && f.data_vencimento) {
-          if (!clientInvoicesMap.has(String(f.id_cliente))) {
-            clientInvoicesMap.set(String(f.id_cliente), String(f.data_vencimento));
-          }
-        }
-      });
-
-      // 4. Enriquecer clientes
       const enrichedRecords = records.map(client => {
         const contract = clientContractsMap.get(String(client.id));
-        const invoiceVenc = clientInvoicesMap.get(String(client.id));
         
         let plano = '';
         let vencimento = '';
@@ -184,19 +169,18 @@ export default function IXCActiveClientsExport() {
         if (contract) {
           plano = contract.contrato || contract.plano || contract.descricao || '';
           
-          if (invoiceVenc) {
-            // Se houver fatura em aberto, usa o dia dela
-            const dayParts = invoiceVenc.split('-');
-            vencimento = dayParts.length === 3 ? `Dia ${dayParts[2]}` : invoiceVenc;
+          // O dia de vencimento (dia fixo de cobrança) corresponde exatamente ao dia do campo pago_ate_data.
+          // Quando o cliente realiza o pagamento, o IXC atualiza este campo para a data de vencimento daquele ciclo (ex: 2026-06-10).
+          // Se o campo pago_ate_data for nulo, inválido ou '0000-00-00', usamos a data_ativacao como fallback.
+          const refDate = (contract.pago_ate_data && contract.pago_ate_data !== '0000-00-00')
+            ? contract.pago_ate_data
+            : (contract.data_ativacao || '');
+
+          if (refDate && refDate.includes('-')) {
+            const parts = refDate.split('-');
+            vencimento = parts.length === 3 ? `Dia ${parts[2]}` : refDate;
           } else {
-            // Fallback para dia de ativação ou pago_ate_data
-            const refDate = contract.pago_ate_data || contract.data_ativacao || '';
-            if (refDate && refDate.includes('-')) {
-              const parts = refDate.split('-');
-              vencimento = `Dia ${parts[2]}`;
-            } else {
-              vencimento = 'Sem faturas pendentes';
-            }
+            vencimento = 'Não definido';
           }
         } else {
           plano = 'Sem contrato ativo';
