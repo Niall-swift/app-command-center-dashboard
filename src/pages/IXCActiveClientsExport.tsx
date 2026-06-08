@@ -40,6 +40,8 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'fone_celular', label: 'Telefone Celular', description: 'Telefone de celular cadastrado' },
   { key: 'fone_whatsapp', label: 'WhatsApp', description: 'Telefone para contato via WhatsApp' },
   { key: 'fone_residencial', label: 'Telefone Fixo', description: 'Número de telefone residencial' },
+  { key: 'plano' as any, label: 'Plano de Internet', description: 'Plano de internet ativo' },
+  { key: 'vencimento' as any, label: 'Data de Vencimento', description: 'Próximo vencimento ou dia base' },
   { key: 'cep', label: 'CEP', description: 'Código postal de endereço' },
   { key: 'endereco', label: 'Endereço', description: 'Rua, número e complementos' },
   { key: 'bairro', label: 'Bairro', description: 'Bairro do endereço cadastrado' },
@@ -121,27 +123,100 @@ export default function IXCActiveClientsExport() {
     setProgress(0);
     setLoadedCount(0);
     setActiveClients([]);
-    setStatusMessage('Iniciando comunicação com a API do IXC...');
+    setStatusMessage('Iniciando busca de clientes ativos...');
 
     try {
+      // 1. Buscar clientes ativos
       const records = await ixcService.fetchAllClientesAtivos((total) => {
         setLoadedCount(total);
-        setProgress(Math.min(100, Math.floor((total / 1000) * 100))); // Progresso baseado em lotes
-        setStatusMessage(`Buscando clientes ativos... (${total} registros carregados)`);
+        setProgress(Math.min(30, Math.floor((total / 1000) * 30)));
+        setStatusMessage(`Buscando clientes ativos... (${total} carregados)`);
       });
 
       if (records.length === 0) {
         toast.warning('Nenhum cliente ativo foi encontrado no sistema.');
         setStatusMessage('Busca finalizada. Nenhum registro encontrado.');
-      } else {
-        setActiveClients(records);
-        setProgress(100);
-        setStatusMessage(`Sucesso! ${records.length} clientes ativos carregados.`);
-        toast.success(`${records.length} clientes ativos carregados com sucesso!`);
+        setLoading(false);
+        return;
       }
+
+      // 2. Buscar contratos ativos
+      setStatusMessage('Buscando planos contratados...');
+      setProgress(40);
+      const contracts = await ixcService.fetchAllContratosAtivos((totalContracts) => {
+        setProgress(Math.min(70, 40 + Math.floor((totalContracts / 1000) * 30)));
+        setStatusMessage(`Buscando contratos... (${totalContracts} carregados)`);
+      });
+
+      const clientContractsMap = new Map<string, any>();
+      contracts.forEach(c => {
+        if (c.id_cliente) {
+          // Salva o contrato mais recente do cliente
+          clientContractsMap.set(String(c.id_cliente), c);
+        }
+      });
+
+      // 3. Buscar faturas em aberto
+      setStatusMessage('Buscando datas de vencimento...');
+      setProgress(75);
+      const invoices = await ixcService.fetchAllFaturasAbertas((totalInvoices) => {
+        setProgress(Math.min(95, 75 + Math.floor((totalInvoices / 1000) * 20)));
+        setStatusMessage(`Buscando faturas... (${totalInvoices} carregadas)`);
+      });
+
+      const clientInvoicesMap = new Map<string, string>();
+      invoices.forEach(f => {
+        if (f.id_cliente && f.data_vencimento) {
+          if (!clientInvoicesMap.has(String(f.id_cliente))) {
+            clientInvoicesMap.set(String(f.id_cliente), String(f.data_vencimento));
+          }
+        }
+      });
+
+      // 4. Enriquecer clientes
+      const enrichedRecords = records.map(client => {
+        const contract = clientContractsMap.get(String(client.id));
+        const invoiceVenc = clientInvoicesMap.get(String(client.id));
+        
+        let plano = '';
+        let vencimento = '';
+        
+        if (contract) {
+          plano = contract.contrato || contract.plano || contract.descricao || '';
+          
+          if (invoiceVenc) {
+            // Se houver fatura em aberto, usa o dia dela
+            const dayParts = invoiceVenc.split('-');
+            vencimento = dayParts.length === 3 ? `Dia ${dayParts[2]}` : invoiceVenc;
+          } else {
+            // Fallback para dia de ativação ou pago_ate_data
+            const refDate = contract.pago_ate_data || contract.data_ativacao || '';
+            if (refDate && refDate.includes('-')) {
+              const parts = refDate.split('-');
+              vencimento = `Dia ${parts[2]}`;
+            } else {
+              vencimento = 'Sem faturas pendentes';
+            }
+          }
+        } else {
+          plano = 'Sem contrato ativo';
+          vencimento = 'N/A';
+        }
+
+        return {
+          ...client,
+          plano,
+          vencimento
+        };
+      });
+
+      setActiveClients(enrichedRecords);
+      setProgress(100);
+      setStatusMessage(`Sucesso! ${enrichedRecords.length} clientes ativos carregados.`);
+      toast.success(`${enrichedRecords.length} clientes ativos carregados com sucesso!`);
     } catch (error: any) {
       console.error(error);
-      setStatusMessage('Ocorreu um erro ao buscar os clientes do IXC.');
+      setStatusMessage('Ocorreu um erro ao buscar os dados do IXC.');
       toast.error(error.message || 'Erro ao carregar dados do IXC. Verifique a conexão.');
     } finally {
       setLoading(false);
