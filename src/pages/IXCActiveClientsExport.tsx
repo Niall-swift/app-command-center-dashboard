@@ -58,6 +58,17 @@ export default function IXCActiveClientsExport() {
   const [activeClients, setActiveClients] = useState<IXCClienteData[]>([]);
   const [delimiter, setDelimiter] = useState<';' | ','>(';');
 
+  const getClientValue = (client: IXCClienteData, key: string): string => {
+    if (key === 'nome') {
+      return String(client.nome || client.razao || '');
+    }
+    if (key === 'fone_celular') {
+      return String(client.fone_celular || client.telefone_celular || '');
+    }
+    const val = client[key];
+    return val !== undefined && val !== null ? String(val) : '';
+  };
+
   const handleToggleColumn = (columnKey: string) => {
     setSelectedColumns(prev => 
       prev.includes(columnKey) 
@@ -127,11 +138,10 @@ export default function IXCActiveClientsExport() {
         return AVAILABLE_COLUMNS
           .filter(col => selectedColumns.includes(col.key as string))
           .map(col => {
-            const rawValue = client[col.key];
-            if (rawValue === undefined || rawValue === null) return '';
+            const rawValue = getClientValue(client, col.key as string);
             
             // Tratamento de aspas e quebras de linha para evitar quebras no CSV
-            const cleanStr = String(rawValue)
+            const cleanStr = rawValue
               .replace(/"/g, '""')
               .replace(/\r?\n|\r/g, ' ');
             
@@ -385,9 +395,7 @@ export default function IXCActiveClientsExport() {
                               .filter(col => selectedColumns.includes(col.key as string))
                               .map(col => (
                                 <TableCell key={col.key} className="text-gray-700 text-sm max-w-xs truncate">
-                                  {client[col.key] !== undefined && client[col.key] !== null
-                                    ? String(client[col.key])
-                                    : '-'}
+                                  {getClientValue(client, col.key as string) || '-'}
                                 </TableCell>
                               ))}
                           </TableRow>
