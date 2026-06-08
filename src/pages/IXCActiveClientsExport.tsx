@@ -63,7 +63,33 @@ export default function IXCActiveClientsExport() {
       return String(client.nome || client.razao || '');
     }
     if (key === 'fone_celular') {
-      return String(client.fone_celular || client.telefone_celular || '');
+      return String(
+        client.fone_celular || 
+        client.telefone_celular || 
+        client.telefone || 
+        client.whatsapp || 
+        client.fone_whatsapp || 
+        client.telefone_comercial || 
+        ''
+      );
+    }
+    if (key === 'fone_whatsapp') {
+      return String(
+        client.fone_whatsapp || 
+        client.whatsapp || 
+        client.telefone_celular || 
+        client.fone_celular || 
+        ''
+      );
+    }
+    if (key === 'fone_residencial') {
+      return String(
+        client.fone_residencial || 
+        client.telefone || 
+        client.telefone_comercial || 
+        client.fone_comercial || 
+        ''
+      );
     }
     const val = client[key];
     return val !== undefined && val !== null ? String(val) : '';
