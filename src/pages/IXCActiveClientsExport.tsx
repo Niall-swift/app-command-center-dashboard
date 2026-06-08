@@ -49,6 +49,23 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'obs', label: 'Observações', description: 'Anotações gerais e cadastrais' },
 ];
 
+const getStandardDueDay = (rawDay: string): string => {
+  const day = parseInt(rawDay, 10);
+  if (isNaN(day)) return 'Não definido';
+
+  // Os vencimentos padrão na AVL Telecom são: 5, 10, 15, 20, 25 e 30.
+  // Finais de semana e feriados jogam o vencimento da fatura para frente (ex: dia 5 cai no sábado e a fatura vence dia 7).
+  // Mapeamos a faixa de dias reais de vencimento para o vencimento padrão correspondente.
+  if (day >= 3 && day <= 7) return 'Dia 5';
+  if (day >= 8 && day <= 12) return 'Dia 10';
+  if (day >= 13 && day <= 17) return 'Dia 15';
+  if (day >= 18 && day <= 22) return 'Dia 20';
+  if (day >= 23 && day <= 27) return 'Dia 25';
+  if (day >= 28 || day <= 2) return 'Dia 30';
+
+  return `Dia ${day}`;
+};
+
 export default function IXCActiveClientsExport() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     AVAILABLE_COLUMNS.map(col => col.key as string)
@@ -156,12 +173,30 @@ export default function IXCActiveClientsExport() {
         }
       });
 
-      // 3. Enriquecer clientes com dados dos contratos e dia de vencimento
+      // 3. Buscar faturas em aberto para pegar vencimentos mais precisos
+      setStatusMessage('Buscando datas de vencimento...');
+      setProgress(75);
+      const invoices = await ixcService.fetchAllFaturasAbertas((totalInvoices) => {
+        setProgress(Math.min(90, 75 + Math.floor((totalInvoices / 1000) * 15)));
+        setStatusMessage(`Buscando faturas... (${totalInvoices} carregadas)`);
+      });
+
+      const clientInvoicesMap = new Map<string, string>();
+      invoices.forEach(f => {
+        if (f.id_cliente && f.data_vencimento) {
+          if (!clientInvoicesMap.has(String(f.id_cliente))) {
+            clientInvoicesMap.set(String(f.id_cliente), String(f.data_vencimento));
+          }
+        }
+      });
+
+      // 4. Enriquecer clientes
       setStatusMessage('Processando e vinculando dados...');
-      setProgress(85);
+      setProgress(95);
 
       const enrichedRecords = records.map(client => {
         const contract = clientContractsMap.get(String(client.id));
+        const invoiceVenc = clientInvoicesMap.get(String(client.id));
         
         let plano = '';
         let vencimento = '';
@@ -169,19 +204,26 @@ export default function IXCActiveClientsExport() {
         if (contract) {
           plano = contract.contrato || contract.plano || contract.descricao || '';
           
-          // O dia de vencimento (dia fixo de cobrança) corresponde exatamente ao dia do campo pago_ate_data.
-          // Quando o cliente realiza o pagamento, o IXC atualiza este campo para a data de vencimento daquele ciclo (ex: 2026-06-10).
-          // Se o campo pago_ate_data for nulo, inválido ou '0000-00-00', usamos a data_ativacao como fallback.
-          const refDate = (contract.pago_ate_data && contract.pago_ate_data !== '0000-00-00')
-            ? contract.pago_ate_data
-            : (contract.data_ativacao || '');
-
-          if (refDate && refDate.includes('-')) {
-            const parts = refDate.split('-');
-            vencimento = parts.length === 3 ? `Dia ${parts[2]}` : refDate;
+          let rawDay = '';
+          if (invoiceVenc) {
+            const dayParts = invoiceVenc.split('-');
+            if (dayParts.length === 3) {
+              rawDay = dayParts[2];
+            }
           } else {
-            vencimento = 'Não definido';
+            // Se não houver fatura em aberto recente, o pago_ate_data representa a data até a qual o contrato está pago.
+            // O dia dessa data corresponde ao dia de vencimento do ciclo regular dele.
+            const refDate = (contract.pago_ate_data && contract.pago_ate_data !== '0000-00-00')
+              ? contract.pago_ate_data
+              : (contract.data_ativacao || '');
+              
+            if (refDate && refDate.includes('-')) {
+              const parts = refDate.split('-');
+              rawDay = parts[2];
+            }
           }
+
+          vencimento = rawDay ? getStandardDueDay(rawDay) : 'Não definido';
         } else {
           plano = 'Sem contrato ativo';
           vencimento = 'N/A';
