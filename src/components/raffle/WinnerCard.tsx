@@ -11,6 +11,8 @@ declare global {
   }
 }
 
+const PREMIX_LOGO_URL = "https://firebasestorage.googleapis.com/v0/b/avl-telecom.appspot.com/o/logo-pre-mix%2FWhatsApp%20Image%202026-02-11%20at%2014.52.11.jpeg?alt=media&token=b6d398d2-60df-4f09-a9bc-340a7ecb37d1";
+
 interface WinnerCardProps {
   winner: Client;
   prize: string;
@@ -73,123 +75,87 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
     canvas.width = W;
     canvas.height = H;
 
-    // ── Background dark gradient ──────────────────────────────────────────────
+    // ── Background dark gradient (Minimalist Black & Green) ──────────────────────
     const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, '#0D0618');
-    bg.addColorStop(0.4, '#1A0533');
-    bg.addColorStop(0.7, '#120826');
-    bg.addColorStop(1, '#06030E');
+    bg.addColorStop(0, '#080A09');
+    bg.addColorStop(0.5, '#050605');
+    bg.addColorStop(1, '#010201');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // ── Glow radial in center ─────────────────────────────────────────────────
+    // ── Glow radial in center (Subtle Green Glow) ────────────────────────────────
     const glow = ctx.createRadialGradient(W / 2, H * 0.38, 0, W / 2, H * 0.38, 500);
-    glow.addColorStop(0, 'rgba(168, 85, 247, 0.35)');
-    glow.addColorStop(0.5, 'rgba(168, 85, 247, 0.08)');
+    glow.addColorStop(0, 'rgba(16, 185, 129, 0.15)');
     glow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
 
-    // ── Decorative dots ───────────────────────────────────────────────────────
-    const dotColors = ['rgba(255,215,0,0.4)', 'rgba(168,85,247,0.4)', 'rgba(255,107,157,0.3)', 'rgba(255,255,255,0.15)'];
-    for (let i = 0; i < 120; i++) {
-      const x = Math.random() * W;
-      const y = Math.random() * H;
-      const r = Math.random() * 2.5 + 0.5;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = dotColors[Math.floor(Math.random() * dotColors.length)];
-      ctx.fill();
+    // ── Minimalist green border ──────────────────────────────────────────────────
+    ctx.strokeStyle = '#10B981';
+    ctx.lineWidth = 4;
+    const br = 24;
+    ctx.beginPath();
+    ctx.roundRect(40, 40, W - 80, H - 80, br);
+    ctx.stroke();
+
+    // ── Pre-Mix branding (top logo loading with cache buster) ───────────────────
+    try {
+      const logoImg = new Image();
+      logoImg.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        logoImg.onload = () => {
+          const maxW = 340;
+          const maxH = 120;
+          let drawW = logoImg.width;
+          let drawH = logoImg.height;
+          const ratio = Math.min(maxW / drawW, maxH / drawH);
+          drawW *= ratio;
+          drawH *= ratio;
+          ctx.drawImage(logoImg, (W - drawW) / 2, 110 - drawH / 2, drawW, drawH);
+          resolve();
+        };
+        logoImg.onerror = () => reject();
+        logoImg.src = PREMIX_LOGO_URL + '&cb=' + Date.now();
+      });
+    } catch {
+      // Fallback
+      ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 54px Arial';
+      ctx.textAlign = 'center';
+      ctx.letterSpacing = '8px';
+      ctx.fillText('PRE-MIX', W / 2, 110);
     }
 
-    // ── Golden border ─────────────────────────────────────────────────────────
-    const borderGrad = ctx.createLinearGradient(0, 0, W, H);
-    borderGrad.addColorStop(0, '#FFD700');
-    borderGrad.addColorStop(0.25, '#FFF8DC');
-    borderGrad.addColorStop(0.5, '#FFD700');
-    borderGrad.addColorStop(0.75, '#DAA520');
-    borderGrad.addColorStop(1, '#FFD700');
-    ctx.strokeStyle = borderGrad;
-    ctx.lineWidth = 8;
-    const br = 40;
-    ctx.beginPath();
-    ctx.roundRect(20, 20, W - 40, H - 40, br);
-    ctx.stroke();
-
-    // Inner subtle border
-    ctx.strokeStyle = 'rgba(255,215,0,0.15)';
+    // ── Divider line ──────────────────────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.2)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(32, 32, W - 64, H - 64, br - 8);
+    ctx.moveTo(100, 180);
+    ctx.lineTo(W - 100, 180);
     ctx.stroke();
 
-    // ── AVL Telecom branding (top) ────────────────────────────────────────────
-    ctx.fillStyle = 'rgba(255,215,0,0.6)';
-    ctx.font = 'bold 32px Arial';
+    // ── Title "SORTEIO PRE-MIX" ──────────────────────────────────────────────
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 36px Arial';
     ctx.textAlign = 'center';
-    ctx.letterSpacing = '8px';
-    ctx.fillText('AVL TELECOM', W / 2, 100);
-
-    // ── Divider line ──────────────────────────────────────────────────────────
-    const divGrad = ctx.createLinearGradient(100, 0, W - 100, 0);
-    divGrad.addColorStop(0, 'transparent');
-    divGrad.addColorStop(0.3, 'rgba(255,215,0,0.6)');
-    divGrad.addColorStop(0.7, 'rgba(255,215,0,0.6)');
-    divGrad.addColorStop(1, 'transparent');
-    ctx.strokeStyle = divGrad;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(100, 120);
-    ctx.lineTo(W - 100, 120);
-    ctx.stroke();
-
-    // ── Trophy emoji ──────────────────────────────────────────────────────────
-    ctx.font = '120px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🏆', W / 2, 280);
+    ctx.letterSpacing = '4px';
+    ctx.fillText('SORTEIO PRE-MIX', W / 2, 260);
 
     // ── GRANDE VENCEDOR title ─────────────────────────────────────────────────
-    ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 72px Arial';
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'bold 80px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('GRANDE VENCEDOR', W / 2, 380);
-
-    // Gold underline
-    ctx.strokeStyle = 'rgba(255,215,0,0.5)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(W / 2 - 260, 400);
-    ctx.lineTo(W / 2 + 260, 400);
-    ctx.stroke();
-
-    // Sparkles around title
-    const sparkles = ['✨', '⭐', '✨'];
-    const sparkX = [W / 2 - 340, W / 2, W / 2 + 340];
-    ctx.font = '36px serif';
-    sparkles.forEach((s, i) => { ctx.fillText(s, sparkX[i], 380); });
+    ctx.letterSpacing = '2px';
+    ctx.fillText('GRANDE VENCEDOR', W / 2, 360);
 
     // ── Avatar circle ─────────────────────────────────────────────────────────
     const avatarX = W / 2;
-    const avatarY = 700;
-    const avatarR = 180;
+    const avatarY = 610;
+    const avatarR = 150;
 
-    // Outer golden glow
-    const haloGrad = ctx.createRadialGradient(avatarX, avatarY, avatarR - 20, avatarX, avatarY, avatarR + 60);
-    haloGrad.addColorStop(0, 'rgba(255,215,0,0.5)');
-    haloGrad.addColorStop(0.5, 'rgba(255,215,0,0.15)');
-    haloGrad.addColorStop(1, 'rgba(255,215,0,0)');
-    ctx.fillStyle = haloGrad;
-    ctx.fillRect(avatarX - avatarR - 60, avatarY - avatarR - 60, (avatarR + 60) * 2, (avatarR + 60) * 2);
-
-    // Golden ring
-    const ringGrad = ctx.createLinearGradient(avatarX - avatarR, avatarY - avatarR, avatarX + avatarR, avatarY + avatarR);
-    ringGrad.addColorStop(0, '#FFD700');
-    ringGrad.addColorStop(0.25, '#FFF8DC');
-    ringGrad.addColorStop(0.5, '#DAA520');
-    ringGrad.addColorStop(0.75, '#FFD700');
-    ringGrad.addColorStop(1, '#B8860B');
-    ctx.strokeStyle = ringGrad;
-    ctx.lineWidth = 16;
+    // Green ring
+    ctx.strokeStyle = '#10B981';
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.arc(avatarX, avatarY, avatarR + 10, 0, Math.PI * 2);
     ctx.stroke();
@@ -212,22 +178,22 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
             resolve();
           };
           img.onerror = () => reject();
-          img.src = avatarSrc;
+          img.src = avatarSrc + (avatarSrc.includes('?') ? '&' : '?') + 'cb=' + Date.now();
         });
       } else {
         throw new Error('no avatar');
       }
     } catch {
-      // Fallback: gradient circle with initial
+      // Fallback: green gradient with initial
       const fallbackGrad = ctx.createRadialGradient(avatarX, avatarY, 0, avatarX, avatarY, avatarR);
-      fallbackGrad.addColorStop(0, '#6D28D9');
-      fallbackGrad.addColorStop(1, '#2D1B69');
+      fallbackGrad.addColorStop(0, '#1E3A2F');
+      fallbackGrad.addColorStop(1, '#061C12');
       ctx.fillStyle = fallbackGrad;
       ctx.beginPath();
       ctx.arc(avatarX, avatarY, avatarR, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = 'white';
+      ctx.fillStyle = '#FFFFFF';
       ctx.font = `bold ${avatarR * 0.9}px Arial`;
       ctx.textAlign = 'center';
       ctx.fillText((winner.name || 'V').charAt(0).toUpperCase(), avatarX, avatarY + avatarR * 0.32);
@@ -235,64 +201,92 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
 
     // ── Winner name ───────────────────────────────────────────────────────────
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 80px Arial';
+    ctx.font = 'bold 76px Arial';
     ctx.textAlign = 'center';
     // Split name if too long
     const safeName = winner.name || 'Participante VIP';
     const nameParts = safeName.split(' ');
     if (nameParts.length > 2 || safeName.length > 18) {
       const mid = Math.ceil(nameParts.length / 2);
-      ctx.fillText(nameParts.slice(0, mid).join(' '), W / 2, 975);
-      ctx.fillText(nameParts.slice(mid).join(' '), W / 2, 1070);
+      ctx.fillText(nameParts.slice(0, mid).join(' '), W / 2, 830);
+      ctx.fillText(nameParts.slice(mid).join(' '), W / 2, 910);
     } else {
-      ctx.fillText(safeName, W / 2, 1020);
+      ctx.fillText(safeName, W / 2, 870);
     }
 
     // ── Prize box ─────────────────────────────────────────────────────────────
-    const boxY = 1140;
-    const boxH = 220;
-    const boxW = W - 160;
-    const boxX = 80;
+    const boxY = 980;
+    const boxH = 200;
+    const boxW = W - 200;
+    const boxX = 100;
 
-    // Box background with glassmorphism feel
-    ctx.fillStyle = 'rgba(255,215,0,0.06)';
-    ctx.strokeStyle = 'rgba(255,215,0,0.4)';
-    ctx.lineWidth = 2;
+    // Clean dark green box with thin green border
+    ctx.fillStyle = '#061C12';
+    ctx.strokeStyle = '#10B981';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxW, boxH, 24);
+    ctx.roundRect(boxX, boxY, boxW, boxH, 16);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255,215,0,0.7)';
-    ctx.font = '38px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = 'bold 30px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('🎁  PRÊMIO', W / 2, boxY + 65);
+    ctx.letterSpacing = '3px';
+    ctx.fillText('PRÊMIO', W / 2, boxY + 60);
 
-    ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 60px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 56px Arial';
     const prizeText = prize.toUpperCase();
     // Shrink font if too long
-    if (prizeText.length > 20) ctx.font = 'bold 44px Arial';
-    ctx.fillText(prizeText, W / 2, boxY + 162);
+    if (prizeText.length > 20) ctx.font = 'bold 42px Arial';
+    ctx.fillText(prizeText, W / 2, boxY + 140);
 
-    // ── Bottom section ────────────────────────────────────────────────────────
+    // ── Bottom section (Date) ──────────────────────────────────────────────────
     const now = new Date();
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '32px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '28px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(now.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }), W / 2, 1470);
+    ctx.letterSpacing = '1px';
+    ctx.fillText(now.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }), W / 2, 1240);
 
-    // Bottom confetti emojis
-    const emojis = ['🎉', '🎊', '⭐', '✨', '🎉', '🎊', '⭐'];
-    ctx.font = '48px serif';
-    emojis.forEach((e, i) => {
-      ctx.fillText(e, 80 + i * (W - 160) / (emojis.length - 1), 1560);
-    });
+    // ── Rules box ─────────────────────────────────────────────────────────────
+    const rulesY = 1290;
+    const rulesH = 290;
+    const rulesW = W - 200;
+    const rulesX = 100;
+
+    ctx.fillStyle = '#030E0A';
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(rulesX, rulesY, rulesW, rulesH, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    // Rules title
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.letterSpacing = '2px';
+    ctx.fillText('REGRAS DE RESGATE DO PRÊMIO', W / 2, rulesY + 55);
+
+    // Rule items
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'left';
+    ctx.letterSpacing = '0.5px';
+    const textX = rulesX + 50;
+    ctx.fillText('• O cliente tem 5 dias corridos para fazer o resgate do prêmio.', textX, rulesY + 120);
+    ctx.fillText('• É obrigatório ter o aplicativo AVL instalado no celular.', textX, rulesY + 180);
+    ctx.fillText('• As informações cadastradas no app devem coincidir com as do vencedor.', textX, rulesY + 240);
 
     // Bottom brand
-    ctx.fillStyle = 'rgba(255,215,0,0.4)';
-    ctx.font = '28px Arial';
-    ctx.fillText('Sorteio AVL Telecom • Boa sorte ao vencedor! 🙏', W / 2, 1640);
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.6)';
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.letterSpacing = '3px';
+    ctx.fillText('SORTEIO PRE-MIX  •  BOA SORTE AO VENCEDOR! 🌾', W / 2, 1680);
 
     return canvas.toDataURL('image/png');
   };
@@ -314,7 +308,15 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
       return;
     }
     setSending(true);
-    const congratsMessage = `🎉 *PARABÉNS ${(winner.name || 'PARTICIPANTE').toUpperCase()}!* 🎉\n\nVocê foi o(a) grande vencedor(a) do nosso sorteio e ganhou:\n\n🏆 *${prize}* 🏆\n\nSua sorte chegou! Entre em contato conosco para retirar seu prêmio.\n\n✨ *AVL Telecom* agradece a sua participação! ✨`;
+    const congratsMessage = `🎉 *PARABÉNS ${(winner.name || 'PARTICIPANTE').toUpperCase()}!* 🎉\n\n` +
+      `Você foi o(a) grande vencedor(a) do sorteio *Pre-Mix* e ganhou:\n\n` +
+      `🏆 *${prize}* 🏆\n\n` +
+      `⚠️ *REGRAS IMPORTANTES PARA RESGATE:*\n` +
+      `1️⃣ Você tem *5 dias corridos* a partir de hoje para fazer o resgate do seu prêmio.\n` +
+      `2️⃣ É necessário ter o *App AVL* instalado no seu celular.\n` +
+      `3️⃣ As informações cadastradas no app devem coincidir com as do vencedor.\n\n` +
+      `Entre em contato conosco para realizar o resgate do seu prêmio!\n\n` +
+      `✨ *Equipe Pre-Mix* agradece a sua participação! ✨`;
     try {
       const dataUrl = await generateCardImage();
       if (!dataUrl) throw new Error('Erro ao gerar o card');
@@ -341,14 +343,9 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 flex items-center justify-center z-50 p-4"
-        style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(12px)' }}
+        style={{ background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)' }}
         onClick={onClose}
       >
-        {/* Confetti */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {Array.from({ length: 40 }).map((_, i) => <ConfettiParticle key={i} index={i} />)}
-        </div>
-
         <motion.div
           initial={{ scale: 0.7, y: 60, opacity: 0 }}
           animate={{ scale: 1, y: 0, opacity: 1 }}
@@ -369,67 +366,44 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
           <div
             className="relative rounded-3xl overflow-hidden shadow-2xl"
             style={{
-              background: 'linear-gradient(135deg, #0D0618 0%, #1A0533 40%, #120826 70%, #06030E 100%)',
+              background: 'linear-gradient(135deg, #020604 0%, #06150F 50%, #010403 100%)',
               border: '2px solid transparent',
               backgroundClip: 'padding-box',
             }}
           >
-            {/* Golden border via box-shadow */}
+            {/* Minimalist border via box-shadow */}
             <div className="absolute inset-0 rounded-3xl pointer-events-none" style={{
-              boxShadow: 'inset 0 0 0 2px rgba(255,215,0,0.6), 0 0 60px rgba(168,85,247,0.4), 0 0 100px rgba(168,85,247,0.2)',
+              boxShadow: 'inset 0 0 0 2px rgba(16,185,129,0.4), 0 0 40px rgba(16,185,129,0.1)',
             }} />
 
-            {/* Stars background */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              {Array.from({ length: 60 }).map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="absolute rounded-full bg-white"
-                  style={{
-                    width: Math.random() * 2 + 1,
-                    height: Math.random() * 2 + 1,
-                    left: `${Math.random() * 100}%`,
-                    top: `${Math.random() * 100}%`,
-                    opacity: Math.random() * 0.6 + 0.1,
-                  }}
-                  animate={{ opacity: [0.1, 0.8, 0.1] }}
-                  transition={{ duration: Math.random() * 3 + 1.5, repeat: Infinity, delay: Math.random() * 2 }}
-                />
-              ))}
-            </div>
-
             <div className="relative z-10 flex flex-col items-center p-6 pb-8 text-center">
-              {/* Brand */}
-              <motion.p
+              {/* Brand Logo */}
+              <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="text-xs font-bold tracking-[0.3em] uppercase mb-1"
-                style={{ color: 'rgba(255,215,0,0.6)' }}
+                className="mb-2 mt-1 flex justify-center"
               >
-                AVL Telecom
-              </motion.p>
+                <img 
+                  src={PREMIX_LOGO_URL} 
+                  alt="Logo Pre-Mix" 
+                  className="h-12 object-contain rounded-lg border border-emerald-500/20 bg-white/5 p-1 shadow-md"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </motion.div>
 
               {/* Divider */}
-              <div className="w-full h-px mb-4" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,215,0,0.5), transparent)' }} />
-
-              {/* Trophy */}
-              <motion.div
-                initial={{ scale: 0, rotate: -30 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: 'spring', stiffness: 200, damping: 12, delay: 0.2 }}
-                className="text-5xl mb-1"
-              >
-                🏆
-              </motion.div>
+              <div className="w-full h-px mb-6" style={{ background: 'linear-gradient(90deg, transparent, rgba(16,185,129,0.3), transparent)' }} />
 
               {/* Title */}
               <motion.h2
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.35 }}
-                className="text-xl font-black tracking-widest mb-5"
-                style={{ color: '#FFD700', textShadow: '0 0 20px rgba(255,215,0,0.6)' }}
+                className="text-2xl font-black tracking-widest mb-6"
+                style={{ color: '#10B981', textShadow: '0 0 15px rgba(16,185,129,0.3)' }}
               >
                 GRANDE VENCEDOR
               </motion.h2>
@@ -439,34 +413,26 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.5 }}
-                className="relative mb-5"
+                className="relative mb-6"
               >
                 {/* Glow ring */}
                 <div className="absolute inset-0 rounded-full" style={{
-                  boxShadow: '0 0 0 4px #FFD700, 0 0 30px rgba(255,215,0,0.5), 0 0 60px rgba(168,85,247,0.3)',
+                  boxShadow: '0 0 0 4px #10B981, 0 0 20px rgba(16,185,129,0.2)',
                   borderRadius: '50%',
                 }} />
-                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-yellow-400 relative">
+                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-emerald-500 relative">
                   {isFetchingProfilePic ? (
-                    <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6D28D9, #2D1B69)' }}>
-                      <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
+                    <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #1E3A2F, #061C12)' }}>
+                      <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
                     </div>
                   ) : effectiveAvatar ? (
                     <img src={effectiveAvatar} alt={winner.name || 'Vencedor'} className="w-full h-full object-cover" crossOrigin="anonymous" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-4xl font-black text-white" style={{ background: 'linear-gradient(135deg, #6D28D9, #2D1B69)' }}>
+                    <div className="w-full h-full flex items-center justify-center text-4xl font-black text-white" style={{ background: 'linear-gradient(135deg, #1E3A2F, #061C12)' }}>
                       {(winner.name || 'V').charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
-                {/* Spinning star */}
-                <motion.div
-                  className="absolute -top-1 -right-1 text-2xl"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-                >
-                  ⭐
-                </motion.div>
               </motion.div>
 
               {/* Winner name */}
@@ -475,7 +441,6 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.7 }}
                 className="text-2xl font-black text-white mb-1 leading-tight"
-                style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
               >
                 {winner.name || 'Participante VIP'}
               </motion.h3>
@@ -495,19 +460,45 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.9 }}
-                className="w-full rounded-2xl p-4 mb-6"
+                className="w-full rounded-2xl p-4 mb-4"
                 style={{
-                  background: 'rgba(255,215,0,0.07)',
-                  border: '1.5px solid rgba(255,215,0,0.35)',
-                  boxShadow: '0 0 20px rgba(255,215,0,0.1) inset',
+                  background: 'rgba(16,185,129,0.06)',
+                  border: '1.5px solid rgba(16,185,129,0.4)',
+                  boxShadow: '0 0 15px rgba(16,185,129,0.05) inset',
                 }}
               >
-                <p className="text-xs font-semibold tracking-widest uppercase mb-1" style={{ color: 'rgba(255,215,0,0.6)' }}>
+                <p className="text-xs font-semibold tracking-widest uppercase mb-1" style={{ color: '#10B981' }}>
                   🎁 Prêmio
                 </p>
-                <p className="text-xl font-black" style={{ color: '#FFD700', textShadow: '0 0 15px rgba(255,215,0,0.5)' }}>
+                <p className="text-xl font-black text-white">
                   {prize}
                 </p>
+              </motion.div>
+
+              {/* Rules box */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 1.0 }}
+                className="w-full text-left bg-[#030E0A] border border-emerald-500/20 rounded-2xl p-4 mb-5 text-xs space-y-2"
+              >
+                <div className="flex items-center gap-1.5 text-emerald-400 font-black uppercase tracking-wider text-[10px]">
+                  Regras de Resgate do Prêmio
+                </div>
+                <ul className="space-y-1.5 text-gray-300">
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    <span>Prazo de <strong className="text-white font-semibold">5 dias corridos</strong> para fazer o resgate.</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    <span>Deve ter o <strong className="text-white font-semibold">App AVL instalado</strong> no celular.</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    <span>Dados cadastrados devem <strong className="text-white font-semibold">coincidir com o vencedor</strong>.</span>
+                  </li>
+                </ul>
               </motion.div>
 
               {/* Actions */}
@@ -521,8 +512,8 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                   onClick={downloadCard}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
                   style={{
-                    background: 'rgba(255,255,255,0.1)',
-                    border: '1.5px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1.5px solid rgba(255,255,255,0.15)',
                     color: 'white',
                   }}
                 >
@@ -534,10 +525,10 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                   disabled={!winner.phone || sending}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
                   style={{
-                    background: sending ? 'rgba(34,197,94,0.5)' : 'linear-gradient(135deg, #16A34A, #15803D)',
-                    border: '1.5px solid rgba(34,197,94,0.4)',
+                    background: sending ? 'rgba(16,185,129,0.5)' : '#10B981',
+                    border: '1.5px solid rgba(16,185,129,0.3)',
                     color: 'white',
-                    boxShadow: '0 4px 15px rgba(34,197,94,0.3)',
+                    boxShadow: '0 4px 15px rgba(16,185,129,0.2)',
                   }}
                 >
                   {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}

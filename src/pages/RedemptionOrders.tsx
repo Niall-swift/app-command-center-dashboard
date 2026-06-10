@@ -14,7 +14,8 @@ import {
   Calendar,
   CreditCard,
   Gift,
-  Trophy
+  Trophy,
+  Trash2
 } from 'lucide-react';
 import {
   Dialog,
@@ -31,6 +32,10 @@ import { RedeemedReward } from '@/types/rewards';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { preMixService, Winner } from '@/services/preMixService';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/config/firebase';
+import { whapiService } from '@/services/whapi/whapiService';
+import { generateReceiptImage } from '@/utils/generateReceiptImage';
 
 export default function RedemptionOrders() {
   const { toast } = useToast();
@@ -52,7 +57,28 @@ export default function RedemptionOrders() {
       setRedemptions(data);
       
       const winnersData = await preMixService.getWinners();
-      setWinners(winnersData);
+      
+      // Busca usuários do Pre-Mix para enriquecer telefones de ganhadores antigos
+      const querySnapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
+      const usersMap = new Map();
+      querySnapshot.forEach(doc => {
+        const userData = doc.data();
+        const cpf = userData.cpf || userData.CPF || '';
+        const phone = userData.whatsapp || userData.telefone || userData.celular || '';
+        if (cpf) {
+          usersMap.set(cpf.replace(/\D/g, ''), phone);
+        }
+      });
+
+      const enrichedWinners = winnersData.map(w => {
+        if (!w.phone && w.cpf) {
+          const cleanCpf = w.cpf.replace(/\D/g, '');
+          w.phone = usersMap.get(cleanCpf) || '';
+        }
+        return w;
+      });
+
+      setWinners(enrichedWinners);
     } catch (error) {
       toast({
         title: 'Erro ao carregar',
@@ -65,18 +91,90 @@ export default function RedemptionOrders() {
   };
 
   const handleWinnerRedeem = async (id: string) => {
+    if (!selectedWinner) return;
     try {
       await preMixService.markAsRedeemed(id);
       toast({
         title: 'Prêmio Entregue!',
-        description: 'O vencedor foi marcado como resgatado com sucesso.',
+        description: 'O vencedor foi marcado como resgatado no banco de dados.',
+      });
+      setIsWinnerDialogOpen(false);
+
+      // Envio automático do comprovante de entrega via WhatsApp
+      const rawPhone = selectedWinner.phone || '';
+      const cleanPhone = rawPhone.replace(/\D/g, '');
+      if (cleanPhone) {
+        toast({
+          title: 'Gerando Comprovante...',
+          description: 'Aguarde o envio do comprovante digital para o WhatsApp do cliente.',
+        });
+
+        try {
+          const receiptDataUrl = await generateReceiptImage({
+            winnerName: selectedWinner.name,
+            prize: selectedWinner.prize,
+            rescueCode: selectedWinner.rescueCode
+          });
+
+          if (receiptDataUrl) {
+            const message = `✅ *PRÊMIO ENTREGUE COM SUCESSO!* 🏆\n\n` +
+              `Olá, *${selectedWinner.name}*!\n\n` +
+              `Confirmamos que o seu prêmio do sorteio *Pre-Mix* foi entregue:\n\n` +
+              `🎁 *${selectedWinner.prize}*\n` +
+              `🔑 Código de Resgate: *${selectedWinner.rescueCode}*\n\n` +
+              `Obrigado por utilizar o *App AVL* e participar do nosso sorteio! ✨`;
+
+            await whapiService.sendImage({
+              to: cleanPhone,
+              imageDataUrl: receiptDataUrl,
+              caption: message
+            });
+
+            toast({
+              title: 'Comprovante Enviado!',
+              description: `Enviado com sucesso para o número ${selectedWinner.phone}`,
+            });
+          }
+        } catch (err) {
+          console.error("Erro ao enviar comprovante automático:", err);
+          toast({
+            title: 'Erro ao Enviar Comprovante',
+            description: 'Não foi possível enviar o recibo pelo WhatsApp automaticamente.',
+            variant: 'destructive'
+          });
+        }
+      } else {
+        toast({
+          title: 'Aviso',
+          description: 'Ganhador não possui telefone cadastrado para envio automático do recibo.',
+          variant: 'destructive'
+        });
+      }
+
+      fetchRedemptions();
+    } catch (error) {
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível atualizar o status do vencedor.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleWinnerDelete = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja excluir este vencedor do sorteio?")) return;
+    try {
+      await preMixService.deleteWinner(id);
+      toast({
+        title: 'Vencedor Excluído!',
+        description: 'O registro do vencedor foi removido com sucesso.',
       });
       setIsWinnerDialogOpen(false);
       fetchRedemptions();
     } catch (error) {
       toast({
         title: 'Erro',
-        description: 'Não foi possível atualizar o status do vencedor.',
+        description: 'Não foi possível excluir o vencedor.',
         variant: 'destructive',
       });
     }
@@ -281,13 +379,26 @@ export default function RedemptionOrders() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <Badge variant={winner.redeemed ? "outline" : "default"} className={winner.redeemed ? "bg-green-100 text-green-800" : "bg-purple-600"}>
-                            {winner.redeemed ? 'Resgatado' : 'Aguardando Resgate'}
-                          </Badge>
-                          <p className="text-xs text-gray-500 flex items-center gap-1">
-                            <Clock size={10} /> {formatDate(winner.createdAt)}
-                          </p>
+                        <div className="flex items-center gap-3">
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge variant={winner.redeemed ? "outline" : "default"} className={winner.redeemed ? "bg-green-100 text-green-800" : "bg-purple-600"}>
+                              {winner.redeemed ? 'Resgatado' : 'Aguardando Resgate'}
+                            </Badge>
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              <Clock size={10} /> {formatDate(winner.createdAt)}
+                            </p>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleWinnerDelete(winner.id);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -431,20 +542,31 @@ export default function RedemptionOrders() {
                   </div>
                 </div>
 
-                <DialogFooter className="flex gap-2 sm:justify-center mt-2">
-                  <Button variant="outline" onClick={() => setIsWinnerDialogOpen(false)}>
-                    Voltar
+                <DialogFooter className="flex gap-2 sm:justify-between items-center mt-2 w-full">
+                  <Button 
+                    variant="destructive" 
+                    onClick={() => handleWinnerDelete(selectedWinner.id)}
+                    className="flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Excluir Registro
                   </Button>
                   
-                  {!selectedWinner.redeemed && (
-                    <Button 
-                      className="bg-green-600 hover:bg-green-700 flex-1" 
-                      onClick={() => handleWinnerRedeem(selectedWinner.id)}
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Entregar Prêmio
+                  <div className="flex gap-2 justify-end flex-1">
+                    <Button variant="outline" onClick={() => setIsWinnerDialogOpen(false)}>
+                      Voltar
                     </Button>
-                  )}
+                    
+                    {!selectedWinner.redeemed && (
+                      <Button 
+                        className="bg-green-600 hover:bg-green-700 flex-1" 
+                        onClick={() => handleWinnerRedeem(selectedWinner.id)}
+                      >
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        Entregar Prêmio
+                      </Button>
+                    )}
+                  </div>
                 </DialogFooter>
               </div>
             )}

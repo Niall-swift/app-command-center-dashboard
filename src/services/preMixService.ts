@@ -16,6 +16,7 @@ export interface Winner {
   id: string;
   cpf: string;
   name: string;
+  phone?: string;
   prize: string;
   rescueCode: string;
   redeemed: boolean;
@@ -79,6 +80,16 @@ export const preMixService = {
       });
     } catch (error) {
       console.error('Error marking as redeemed:', error);
+      throw error;
+    }
+  },
+
+  // Excluir um vencedor
+  deleteWinner: async (id: string): Promise<void> => {
+    try {
+      await deleteDoc(doc(db, 'winners', id));
+    } catch (error) {
+      console.error('Error deleting winner:', error);
       throw error;
     }
   },

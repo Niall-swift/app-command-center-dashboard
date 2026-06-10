@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Gift, Trophy, Sparkles, Send, CheckCircle, AlertCircle, Clock, Plus, Trash2, Calendar, DollarSign } from 'lucide-react';
+import { Gift, Trophy, Sparkles, Send, CheckCircle, AlertCircle, Clock, Plus, Trash2, Calendar, DollarSign, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Dialog,
@@ -33,7 +33,7 @@ import { useToast } from '@/hooks/use-toast';
 import { whapiService } from '@/services/whapi/whapiService';
 import { fillTemplate, getTemplateForGroup } from '@/services/whapi/messageTemplates';
 import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
-import { preMixService, Raffle as RaffleType } from '@/services/preMixService';
+import { preMixService, Raffle as RaffleType, Winner } from '@/services/preMixService';
 
 const prizes = [
   "cafeteira eletrica ",
@@ -81,6 +81,18 @@ export default function Raffle() {
   const [newRaffle, setNewRaffle] = useState({ title: '', status: 'SORTEIO ATIVO', value: 'Grátis para Membros', date: '', icon: 'gift' });
   const [isAddingRaffle, setIsAddingRaffle] = useState(false);
 
+  // Controle de Acesso Seguro (Senha 150820)
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('raffle_secured_auth') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isShaking, setIsShaking] = useState(false);
+
+  // Controle de Ganhadores Repetidos
+  const [pastWinners, setPastWinners] = useState<Winner[]>([]);
+  const [excludePastWinners, setExcludePastWinners] = useState(true);
+
   // Estados para envio WhatsApp
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
@@ -118,7 +130,17 @@ export default function Raffle() {
       }
     };
 
+    const fetchWinners = async () => {
+      try {
+        const winnersData = await preMixService.getWinners();
+        setPastWinners(winnersData);
+      } catch (error) {
+        console.error('Erro ao buscar vencedores do Firestore:', error);
+      }
+    };
+
     fetchClients();
+    fetchWinners();
 
     // Listener para sorteios dinâmicos
     const q = query(collection(db, 'sorteiosPreMix'), orderBy('createdAt', 'desc'));
@@ -162,6 +184,30 @@ export default function Raffle() {
     }
   };
 
+  const hasWonRecently = (clientCpf: string, clientName: string) => {
+    const cleanCpf = clientCpf?.replace(/\D/g, '');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    return pastWinners.some(winner => {
+      const isSameCpf = cleanCpf && winner.cpf && cleanCpf === winner.cpf.replace(/\D/g, '');
+      const isSameName = !cleanCpf && winner.name?.toLowerCase().trim() === clientName?.toLowerCase().trim();
+      
+      if (isSameCpf || isSameName) {
+        const wonDate = winner.createdAt?.toDate ? winner.createdAt.toDate() : new Date(winner.createdAt);
+        return wonDate >= thirtyDaysAgo;
+      }
+      return false;
+    });
+  };
+
+  const eligibleClients = usersPremix.filter(client => {
+    if (excludePastWinners) {
+      return !hasWonRecently(client.cpf, client.name);
+    }
+    return true;
+  });
+
   const handleClientToggle = (client: Client) => {
     setSelectedClients(prev => {
       const isSelected = prev.some(c => c.id === client.id);
@@ -174,7 +220,7 @@ export default function Raffle() {
   };
 
   const handleSelectAll = () => {
-    setSelectedClients(usersPremix);
+    setSelectedClients(eligibleClients);
   };
 
   const handleDeselectAll = () => {
@@ -222,10 +268,29 @@ export default function Raffle() {
         await preMixService.saveWinner({
           cpf: winnerClient.cpf,
           name: winnerClient.name,
+          phone: winnerClient.phone || '',
           prize: selectedPrize,
           rescueCode: rescueCode
         });
         toast({ title: 'Vencedor Registrado!', description: `Código de resgate: ${rescueCode}` });
+        
+        // Adiciona à lista local para filtrar imediatamente
+        setPastWinners(prev => [
+          {
+            id: '',
+            cpf: winnerClient.cpf,
+            name: winnerClient.name,
+            phone: winnerClient.phone || '',
+            prize: selectedPrize,
+            rescueCode: rescueCode,
+            redeemed: false,
+            createdAt: new Date()
+          },
+          ...prev
+        ]);
+        
+        // Remove do grupo selecionado
+        setSelectedClients(prev => prev.filter(c => c.id !== winnerClient.id));
       } catch (error) {
         toast({ title: 'Erro ao Registrar', variant: 'destructive' });
       }
@@ -289,6 +354,115 @@ export default function Raffle() {
     }
   };
 
+  const handleVerifyPassword = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    
+    // Ofuscação simples usando Base64. A senha correta é "150820"
+    if (btoa(passwordInput) === "MTUwODIw") {
+      sessionStorage.setItem('raffle_secured_auth', 'true');
+      setIsAuthenticated(true);
+      setPasswordError('');
+      toast({
+        title: 'Acesso Autorizado',
+        description: 'Bem-vindo ao Command Center de Sorteios Pre-Mix.',
+      });
+    } else {
+      setIsShaking(true);
+      setPasswordError('Senha incorreta! Acesso negado.');
+      setPasswordInput('');
+      setTimeout(() => setIsShaking(false), 500);
+      toast({
+        title: 'Erro de Acesso',
+        description: 'Senha de 6 dígitos inválida.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <PageTransition>
+        <div className="min-h-[70vh] flex items-center justify-center p-4">
+          <motion.div
+            animate={isShaking ? { x: [-10, 10, -10, 10, 0] } : {}}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md bg-gradient-to-b from-[#080A09] to-[#010201] border-2 border-emerald-500/30 rounded-3xl p-8 text-center shadow-2xl relative"
+          >
+            {/* Glowing lock badge */}
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-6 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+              <Lock className="w-8 h-8 text-emerald-500 animate-pulse" />
+            </div>
+
+            <h2 className="text-2xl font-black text-white tracking-wider mb-2">
+              ACESSO RESTRITO
+            </h2>
+            <p className="text-sm text-gray-400 mb-8 max-w-xs mx-auto">
+              Digite a senha de 6 dígitos para acessar a Central de Sorteios Pre-Mix.
+            </p>
+
+            <form onSubmit={handleVerifyPassword} className="space-y-6">
+              <div className="relative">
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={passwordInput}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setPasswordInput(val);
+                    if (val.length === 6) {
+                      setTimeout(() => {
+                        if (btoa(val) === "MTUwODIw") {
+                          sessionStorage.setItem('raffle_secured_auth', 'true');
+                          setIsAuthenticated(true);
+                          setPasswordError('');
+                          toast({
+                            title: 'Acesso Autorizado',
+                            description: 'Bem-vindo ao Command Center de Sorteios Pre-Mix.',
+                          });
+                        } else {
+                          setIsShaking(true);
+                          setPasswordError('Senha incorreta! Acesso negado.');
+                          setPasswordInput('');
+                          setTimeout(() => setIsShaking(false), 500);
+                          toast({
+                            title: 'Erro de Acesso',
+                            description: 'Senha de 6 dígitos inválida.',
+                            variant: 'destructive',
+                          });
+                        }
+                      }, 200);
+                    }
+                  }}
+                  placeholder="••••••"
+                  className="w-full bg-black/60 border-2 border-emerald-500/20 focus:border-emerald-500 text-center text-3xl tracking-[0.5em] font-bold py-4 rounded-2xl text-white placeholder-gray-700 focus:outline-none transition-all focus:shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+                  autoFocus
+                />
+              </div>
+
+              {passwordError && (
+                <motion.p 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-xs font-bold text-red-500 uppercase tracking-wider"
+                >
+                  {passwordError}
+                </motion.p>
+              )}
+
+              <Button
+                type="submit"
+                disabled={passwordInput.length !== 6}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-12 rounded-xl transition-all shadow-[0_4px_15px_rgba(16,185,129,0.2)] disabled:opacity-50"
+              >
+                AUTENTICAR ACESSO
+              </Button>
+            </form>
+          </motion.div>
+        </div>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <Tabs defaultValue="raffle" className="w-full">
@@ -336,8 +510,26 @@ export default function Raffle() {
                 </CardContent>
               </Card>
 
+              <div className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 mb-3 shadow-sm">
+                <input 
+                  type="checkbox" 
+                  id="exclude-past-winners"
+                  checked={excludePastWinners} 
+                  onChange={(e) => {
+                    setExcludePastWinners(e.target.checked);
+                    if (e.target.checked) {
+                      setSelectedClients(prev => prev.filter(c => !hasWonRecently(c.cpf, c.name)));
+                    }
+                  }} 
+                  className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
+                />
+                <label htmlFor="exclude-past-winners" className="text-sm font-semibold text-gray-700 cursor-pointer select-none">
+                  🚫 Excluir ganhadores dos últimos 30 dias
+                </label>
+              </div>
+
               <ClientList
-                clients={usersPremix}
+                clients={eligibleClients}
                 selectedClients={selectedClients}
                 onClientToggle={handleClientToggle}
                 onSelectAll={handleSelectAll}
