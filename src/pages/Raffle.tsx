@@ -27,7 +27,7 @@ import ClientList from '@/components/raffle/ClientList';
 import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
-import { collection, getDocs, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, setDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { whapiService } from '@/services/whapi/whapiService';
@@ -100,6 +100,18 @@ export default function Raffle() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string>('');
 
+  // Estados da Roleta da Sorte
+  const [rouletteActive, setRouletteActive] = useState(false);
+  const [rouletteItems, setRouletteItems] = useState<any[]>([]);
+  const [rouletteWins, setRouletteWins] = useState<any[]>([]);
+  const [newRouletteItem, setNewRouletteItem] = useState({
+    name: '',
+    quantity: 10,
+    probability: 10,
+    color: '#4338FF',
+    icon: 'gift-outline'
+  });
+
   useEffect(() => {
     const fetchClients = async () => {
       try {
@@ -142,14 +154,47 @@ export default function Raffle() {
     fetchClients();
     fetchWinners();
 
-    // Listener para sorteios dinâmicos
+     // Listener para sorteios dinâmicos
     const q = query(collection(db, 'sorteiosPreMix'), orderBy('createdAt', 'desc'));
     const unsubscribeRaffles = onSnapshot(q, (snapshot) => {
       const raffles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RaffleType));
       setDynamicRaffles(raffles);
     });
 
-    return () => unsubscribeRaffles();
+    // Listeners da Roleta da Sorte
+    const unsubscribeRouletteConfig = onSnapshot(doc(db, 'configs', 'pre_mix_roulette'), (docSnap) => {
+      if (docSnap.exists()) {
+        setRouletteActive(docSnap.data().active || false);
+      } else {
+        setRouletteActive(false);
+      }
+    });
+
+    const qItems = query(collection(db, 'pre_mix_roulette_items'), orderBy('name', 'asc'));
+    const unsubscribeRouletteItems = onSnapshot(qItems, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setRouletteItems(items);
+    });
+
+    const qWins = query(collection(db, 'pre_mix_roulette_wins'), orderBy('createdAt', 'desc'));
+    const unsubscribeRouletteWins = onSnapshot(qWins, (snapshot) => {
+      const wins = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt
+        };
+      });
+      setRouletteWins(wins);
+    });
+
+    return () => {
+      unsubscribeRaffles();
+      unsubscribeRouletteConfig();
+      unsubscribeRouletteItems();
+      unsubscribeRouletteWins();
+    };
   }, []);
 
   const handleAddRaffle = async () => {
@@ -181,6 +226,87 @@ export default function Raffle() {
       toast({ title: "Sucesso", description: "Sorteio removido." });
     } catch (error) {
       toast({ title: "Erro", description: "Erro ao remover sorteio.", variant: "destructive" });
+    }
+  };
+
+  // Funções controladoras da Roleta da Sorte (Admin)
+  const handleToggleRoulette = async (activeState: boolean) => {
+    try {
+      await setDoc(doc(db, 'configs', 'pre_mix_roulette'), { active: activeState }, { merge: true });
+      toast({ 
+        title: activeState ? "Roleta Ativada" : "Roleta Desativada", 
+        description: activeState ? "Os clientes verão a roleta no aplicativo móvel." : "O aplicativo voltou a exibir o formulário padrão." 
+      });
+    } catch (err) {
+      toast({ title: "Erro", description: "Não foi possível atualizar o estado da roleta.", variant: "destructive" });
+    }
+  };
+
+  const handleAddRouletteItem = async () => {
+    if (!newRouletteItem.name || newRouletteItem.probability <= 0) {
+      toast({ title: "Erro", description: "Nome e peso de probabilidade são obrigatórios.", variant: "destructive" });
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'pre_mix_roulette_items'), {
+        name: newRouletteItem.name,
+        quantity: Number(newRouletteItem.quantity),
+        probability: Number(newRouletteItem.probability),
+        color: newRouletteItem.color,
+        icon: newRouletteItem.icon,
+        createdAt: serverTimestamp()
+      });
+      toast({ title: "Sucesso", description: "Item adicionado à roleta com sucesso!" });
+      setNewRouletteItem({ name: '', quantity: 10, probability: 10, color: '#4338FF', icon: 'gift-outline' });
+    } catch (err) {
+      toast({ title: "Erro", description: "Erro ao adicionar item à roleta.", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteRouletteItem = async (itemId: string) => {
+    try {
+      await deleteDoc(doc(db, 'pre_mix_roulette_items', itemId));
+      toast({ title: "Sucesso", description: "Item removido da roleta." });
+    } catch (err) {
+      toast({ title: "Erro", description: "Erro ao deletar item.", variant: "destructive" });
+    }
+  };
+
+  const handleUpdateStock = async (itemId: string, newStock: number) => {
+    try {
+      await updateDoc(doc(db, 'pre_mix_roulette_items', itemId), { quantity: Number(newStock) });
+      toast({ title: "Estoque Atualizado", description: "Estoque alterado com sucesso." });
+    } catch (err) {
+      toast({ title: "Erro", description: "Erro ao atualizar estoque.", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteRouletteWin = async (cpfRaw: string) => {
+    if (!window.confirm("Tem certeza que deseja remover este ganhador e permitir que ele gire a roleta novamente no aplicativo?")) {
+      return;
+    }
+    try {
+      // 1. Deletar log de vitória da roleta
+      await deleteDoc(doc(db, 'pre_mix_roulette_wins', cpfRaw));
+      
+      // 2. Localizar usuário no usuáriosDoPreMix e resetar o status do giro
+      const qUser = query(collection(db, 'usuariosDoPreMix'), where('cpfRaw', '==', cpfRaw));
+      const querySnapshot = await getDocs(qUser);
+      if (!querySnapshot.empty) {
+        const userDocRef = querySnapshot.docs[0].ref;
+        await updateDoc(userDocRef, {
+          hasSpun: false,
+          wonPrizeId: null,
+          wonPrizeName: null,
+          wonPrizeRescueCode: null,
+          spunAt: null
+        });
+      }
+      
+      toast({ title: "Ganhador Resetado", description: "O prêmio foi removido e o giro do cliente foi reativado com sucesso." });
+    } catch (err) {
+      console.error("Erro ao deletar vitória da roleta:", err);
+      toast({ title: "Erro", description: "Não foi possível resetar o ganhador da roleta.", variant: "destructive" });
     }
   };
 
@@ -470,6 +596,7 @@ export default function Raffle() {
           <TabsList className="bg-purple-100 p-1">
             <TabsTrigger value="raffle" className="data-[state=active]:bg-white">Realizar Sorteio</TabsTrigger>
             <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gerenciar Prêmios</TabsTrigger>
+            <TabsTrigger value="roulette" className="data-[state=active]:bg-white">Roleta da Sorte</TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-3">
              <Trophy className="w-6 h-6 text-yellow-500" />
@@ -644,6 +771,212 @@ export default function Raffle() {
                 </div>
               </CardContent>
             </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="roulette" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Configuração Master e Formulário */}
+            <div className="space-y-6 md:col-span-1">
+              
+              {/* Card Master Switch */}
+              <Card className="border-purple-200">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2 text-purple-700">
+                    <Sparkles className="w-5 h-5 animate-pulse" /> Status da Roleta
+                  </CardTitle>
+                  <CardDescription>
+                    Ative ou desative o modo Roleta no aplicativo móvel em tempo real.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col items-center justify-center py-6 gap-4">
+                  <div className="text-center">
+                    <Badge className={rouletteActive ? "bg-green-500 hover:bg-green-600 text-lg px-4 py-2" : "bg-gray-400 text-lg px-4 py-2"}>
+                      {rouletteActive ? "🟢 ATIVA NO APLICATIVO" : "🔴 DESATIVADA"}
+                    </Badge>
+                    <p className="text-xs text-gray-500 mt-3">
+                      {rouletteActive 
+                        ? "Os clientes cadastrados verão a Roleta da Sorte em vez da tela de confirmação clássica." 
+                        : "Os clientes verão a tela padrão do Pré-Mix (cadastro/confirmação)."}
+                    </p>
+                  </div>
+                  <Button 
+                    className={`w-full font-bold h-12 rounded-xl mt-2 transition-all ${
+                      rouletteActive 
+                        ? "bg-red-600 hover:bg-red-700 text-white" 
+                        : "bg-green-600 hover:bg-green-700 text-white"
+                    }`}
+                    onClick={() => handleToggleRoulette(!rouletteActive)}
+                  >
+                    {rouletteActive ? "Desativar Roleta da Sorte" : "Ativar Roleta da Sorte"}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Formulário de Adicionar Item */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Cadastrar Item da Roleta</CardTitle>
+                  <CardDescription>Defina os prêmios que estarão nas fatias da roleta.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Nome do Prêmio</Label>
+                    <Input 
+                      placeholder="Ex: Pix R$ 50,00" 
+                      value={newRouletteItem.name} 
+                      onChange={(e) => setNewRouletteItem({...newRouletteItem, name: e.target.value})} 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Estoque Inicial</Label>
+                      <Input 
+                        type="number" 
+                        placeholder="Ex: 5 (-1 p/ ilimitado)" 
+                        value={newRouletteItem.quantity} 
+                        onChange={(e) => setNewRouletteItem({...newRouletteItem, quantity: Number(e.target.value)})} 
+                      />
+                      <p className="text-[10px] text-gray-400">Use -1 para 'Tente Novamente'</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Probabilidade (Peso)</Label>
+                      <Input 
+                        type="number" 
+                        placeholder="Ex: 10" 
+                        value={newRouletteItem.probability} 
+                        onChange={(e) => setNewRouletteItem({...newRouletteItem, probability: Number(e.target.value)})} 
+                      />
+                      <p className="text-[10px] text-gray-400">Peso maior = mais sorteado</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Cor da Fatia (Hex)</Label>
+                      <Input 
+                        placeholder="Ex: #4338FF" 
+                        value={newRouletteItem.color} 
+                        onChange={(e) => setNewRouletteItem({...newRouletteItem, color: e.target.value})} 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ícone (Ionicon)</Label>
+                      <Input 
+                        placeholder="Ex: gift-outline" 
+                        value={newRouletteItem.icon} 
+                        onChange={(e) => setNewRouletteItem({...newRouletteItem, icon: e.target.value})} 
+                      />
+                    </div>
+                  </div>
+                  <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={handleAddRouletteItem}>
+                    <Plus className="w-4 h-4 mr-2" /> Cadastrar na Roleta
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Listagem de Itens e Estoque */}
+            <div className="space-y-6 md:col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Itens Ativos na Roleta ({rouletteItems.length})</CardTitle>
+                  <CardDescription>Estes são os prêmios em estoque que compõem o círculo da roleta.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {rouletteItems.length === 0 && (
+                      <p className="text-center text-gray-400 py-10 italic">Nenhum item cadastrado. A roleta precisa de pelo menos 2 itens para rodar.</p>
+                    )}
+                    {rouletteItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-4 border rounded-xl hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold" 
+                            style={{ backgroundColor: item.color || "#4338FF" }}
+                          >
+                            <Gift className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-gray-900">{item.name}</h4>
+                            <div className="flex gap-4 text-xs text-gray-500 mt-1">
+                              <span>Probabilidade: <strong className="text-purple-600 font-black">{item.probability}</strong></span>
+                              <span>Cor: <span className="font-mono">{item.color}</span></span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-gray-500">Estoque:</Label>
+                            <input
+                              type="number"
+                              defaultValue={item.quantity}
+                              onBlur={(e) => handleUpdateStock(item.id, Number(e.target.value))}
+                              className="w-16 p-1 border rounded text-center text-sm font-semibold bg-white"
+                            />
+                          </div>
+
+                          <Badge variant={item.quantity === 0 ? "destructive" : item.quantity === -1 ? "secondary" : "default"}>
+                            {item.quantity === -1 ? "Infinito" : item.quantity === 0 ? "Esgotado" : `${item.quantity} restando`}
+                          </Badge>
+
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => handleDeleteRouletteItem(item.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Registro de Ganhadores da Roleta */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Ganhadores da Roleta (Tempo Real)</CardTitle>
+                  <CardDescription>Lista dos clientes que rodaram a roleta e ganharam prêmios.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="max-h-[300px] overflow-y-auto space-y-3">
+                    {rouletteWins.length === 0 && (
+                      <p className="text-center text-gray-400 py-10 italic">Nenhum cliente ganhou na roleta ainda.</p>
+                    )}
+                    {rouletteWins.map((win) => (
+                      <div key={win.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50/50">
+                        <div>
+                          <h4 className="font-bold text-gray-900">{win.userName}</h4>
+                          <p className="text-xs text-gray-500">CPF: {win.userCpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            {win.createdAt ? new Date(win.createdAt).toLocaleString("pt-BR") : "Data não registrada"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right mr-1">
+                            <Badge className="bg-emerald-500 text-white font-bold">{win.prizeName}</Badge>
+                            <p className="text-xs font-mono font-bold text-purple-700 mt-1">Cód: {win.rescueCode}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8"
+                            onClick={() => handleDeleteRouletteWin(win.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
           </div>
         </TabsContent>
       </Tabs>
