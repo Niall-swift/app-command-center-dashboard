@@ -18,11 +18,13 @@ export const premixWelcomeTemplate: MessageTemplate = {
 
 {Seja bem-vindo|Bem-vindo|É um prazer ter você} ao *Pre-Mix*! {🎊|🎁|🌟}
 
-{Estamos muito felizes|Ficamos felizes|Que bom} em ter você {conosco|com a gente|participando}!
+{Seu cadastro foi realizado com sucesso|Você já está cadastrado}! {🚀|💫}
 
-{Em breve|Logo logo|Fique atento}, você receberá {novidades|informações|atualizações} sobre {sorteios|promoções|benefícios exclusivos}! {🎯|🚀|💫}
+{Confira as regras aqui|Veja as regras do sorteio}: https://avl-telecom-promo-page-main.vercel.app/
 
-{Qualquer dúvida|Se precisar de algo|Precisa de ajuda}? {Estamos aqui|Chama a gente|Entre em contato}!
+*Importante:* {Você precisa|É necessário} ter o *App da AVL Telecom* instalado, pois {você receberá|existe} um *código único* para resgatar o prêmio. {📱|🎟️|✨}
+
+{Qualquer dúvida|Se precisar de ajuda}? {Estamos aqui|Chama a gente}!
 
 _Att, Equipe Pre-Mix_`,
   variables: ["nome"],

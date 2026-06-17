@@ -1,9 +1,10 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import {ClientData, WelcomeMessageLog, UserSession, WhapiResponse} from "./types";
+import {ClientData, WelcomeMessageLog, UserSession} from "./types";
 import { IXCBackendService } from "./ixcService";
 import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
+import { WhapiService } from "./whapiService";
 import axios from "axios";
 import * as https from "https";
 
@@ -29,20 +30,26 @@ export const onNewRaffleRegistration = functions.firestore
       phone: clientData.whatsapp || clientData.phone,
     });
 
+    // Verificar se já foi enviada mensagem (evitar duplicatas)
     if (snapshot.get("mensagem_enviada")) {
       console.log("⚠️ Mensagem já foi enviada anteriormente. Ignorando.");
       return null;
     }
 
-    const whapiApiKey = process.env.WHAPI_API_KEY || "";
+    // Configurações via Firebase Functions Config
+    const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
     const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
 
-    if (!whapiApiKey || whapiApiKey === "") {
-      console.error("❌ WHAPI_API_KEY não configurado!");
-      await updateClientWithError(userId, "Configuração de API não encontrada");
+    if (!whapiApiKey) {
+      console.error("❌ WHAPI_KEY / WHAPI_API_KEY não configurado!");
+      await updateClientWithError(
+        userId,
+        "Configuração de API não encontrada"
+      );
       return null;
     }
 
+    // Extrair dados do cliente
     const clientName = clientData.name || clientData.nome || "Cliente";
     const clientPhone = clientData.whatsapp || clientData.phone;
 
@@ -53,15 +60,14 @@ export const onNewRaffleRegistration = functions.firestore
     }
 
     try {
-      const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
-      const response = await waService.sendTextMessage(clientPhone, `Olá ${clientName}! Seja bem-vindo à AVL Telecom.`);
-      
-      const result: WhapiResponse = {
-        sent: !!response.id,
-        id: response.id,
-        message: "Mensagem enviada via WhatsAppService",
-      };
+      // Enviar mensagem de boas-vindas via WhapiService com imagem/template
+      const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
+      const result = await whapiService.sendWelcomeMessage(
+        clientName,
+        clientPhone
+      );
 
+      // Criar log de envio
       const log: WelcomeMessageLog = {
         clientId: userId,
         clientName: clientName,
@@ -72,44 +78,508 @@ export const onNewRaffleRegistration = functions.firestore
         timestamp: new Date().toISOString(),
       };
 
-      await admin.firestore().collection("welcome_message_logs").add(log);
+      // Salvar log no Firestore
+      await admin.firestore()
+        .collection("welcome_message_logs")
+        .add(log);
 
+      // Atualizar documento do cliente
       if (result.sent) {
         await snapshot.ref.update({
           mensagem_enviada: true,
           mensagem_enviada_em: admin.firestore.FieldValue.serverTimestamp(),
           mensagem_id: result.id,
         });
-        console.log("✅ Mensagem de boas-vindas enviada!");
+
+        console.log("✅ Mensagem de boas-vindas enviada com sucesso!");
       } else {
         await snapshot.ref.update({
           mensagem_enviada: false,
           mensagem_erro: result.error,
-          mensagem_tentativa_em: admin.firestore.FieldValue.serverTimestamp(),
+          mensagem_tentativa_em:
+            admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        console.error("❌ Falha ao enviar mensagem:", result.error);
       }
 
       return log;
     } catch (error) {
       console.error("❌ Erro ao processar cadastro:", error);
-      await updateClientWithError(userId, error instanceof Error ? error.message : "Erro desconhecido");
+      await updateClientWithError(
+        userId,
+        error instanceof Error ? error.message : "Erro desconhecido"
+      );
       return null;
     }
   });
 
-async function updateClientWithError(userId: string, errorMessage: string): Promise<void> {
+async function updateClientWithError(
+  userId: string,
+  errorMessage: string
+): Promise<void> {
   try {
-    await admin.firestore().collection("usuariosDoPreMix").doc(userId).update({
-      mensagem_enviada: false,
-      mensagem_erro: errorMessage,
-      mensagem_tentativa_em: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    await admin.firestore()
+      .collection("usuariosDoPreMix")
+      .doc(userId)
+      .update({
+        mensagem_enviada: false,
+        mensagem_erro: errorMessage,
+        mensagem_tentativa_em: admin.firestore.FieldValue.serverTimestamp(),
+      });
   } catch (error) {
     console.error("Erro ao atualizar documento:", error);
   }
 }
 
-// ... (other imports)
+async function handleAppUninstall(userId: string, token: string, userData: any) {
+  try {
+    console.log(`🗑️ Token inválido detectado para o usuário ${userId}. Limpando fcmToken e enviando WhatsApp...`);
+    
+    // 1. Remove o fcmToken do banco de dados
+    const userRef = admin.firestore().collection("users").doc(userId);
+    await userRef.update({ fcmToken: admin.firestore.FieldValue.delete() });
+
+    if (userData?.cpf || userData?.cnpj_cpf) {
+      const cpf = (userData.cpf || userData.cnpj_cpf).replace(/\D/g, "");
+      const cpfRef = admin.firestore().collection("users").doc(cpf);
+      const cpfDoc = await cpfRef.get();
+      if (cpfDoc.exists && cpfDoc.data()?.fcmToken === token) {
+        await cpfRef.update({ fcmToken: admin.firestore.FieldValue.delete() });
+      }
+    }
+
+    // 2. Enviar mensagem via Whapi avisando sobre exclusão
+    const phone = userData?.whatsapp || userData?.telefone_celular || userData?.phone;
+    const name = userData?.nome || userData?.name || "Cliente";
+
+    if (phone) {
+      const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
+      const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
+      if (whapiApiKey) {
+        const message = `Olá ${name},\n\nIdentificamos que o App AVL Telecom foi removido do seu dispositivo. 😔\n\nPor causa disso, *você não está mais elegível para participar dos sorteios do Pre-mix*. 🎁\n\nPara voltar a concorrer, reinstale o aplicativo e mantenha-o no seu celular!`;
+        
+        let formattedPhone = phone.replace(/\D/g, "");
+        if (!formattedPhone.startsWith("55")) formattedPhone = "55" + formattedPhone;
+        
+        await axios.post(`${whapiBaseUrl}/messages/text`, {
+          to: formattedPhone,
+          body: message
+        }, {
+          headers: {
+            "Authorization": `Bearer ${whapiApiKey}`,
+            "Content-Type": "application/json"
+          }
+        });
+        console.log(`✅ Aviso de desinstalação enviado com sucesso para ${formattedPhone}`);
+      } else {
+        console.warn("⚠️ WHAPI_KEY não configurada. Não foi possível enviar WhatsApp de desinstalação.");
+      }
+    } else {
+      console.log(`ℹ️ Usuário ${userId} não tem telefone salvo. WhatsApp de desinstalação ignorado.`);
+    }
+  } catch (err: any) {
+    console.error("❌ Erro ao tratar desinstalação:", err.message);
+  }
+}
+
+/**
+ * ⏰ Tarefa Agendada: Verificação Diária de Faturas
+ * Roda todos os dias às 08:00 AM
+ */
+export const checkDueInvoices = functions.pubsub
+  .schedule("0 8 * * *")
+  .timeZone("America/Sao_Paulo")
+  .onRun(async () => {
+    console.log("⏰ Iniciando verificação diária de faturas...");
+
+    try {
+      const usersRef = admin.firestore().collection("users");
+      const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
+
+      if (querySnapshot.empty) {
+        console.log("ℹ️ Nenhum usuário com token FCM encontrado.");
+        return null;
+      }
+
+      const IXC_TOKEN = process.env.IXC_TOKEN || "29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94";
+      const auth = Buffer.from(IXC_TOKEN).toString("base64");
+
+      const notifications: Promise<any>[] = [];
+
+      for (const doc of querySnapshot.docs) {
+        const userData = doc.data();
+        const userId = doc.id;
+        const ixcId = userData.clientId || userId;
+        const token = userData.fcmToken;
+
+        try {
+          const response = await axios.post(
+            "https://coopertecisp.com.br/webservice/v1/fn_areceber",
+            {
+              qtype: "fn_areceber.id_cliente",
+              query: ixcId,
+              oper: "=",
+              page: "1",
+              rp: "50",
+              sortname: "fn_areceber.data_vencimento",
+              sortorder: "asc",
+              grid_param: JSON.stringify([
+                {TB: "fn_areceber.liberado", OP: "=", P: "S"},
+                {TB: "fn_areceber.status", OP: "=", P: "A"},
+              ]),
+            },
+            {
+              headers: {Authorization: `Basic ${auth}`, ixcsoft: "listar"},
+              timeout: 10000,
+            }
+          );
+
+          const invoices = response.data?.registros || [];
+
+          for (const inv of invoices) {
+            // Ignorar se não estiver aberta
+            if (inv.status !== "A") continue;
+
+            // Suporta YYYY-MM-DD (vinda do IXC) ou DD/MM/YYYY
+            let dueDate: Date;
+            if (inv.data_vencimento.includes("-")) {
+              const [year, month, day] = inv.data_vencimento.split("-");
+              dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            } else {
+              const [day, month, year] = inv.data_vencimento.split("/");
+              dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const diffTime = dueDate.getTime() - today.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            let shouldNotify = false;
+            let title = "⚠️ Fatura AVL";
+            let body = "";
+            let color = "#F59E0B";
+
+            if (diffDays === 1 || diffDays === 2) {
+              shouldNotify = true;
+              title = "⏰ Lembrete de Fatura";
+              body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
+            } else if (diffDays === 0) {
+              shouldNotify = true;
+              title = "🚨 Vence HOJE";
+              body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
+              color = "#EF4444";
+            } else if (diffDays < 0 && diffDays >= -15) {
+              shouldNotify = true;
+              title = "🚫 Fatura Vencida";
+              body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
+              color = "#B91C1C";
+            }
+
+            if (shouldNotify) {
+              const message = {
+                notification: {
+                  title: title,
+                  body: body,
+                },
+                data: {
+                  type: "invoice_reminder",
+                  screen: "Boletos",
+                  invoiceId: inv.id,
+                  valor: inv.valor,
+                },
+                android: {
+                  priority: "high" as any,
+                  notification: {
+                    channelId: "alerts",
+                    color: color,
+                  },
+                },
+                token: token,
+              };
+              notifications.push(
+                admin.messaging().send(message).catch((e) => {
+                  console.error(`Erro ao notificar token ${token}:`, e.message);
+                  if (e.code === "messaging/registration-token-not-registered" || e.code === "messaging/invalid-registration-token") {
+                    handleAppUninstall(userId, token, userData);
+                  }
+                })
+              );
+            }
+          }
+        } catch (userError: any) {
+          console.error(`❌ Erro ao verificar faturas para usuário ${userId}:`, userError.message);
+        }
+      }
+
+      await Promise.all(notifications);
+      console.log(`✅ Verificação concluída. Enviadas ${notifications.length} notificações.`);
+      return null;
+    } catch (error) {
+      console.error("❌ Erro global no checkDueInvoices:", error);
+      return null;
+    }
+  });
+
+/**
+ * 🧪 Função de Teste: Disparo Manual via HTTP
+ */
+export const testPush = functions.https.onRequest(async (req, res) => {
+  const userId = req.query.userId as string;
+  const cpf = req.query.cpf as string;
+  const force = req.query.force === "true";
+
+  if (!userId && !cpf) {
+    res.status(400).send("Informe o userId ou o cpf na URL (ex: ?cpf=123.456.789-00)");
+    return;
+  }
+
+  try {
+    let userData: any = null;
+    let finalUserId = userId;
+
+    // 1. Localizar Usuário no Firestore
+    if (cpf) {
+      const cpfNumbers = cpf.replace(/\D/g, "");
+      const querySnapshot = await admin.firestore().collection("users")
+        .where("cpf", "in", [cpf, cpfNumbers])
+        .limit(1)
+        .get();
+      
+      if (querySnapshot.empty) {
+        res.status(404).send(`Usuário com CPF ${cpf} não encontrado no Firestore`);
+        return;
+      }
+      userData = querySnapshot.docs[0].data();
+      finalUserId = querySnapshot.docs[0].id;
+    } else {
+      const userDoc = await admin.firestore().collection("users").doc(userId).get();
+      if (!userDoc.exists) {
+        res.status(404).send(`Usuário com ID ${userId} não encontrado`);
+        return;
+      }
+      userData = userDoc.data();
+    }
+
+    if (!userData?.fcmToken) {
+      res.status(404).send(`Usuário ${finalUserId} encontrado, mas NÃO possui fcmToken salvo.`);
+      return;
+    }
+
+    const token = userData.fcmToken;
+    const ixcId = userData.clientId || finalUserId; // Prioriza o campo clientId
+    const IXC_TOKEN = process.env.IXC_TOKEN || "29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94";
+    const auth = Buffer.from(IXC_TOKEN).toString("base64");
+
+    // 2. Consultar IXC API (Busca aberta para diagnóstico)
+    const response = await axios.post(
+      "https://coopertecisp.com.br/webservice/v1/fn_areceber",
+      {
+        qtype: "fn_areceber.id_cliente",
+        query: ixcId,
+        oper: "=",
+        page: "1",
+        rp: "50",
+        sortname: "fn_areceber.data_vencimento",
+        sortorder: "asc",
+      },
+      {
+        headers: {Authorization: `Basic ${auth}`, ixcsoft: "listar"},
+        timeout: 10000,
+      }
+    );
+
+    const invoices = response.data?.registros || [];
+    let notificationSent = false;
+
+    // 3. Processar Faturas
+    console.log(`🔍 Faturas encontradas no IXC: ${invoices.length}`);
+
+    for (const inv of invoices) {
+      // Ignorar se não estiver aberta
+      if (inv.status !== "A") continue;
+
+      // Suporta YYYY-MM-DD (vinda do IXC) ou DD/MM/YYYY
+      let dueDate: Date;
+      if (inv.data_vencimento.includes("-")) {
+        const [year, month, day] = inv.data_vencimento.split("-");
+        dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      } else {
+        const [day, month, year] = inv.data_vencimento.split("/");
+        dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const diffTime = dueDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      console.log(`📅 Analisando Fatura ID ${inv.id}: Vencimento ${inv.data_vencimento} | DiffDays: ${diffDays}`);
+
+      let shouldNotify = false;
+      let title = "⚠️ Fatura AVL";
+      let body = "";
+      let color = "#F59E0B"; // Laranja (Padrão)
+
+      if (diffDays === 1 || diffDays === 2) {
+        shouldNotify = true;
+        title = "⏰ Lembrete de Fatura";
+        body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
+      } else if (diffDays === 0) {
+        shouldNotify = true;
+        title = "🚨 Vence HOJE";
+        body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
+        color = "#EF4444"; // Vermelho
+      } else if (diffDays < 0 && diffDays >= -15) { // Até 15 dias de atraso
+        shouldNotify = true;
+        title = "🚫 Fatura Vencida";
+        body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
+        color = "#B91C1C"; // Vermelho Escuro
+      }
+
+      // Se for para notificar OU se o force for true
+      if (shouldNotify || (force && !notificationSent)) {
+        const finalTitle = shouldNotify ? title : "🧪 Teste de Notificação";
+        const finalBody = shouldNotify ? body : `Fatura teste de R$ ${inv.valor} (${inv.data_vencimento}).`;
+
+        const message = {
+          notification: {
+            title: finalTitle,
+            body: finalBody,
+          },
+          data: {
+            type: "invoice_reminder",
+            screen: "Boletos",
+            invoiceId: inv.id,
+            valor: inv.valor,
+          },
+          android: {
+            priority: "high" as any,
+            notification: {
+              channelId: "alerts",
+              color: color,
+            },
+          },
+          token: token,
+        };
+        await admin.messaging().send(message);
+        notificationSent = true;
+        break;
+      }
+    }
+
+    if (notificationSent) {
+      res.send(`✅ Notificação IXC enviada com sucesso para ${userData.name || userData.razao} (ID: ${finalUserId})`);
+    } else if (force) {
+      // Se não tem faturas mas forçou o teste
+      const message = {
+        notification: {
+          title: "💳 Teste Forçado: Fatura",
+          body: "Esta é uma notificação de teste forçada (sem faturas reais no IXC).",
+        },
+        data: { type: "invoice_reminder", screen: "Boletos" },
+        android: { priority: "high" as any, notification: { channelId: "alerts", color: "#F59E0B" } },
+        token: token,
+      };
+      await admin.messaging().send(message);
+      res.send(`✅ Notificação de TESTE FORÇADO enviada.`);
+    } else {
+      // Diagnóstico detalhado
+      const invDetails = invoices.map((i: any) => {
+        const [d, m, y] = i.data_vencimento.split("/");
+        const dt = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diff = Math.ceil((dt.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return `ID: ${i.id} | Vencimento: ${i.data_vencimento} | Status: ${i.status} | Dias: ${diff}`;
+      }).join("\n");
+
+      res.send(`ℹ️ Nenhuma fatura elegível encontrada para o usuário ${finalUserId}.\n\nFaturas encontradas no IXC (${invoices.length}):\n${invDetails || "Nenhuma fatura retornada pela API"}`);
+    }
+
+  } catch (error: any) {
+    console.error("Erro ao processar teste IXC:", error);
+    res.status(500).send("Erro ao processar: " + error.message);
+  }
+});
+
+/**
+ * 💬 Notificação para Mensagens de Chat (Coleção chat/)
+ */
+export const sendChatNotification = functions.firestore
+  .document("chat/{userId}/mensagens/{messageId}")
+  .onCreate(async (snap, context) => {
+    const messageData = snap.data();
+    if (!messageData) return null;
+    const userId = context.params.userId;
+
+    console.log(`💬 Analisando mensagem para ${userId}:`, JSON.stringify(messageData));
+
+    // Notificar se for Admin ou se for a IA (ARIA)
+    const isFromStaff = messageData.isAdmin || messageData.isAI || messageData.user === "Suporte AVL";
+
+    if (!isFromStaff) {
+      console.log("ℹ️ Mensagem ignorada (enviada pelo próprio cliente)");
+      return null;
+    }
+
+    try {
+      const userDoc = await admin.firestore().collection("users").doc(userId).get();
+      const userData = userDoc.data();
+
+      if (!userDoc.exists || !userData?.fcmToken) {
+        console.log(`⚠️ Usuário ${userId} não encontrado ou sem Token FCM`);
+        return null;
+      }
+
+      const token = userData.fcmToken;
+      const title = messageData.isAI ? "🤖 Assistente ARIA" : "👤 Suporte AVL";
+      const body = messageData.content ?
+        (messageData.content.length > 100 ? messageData.content.substring(0, 100) + "..." : messageData.content) :
+        "📎 Enviou uma mídia para você";
+
+      const message = {
+        notification: {
+          title: title,
+          body: body,
+        },
+        data: {
+          type: "chat",
+          screen: "chat",
+          userId: userId,
+        },
+        android: {
+          priority: "high" as any,
+          notification: {
+            channelId: "chat",
+            color: "#5a56c9",
+            priority: "max" as any,
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: "default",
+              badge: 1,
+            },
+          },
+        },
+        token: token,
+      };
+
+      await admin.messaging().send(message);
+      console.log(`✅ Notificação de chat enviada para ${userId}`);
+      return true;
+    } catch (error) {
+      console.error("❌ Erro ao enviar notificação de chat:", error);
+      return null;
+    }
+  });
+
 
 /**
  * 📤 Dispara quando o Admin envia uma mensagem no Painel
@@ -302,7 +772,7 @@ export const sendWinnerNotification = functions.firestore
 /**
  * 💬 Notificação para Mensagens de Chat do App
  */
-export const sendChatNotification = functions.firestore
+export const sendUserChatNotification = functions.firestore
   .document("users/{userId}/mensagens/{messageId}")
   .onCreate(async (snap, context) => {
     const messageData = snap.data();
@@ -1092,3 +1562,12 @@ export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes
     console.error("❌ [CRON] Erro durante a execução:", error.message);
   }
 });
+
+// --- 5. SECURE API PROXY FOR MOBILE APP ---
+export {
+  smartOltRebootOnu,
+  smartOltGetWifiDetails,
+  smartOltSetWifiDetails,
+  ixcFetchClient,
+  spinPreMixRoulette
+} from "./apiProxy";

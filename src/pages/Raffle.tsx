@@ -27,7 +27,7 @@ import ClientList from '@/components/raffle/ClientList';
 import RaffleAnimation from '@/components/raffle/RaffleAnimation';
 import WinnerCard from '@/components/raffle/WinnerCard';
 import type { Client } from '@/types/dashboard';
-import { collection, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, setDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, setDoc, updateDoc, addDoc, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { whapiService } from '@/services/whapi/whapiService';
@@ -307,6 +307,38 @@ export default function Raffle() {
     } catch (err) {
       console.error("Erro ao deletar vitória da roleta:", err);
       toast({ title: "Erro", description: "Não foi possível resetar o ganhador da roleta.", variant: "destructive" });
+    }
+  };
+
+  const handleRescueRouletteWin = async (cpfRaw: string) => {
+    if (!window.confirm("Deseja marcar este prêmio como RESGATADO? Isso permitirá que o cliente jogue novamente nas próximas roletas.")) {
+      return;
+    }
+    try {
+      // 1. Marcar como resgatado no histórico de vitórias
+      await updateDoc(doc(db, 'pre_mix_roulette_wins', cpfRaw), {
+        redeemed: true,
+        redeemedAt: serverTimestamp()
+      });
+      
+      // 2. Localizar usuário no usuáriosDoPreMix e resetar o status do giro
+      const qUser = query(collection(db, 'usuariosDoPreMix'), where('cpfRaw', '==', cpfRaw));
+      const querySnapshot = await getDocs(qUser);
+      if (!querySnapshot.empty) {
+        const userDocRef = querySnapshot.docs[0].ref;
+        await updateDoc(userDocRef, {
+          hasSpun: false,
+          wonPrizeId: null,
+          wonPrizeName: null,
+          wonPrizeRescueCode: null,
+          spunAt: null
+        });
+      }
+      
+      toast({ title: "Prêmio Resgatado", description: "O prêmio foi marcado como resgatado e o cliente pode participar novamente!" });
+    } catch (err) {
+      console.error("Erro ao resgatar prêmio da roleta:", err);
+      toast({ title: "Erro", description: "Não foi possível resgatar o prêmio.", variant: "destructive" });
     }
   };
 
@@ -955,20 +987,37 @@ export default function Raffle() {
                           <p className="text-[10px] text-gray-400 mt-1">
                             {win.createdAt ? new Date(win.createdAt).toLocaleString("pt-BR") : "Data não registrada"}
                           </p>
+                          <div className="mt-1 flex gap-2">
+                            <Badge variant={win.redeemed ? "default" : "outline"} className={win.redeemed ? "bg-green-500 hover:bg-green-600 text-white" : "text-amber-600 border-amber-500"}>
+                              {win.redeemed ? "Resgatado" : "Pendente"}
+                            </Badge>
+                          </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right mr-1">
                             <Badge className="bg-emerald-500 text-white font-bold">{win.prizeName}</Badge>
                             <p className="text-xs font-mono font-bold text-purple-700 mt-1">Cód: {win.rescueCode}</p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8"
-                            onClick={() => handleDeleteRouletteWin(win.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="flex gap-1 items-center">
+                            {!win.redeemed && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-green-500 text-green-600 hover:bg-green-50 h-8 font-bold text-xs"
+                                onClick={() => handleRescueRouletteWin(win.id)}
+                              >
+                                Resgatar
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8"
+                              onClick={() => handleDeleteRouletteWin(win.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
