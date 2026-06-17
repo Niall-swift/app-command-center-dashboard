@@ -36,33 +36,7 @@ import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/type
 import { preMixService, Raffle as RaffleType, Winner } from '@/services/preMixService';
 
 const prizes = [
-  "cafeteira eletrica ",
-  "liquidificador ",
-  "batedeira ",
-  "chaleira eletrica ",
-  "air fryer ",
-  "microondas ",
-  "smart tv 32 ",
-  "soundbar ",
-  "caixa de som bluetooth ",
-  "kit de ferramentas ",
-  "prancha de cabelo ",
-  "kit de maquiagem ",
-  "ventilador ",
-  "batedeira ",
-  "micro-ondas ",
-  "pix de R$200,00 ",
-  "PIZZA",
-  "COMBO PIZZA",
-  "COMBO KERU+",
-  "fone de ouvido bluetooth",
-  "sanduicheira",
-  "Manicure e pedicure - studio elaine moraes",
-  "Chaleira Elétrica",
-  "E-Book Quem Pensa em Enriquecer ",
-  "E-Book O Segredo da Mente Milionária",
-  "panela elétrica de arroz ",
-"CAIXA DE BOMBON GAROTO"
+  
 ];
 
 export default function Raffle() {
