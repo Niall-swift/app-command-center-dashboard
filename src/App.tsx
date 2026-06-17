@@ -34,6 +34,7 @@ import IXCClientDetails from "./pages/IXCClientDetails";
 import IXCDici from "./pages/IXCDici";
 import IXCActiveClientsExport from "./pages/IXCActiveClientsExport";
 import Notifications from "./pages/Notifications";
+import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,7 @@ function AnimatedRoutes() {
         <Route path="/raffle" element={<Raffle />} />
         <Route path="/movies" element={<Movies />} />
         <Route path="/series" element={<Series />} />
+        <Route path="/avlplay-analytics" element={<AVLPlayAnalytics />} />
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
         <Route path="/ixc/consulta" element={<IXCConsulta />} />

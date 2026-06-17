@@ -2,7 +2,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  MessageSquare, Send, FileText, BarChart3, Bot, Home,
+  MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
   Settings, Gift, Package, Wrench, Map, Film, Tv,
   Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download,
 } from 'lucide-react';
@@ -26,6 +26,7 @@ const menuItems = [
   { title: "Sorteio",          url: "/raffle",          icon: Gift },
   { title: "Filmes",           url: "/movies",          icon: Film },
   { title: "Séries",           url: "/series",          icon: Tv },
+  { title: "Métricas AVL Play", url: "/avlplay-analytics", icon: Activity },
   { title: "Gestão de Prêmios", url: "/rewards-management", icon: Package },
   { title: "Pedidos de Resgate", url: "/redemption-orders",  icon: Package },
   { title: "Configurações",    url: "/settings",        icon: Settings },

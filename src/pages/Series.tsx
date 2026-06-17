@@ -9,11 +9,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Label } from '../components/ui/label';
 import { Progress } from '../components/ui/progress';
 import { useToast } from '../hooks/use-toast';
-import { Upload, Play, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Upload, Play, Trash2, Plus, ChevronDown, ChevronRight, Edit } from 'lucide-react';
 import { compressImage } from '../utils/compressImage';
 import { compressVideo } from '../utils/compressVideo';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import AddEpisodeToExistingSeries from '../components/AddEpisodeToExistingSeries';
 
 interface Episode {
@@ -54,6 +60,7 @@ interface Series {
   genres: string[];
   category: string;
   seasons: Season[];
+  trailer_url?: string;
 }
 
 const CATEGORIES = [
@@ -78,6 +85,41 @@ export default function Series() {
   const [status, setStatus] = useState<'ongoing' | 'completed' | 'cancelled'>('ongoing');
   const [genres, setGenres] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
+  const [trailerFile, setTrailerFile] = useState<File | null>(null);
+
+  // Edit states
+  const [editingSeries, setEditingSeries] = useState<Series | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editOverview, setEditOverview] = useState('');
+  const [editReleaseDate, setEditReleaseDate] = useState('');
+  const [editStatus, setEditStatus] = useState<'ongoing' | 'completed' | 'cancelled'>('ongoing');
+  const [editGenres, setEditGenres] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editTrailerUrl, setEditTrailerUrl] = useState('');
+  const [editPosterFile, setEditPosterFile] = useState<File | null>(null);
+  const [editBackdropFile, setEditBackdropFile] = useState<File | null>(null);
+  const [editTrailerFile, setEditTrailerFile] = useState<File | null>(null);
+
+  const startEditSeries = (serie: Series) => {
+    setEditingSeries(serie);
+    setEditTitle(serie.title || '');
+    setEditOverview(serie.overview || '');
+    let dateStr = '';
+    if (serie.releaseDate) {
+      const d = (serie.releaseDate as any).toDate ? (serie.releaseDate as any).toDate() : new Date(serie.releaseDate);
+      if (!isNaN(d.getTime())) {
+        dateStr = d.toISOString().split('T')[0];
+      }
+    }
+    setEditReleaseDate(dateStr);
+    setEditStatus(serie.status || 'ongoing');
+    setEditGenres(serie.genres?.join(', ') || '');
+    setEditCategory(serie.category || CATEGORIES[0]);
+    setEditTrailerUrl(serie.trailer_url || '');
+    setEditPosterFile(null);
+    setEditBackdropFile(null);
+    setEditTrailerFile(null);
+  };
 
   // Seasons and episodes states
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -275,6 +317,21 @@ export default function Series() {
         backdropUrl = await uploadFile(bdToUpload, `series/backdrops/${Date.now()}_${bdToUpload.name}`);
       }
 
+      // Upload trailer if provided
+      let trailerUrl = '';
+      if (trailerFile) {
+        setCurrentUploadStep('🎬 Comprimindo trailer da série...');
+        let trailerToUpload = trailerFile;
+        try {
+          const r = await compressVideo(trailerFile, (pct) => {
+            setCurrentUploadStep(`🎬 Comprimindo trailer... ${pct}%`);
+          });
+          trailerToUpload = r.file;
+        } catch { /* sem compressão */ }
+        setCurrentUploadStep('📤 Enviando trailer da série...');
+        trailerUrl = await uploadFile(trailerToUpload, `series/trailers/${Date.now()}_${trailerToUpload.name}`);
+      }
+
       // Create series document
       setCurrentUploadStep('Criando série...');
       const seriesDoc = await addDoc(collection(db, 'series'), {
@@ -286,6 +343,7 @@ export default function Series() {
         status,
         genres: genres.split(',').map(g => g.trim()).filter(g => g),
         category,
+        trailer_url: trailerUrl,
         createdAt: new Date(),
         updatedAt: new Date()
       });
@@ -471,6 +529,96 @@ export default function Series() {
     }
   };
 
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSeries || !editTitle) return;
+
+    setUploading(true);
+    setUploadProgress(0);
+    setCurrentUploadStep('Iniciando atualização...');
+
+    try {
+      let posterUrl = editingSeries.poster_path;
+      let backdropUrl = editingSeries.backdrop_path;
+      let trailerUrl = editTrailerUrl;
+
+      // 1. Upload new poster if selected
+      if (editPosterFile) {
+        setCurrentUploadStep('🖼️ Comprimindo novo poster...');
+        let fileToUpload = editPosterFile;
+        try {
+          const result = await compressImage(editPosterFile, { maxWidth: 800, maxHeight: 1200 });
+          fileToUpload = result.file;
+        } catch {}
+        setCurrentUploadStep('📤 Enviando novo poster...');
+        posterUrl = await uploadFile(fileToUpload, `series/posters/${Date.now()}_${fileToUpload.name}`);
+      }
+
+      // 2. Upload new backdrop if selected
+      if (editBackdropFile) {
+        setCurrentUploadStep('🖼️ Comprimindo novo backdrop...');
+        let fileToUpload = editBackdropFile;
+        try {
+          const result = await compressImage(editBackdropFile, { maxWidth: 1280, maxHeight: 720 });
+          fileToUpload = result.file;
+        } catch {}
+        setCurrentUploadStep('📤 Enviando novo backdrop...');
+        backdropUrl = await uploadFile(fileToUpload, `series/backdrops/${Date.now()}_${fileToUpload.name}`);
+      }
+
+      // 3. Upload new trailer if selected
+      if (editTrailerFile) {
+        setCurrentUploadStep('🎬 Comprimindo novo trailer...');
+        let fileToUpload = editTrailerFile;
+        try {
+          const result = await compressVideo(editTrailerFile, (pct) => {
+            setCurrentUploadStep(`🎬 Comprimindo novo trailer... ${pct}%`);
+          });
+          fileToUpload = result.file;
+        } catch {}
+        setCurrentUploadStep('📤 Enviando novo trailer...');
+        trailerUrl = await uploadFile(fileToUpload, `series/trailers/${Date.now()}_${fileToUpload.name}`);
+      }
+
+      // Update series document in Firestore
+      setCurrentUploadStep('💾 Salvando alterações...');
+      setUploadProgress(98);
+
+      const docRef = doc(db, 'series', editingSeries.id!);
+      await updateDoc(docRef, {
+        title: editTitle,
+        overview: editOverview,
+        poster_path: posterUrl,
+        backdrop_path: backdropUrl,
+        releaseDate: new Date(editReleaseDate),
+        status: editStatus,
+        genres: editGenres.split(',').map(g => g.trim()).filter(g => g),
+        category: editCategory,
+        trailer_url: trailerUrl,
+        updatedAt: new Date()
+      });
+
+      setUploadProgress(100);
+      setEditingSeries(null);
+      loadSeries();
+
+      toast({
+        title: '✅ Série atualizada com sucesso!',
+      });
+    } catch (error) {
+      console.error('Erro ao atualizar série:', error);
+      toast({
+        title: 'Erro',
+        description: 'Erro ao atualizar série. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+      setCurrentUploadStep('');
+    }
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Gerenciar Séries</h1>
@@ -528,6 +676,16 @@ export default function Series() {
                   type="file"
                   accept="image/*"
                   onChange={(e) => setBackdropFile(e.target.files?.[0] || null)}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="trailer">Trailer da Série (Vídeo - Opcional)</Label>
+                <Input
+                  id="trailer"
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setTrailerFile(e.target.files?.[0] || null)}
                 />
               </div>
 
@@ -810,8 +968,8 @@ export default function Series() {
                         <Button
                           size="sm"
                           variant="outline"
+                          title="Assistir Primeiro Episódio"
                           onClick={() => {
-                            // Expand/collapse seasons
                             if (serie.seasons && serie.seasons.length > 0) {
                               const firstSeason = serie.seasons[0];
                               if (firstSeason.episodes && firstSeason.episodes.length > 0) {
@@ -821,6 +979,24 @@ export default function Series() {
                           }}
                         >
                           <Play className="w-4 h-4" />
+                        </Button>
+                        {serie.trailer_url && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Assistir Trailer da Série"
+                            onClick={() => window.open(serie.trailer_url, '_blank')}
+                          >
+                            <Play className="w-4 h-4 text-blue-500" />
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Editar Série"
+                          onClick={() => startEditSeries(serie)}
+                        >
+                          <Edit className="w-4 h-4" />
                         </Button>
                         <Button
                           size="sm"
@@ -945,8 +1121,8 @@ export default function Series() {
                       <Button
                         size="sm"
                         variant="outline"
+                        title="Assistir Primeiro Episódio"
                         onClick={() => {
-                          // Expand/collapse seasons
                           if (serie.seasons && serie.seasons.length > 0) {
                             const firstSeason = serie.seasons[0];
                             if (firstSeason.episodes && firstSeason.episodes.length > 0) {
@@ -956,6 +1132,24 @@ export default function Series() {
                         }}
                       >
                         <Play className="w-4 h-4" />
+                      </Button>
+                      {serie.trailer_url && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Assistir Trailer da Série"
+                          onClick={() => window.open(serie.trailer_url, '_blank')}
+                        >
+                          <Play className="w-4 h-4 text-blue-500" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Editar Série"
+                        onClick={() => startEditSeries(serie)}
+                      >
+                        <Edit className="w-4 h-4" />
                       </Button>
                       <Button
                         size="sm"
@@ -1026,6 +1220,143 @@ export default function Series() {
       </Card>
     </TabsContent>
   </Tabs>
-  </div>
+
+      {/* Edit Series Dialog */}
+      <Dialog open={editingSeries !== null} onOpenChange={(open) => !open && setEditingSeries(null)}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar Série</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 pt-4">
+            <div>
+              <Label htmlFor="edit-title">Título da Série</Label>
+              <Input
+                id="edit-title"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-overview">Descrição</Label>
+              <Textarea
+                id="edit-overview"
+                value={editOverview}
+                onChange={(e) => setEditOverview(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-category">Categoria Principal</Label>
+              <select
+                id="edit-category"
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md bg-transparent"
+              >
+                {CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="edit-releaseDate">Data de Lançamento</Label>
+              <Input
+                id="edit-releaseDate"
+                type="date"
+                value={editReleaseDate}
+                onChange={(e) => setEditReleaseDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-status">Status</Label>
+              <select
+                id="edit-status"
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value as 'ongoing' | 'completed' | 'cancelled')}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="ongoing">Em andamento</option>
+                <option value="completed">Concluída</option>
+                <option value="cancelled">Cancelada</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="edit-genres">Gêneros (separados por vírgula)</Label>
+              <Input
+                id="edit-genres"
+                value={editGenres}
+                onChange={(e) => setEditGenres(e.target.value)}
+                placeholder="Ação, Drama, Ficção Científica"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-trailer-url">URL do Trailer da Série (Link direto)</Label>
+              <Input
+                id="edit-trailer-url"
+                value={editTrailerUrl}
+                onChange={(e) => setEditTrailerUrl(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-trailer-file">Substituir Vídeo do Trailer (Opcional)</Label>
+              <Input
+                id="edit-trailer-file"
+                type="file"
+                accept="video/*"
+                onChange={(e) => setEditTrailerFile(e.target.files?.[0] || null)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-poster">Substituir Poster (Imagem de Capa)</Label>
+              <Input
+                id="edit-poster"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setEditPosterFile(e.target.files?.[0] || null)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-backdrop">Substituir Backdrop (Imagem de Fundo)</Label>
+              <Input
+                id="edit-backdrop"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setEditBackdropFile(e.target.files?.[0] || null)}
+              />
+            </div>
+
+            {uploading && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>{currentUploadStep}</span>
+                  <span>{Math.round(uploadProgress)}%</span>
+                </div>
+                <Progress value={uploadProgress} className="w-full" />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditingSeries(null)} disabled={uploading}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={uploading}>
+                {uploading ? 'Salvando...' : 'Salvar Alterações'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

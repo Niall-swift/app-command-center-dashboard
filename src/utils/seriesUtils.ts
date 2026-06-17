@@ -37,6 +37,7 @@ interface Series {
   status: 'ongoing' | 'completed' | 'cancelled';
   genres: string[];
   seasons?: Season[];
+  trailer_url?: string;
   createdAt: Date;
   updatedAt: Date;
 }
