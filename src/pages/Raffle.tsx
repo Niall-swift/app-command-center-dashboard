@@ -36,7 +36,9 @@ import type { WhapiBulkRecipient, WhapiSendProgress, WhapiSendLog } from '@/type
 import { preMixService, Raffle as RaffleType, Winner } from '@/services/preMixService';
 
 const prizes = [
-  
+  "Mensalidade Grátis",
+  "Roteador Gigabit",
+  "Brinde Exclusivo AVL"
 ];
 
 export default function Raffle() {
@@ -133,6 +135,12 @@ export default function Raffle() {
     const unsubscribeRaffles = onSnapshot(q, (snapshot) => {
       const raffles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RaffleType));
       setDynamicRaffles(raffles);
+      
+      // Seleciona o primeiro sorteio ativo por padrão se nada foi selecionado ainda
+      const activeRaffle = raffles.find(r => r.status === "SORTEIO ATIVO");
+      if (activeRaffle) {
+        setSelectedPrize(prev => prev || activeRaffle.title);
+      }
     });
 
     // Listeners da Roleta da Sorte
@@ -397,11 +405,12 @@ export default function Raffle() {
 
       try {
         const rescueCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const winnerPrize = selectedPrize || prizes[0] || 'Prêmio Pre-Mix';
         await preMixService.saveWinner({
           cpf: winnerClient.cpf,
           name: winnerClient.name,
           phone: winnerClient.phone || '',
-          prize: selectedPrize,
+          prize: winnerPrize,
           rescueCode: rescueCode
         });
         toast({ title: 'Vencedor Registrado!', description: `Código de resgate: ${rescueCode}` });
@@ -413,7 +422,7 @@ export default function Raffle() {
             cpf: winnerClient.cpf,
             name: winnerClient.name,
             phone: winnerClient.phone || '',
-            prize: selectedPrize,
+            prize: winnerPrize,
             rescueCode: rescueCode,
             redeemed: false,
             createdAt: new Date()

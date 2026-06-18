@@ -35,6 +35,8 @@ export interface UserSession {
   pausedUntil?: any;
   updatedAt: any;
   phone: string;
+  ixcCliente?: any;
+  ixcClienteUpdatedAt?: any;
 }
 
 export interface WhapiResponse {

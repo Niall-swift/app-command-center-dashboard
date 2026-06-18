@@ -920,8 +920,48 @@ export const whatsappWebhook = functions.runWith({
 
     console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
     
-    // --- BUSCA CLIENTE ANTES DO DASHBOARD ---
-    let cliente = await ixcService.getClienteByPhone(cleanPhone);
+    const sessionRef = db.collection("bot_sessions").doc(cleanPhone);
+    const sessionSnap = await sessionRef.get();
+    const session = sessionSnap.data() as UserSession | undefined;
+
+    // --- BUSCA CLIENTE ANTES DO DASHBOARD COM OTIMIZAÇÃO E CACHE ---
+    let cliente = null;
+    if (session?.ixcCliente && session?.ixcClienteUpdatedAt) {
+      const lastUpdate = session.ixcClienteUpdatedAt.toDate ? session.ixcClienteUpdatedAt.toDate() : new Date(session.ixcClienteUpdatedAt);
+      // Se o cache for mais recente que 24 horas, reutiliza!
+      if (Date.now() - lastUpdate.getTime() < 24 * 60 * 60 * 1000) {
+        cliente = session.ixcCliente;
+        console.log(`⚡ Usando cliente do cache da sessão para ${cleanPhone}: ${cliente.razao}`);
+      }
+    }
+
+    if (!cliente) {
+      // Tentar buscar o ixc_id no histórico do chat do Firestore
+      const chatSnap = await db.collection("chat").doc(cleanPhone).get();
+      const chatData = chatSnap.data();
+      if (chatData?.ixc_id) {
+        console.log(`🔍 Buscando cliente por ixc_id (${chatData.ixc_id}) salvo no chat...`);
+        cliente = await ixcService.getClienteById(chatData.ixc_id);
+      }
+
+      // Se ainda não achou, faz a busca robusta por telefone
+      if (!cliente) {
+        cliente = await ixcService.getClienteByPhone(cleanPhone);
+      }
+
+      // Se achou, atualiza o cache da sessão e do chat
+      if (cliente) {
+        await sessionRef.set({
+          ixcCliente: cliente,
+          ixcClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        
+        await db.collection("chat").doc(cleanPhone).set({
+          ixc_id: cliente.id
+        }, { merge: true });
+      }
+    }
+
     const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : senderName.split(' ')[0];
 
     // --- LOG PARA DASHBOARD ---
@@ -951,10 +991,6 @@ export const whatsappWebhook = functions.runWith({
       res.status(200).send("OK"); return;
     }
 
-    const sessionRef = db.collection("bot_sessions").doc(cleanPhone);
-    const sessionSnap = await sessionRef.get();
-    const session = sessionSnap.data() as UserSession | undefined;
-
     // --- VERIFICAÇÃO DE PAUSA (ATENDIMENTO HUMANO) ---
     if (session?.pausedUntil) {
       const pausedDate = session.pausedUntil.toDate ? session.pausedUntil.toDate() : new Date(session.pausedUntil);
@@ -971,7 +1007,18 @@ export const whatsappWebhook = functions.runWith({
       await waService.sendTextMessage(from, "🔍 Buscando cadastro...");
       const clienteByDoc = await ixcService.getClienteByCpfCnpj(pureNumbers);
       if (clienteByDoc) {
-        await sessionRef.set({ state: "IDLE", pendingAction: null }, { merge: true });
+        await sessionRef.set({ 
+          state: "IDLE", 
+          pendingAction: null,
+          ixcCliente: clienteByDoc,
+          ixcClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        
+        await db.collection("chat").doc(cleanPhone).set({
+          ixc_id: clienteByDoc.id,
+          name: clienteByDoc.razao,
+          phone: cleanPhone
+        }, { merge: true });
         
         if (session?.pendingAction === "trust_unlock") {
           await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, clienteByDoc);
@@ -1005,19 +1052,46 @@ export const whatsappWebhook = functions.runWith({
       await processInvoiceRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
     } else if (finalIntent === "trust_unlock") {
       await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
-    } else if (finalIntent === "human_support" || finalIntent === "other") {
-      const isOther = finalIntent === "other";
-      const msg = isOther 
-        ? "Entendi. Vou te transferir para um de nossos especialistas. Aguarde um momento. 🎧"
-        : "🎧 Vou te transferir para um atendente humano. Aguarde um instante.";
-      
+    } else if (finalIntent === "human_support") {
+      const msg = "🎧 Vou te transferir para um atendente humano. Aguarde um instante.";
       await waService.sendTextMessage(from, msg);
       await logMessageToDashboard(cleanPhone, msg, true, "system");
       
       // Pausa o bot por 1 hora (3600000 ms) para este cliente
       const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
       await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
-      console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: ${finalIntent})`);
+      console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: human_support)`);
+    } else if (finalIntent === "other") {
+      if (geminiApiKey) {
+        console.log(`🤖 Chamando FAQ do Gemini para ${cleanPhone}...`);
+        const aiService = new AiService(geminiApiKey);
+        const faqResult = await aiService.answerGeneralQuestion(text || "", firstName);
+        
+        if (faqResult.shouldEscalate) {
+          const msg = faqResult.response || "Entendi. Vou te transferir para um de nossos especialistas. Aguarde um momento. 🎧";
+          await waService.sendTextMessage(from, msg);
+          await logMessageToDashboard(cleanPhone, msg, true, "system");
+          
+          // Pausa o bot por 1 hora (3600000 ms) para este cliente
+          const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
+          await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
+          console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: other, Escalado pela IA)`);
+        } else {
+          // Envia resposta da IA e mantém o bot ativo
+          await waService.sendTextMessage(from, faqResult.response);
+          await logMessageToDashboard(cleanPhone, faqResult.response, true, "system");
+          console.log(`✅ FAQ do Gemini respondido para ${cleanPhone}. Bot continua ativo.`);
+        }
+      } else {
+        // Fallback se não tiver chave do Gemini
+        const msg = "Entendi. Vou te transferir para um de nossos especialistas. Aguarde um momento. 🎧";
+        await waService.sendTextMessage(from, msg);
+        await logMessageToDashboard(cleanPhone, msg, true, "system");
+        
+        const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
+        await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
+        console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: other, Sem chave Gemini)`);
+      }
     } else {
       console.log(`📋 Enviando menu de boas-vindas para ${cleanPhone}`);
       const menu = await sendWelcomeMenu(from, waService, false, firstName);
