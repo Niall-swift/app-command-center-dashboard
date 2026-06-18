@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import AddEpisodeToExistingSeries from '../components/AddEpisodeToExistingSeries';
+import AddSeasonToExistingSeries from '../components/AddSeasonToExistingSeries';
 
 interface Episode {
   id?: string;
@@ -626,6 +627,7 @@ export default function Series() {
       <Tabs defaultValue="add-series" className="space-y-6">
         <TabsList>
           <TabsTrigger value="add-series">Adicionar Nova Série</TabsTrigger>
+          <TabsTrigger value="add-season">Adicionar Temporada</TabsTrigger>
           <TabsTrigger value="add-episode">Adicionar Episódio</TabsTrigger>
           <TabsTrigger value="list-series">Listar Séries</TabsTrigger>
         </TabsList>
@@ -1074,6 +1076,10 @@ export default function Series() {
           </CardContent>
         </Card>
       </div>
+    </TabsContent>
+
+    <TabsContent value="add-season">
+      <AddSeasonToExistingSeries />
     </TabsContent>
 
     <TabsContent value="add-episode">
