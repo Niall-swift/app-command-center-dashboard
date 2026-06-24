@@ -42,6 +42,8 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'fone_residencial', label: 'Telefone Fixo', description: 'Número de telefone residencial' },
   { key: 'plano' as any, label: 'Plano de Internet', description: 'Plano de internet ativo' },
   { key: 'vencimento' as any, label: 'Data de Vencimento', description: 'Próximo vencimento ou dia base' },
+  { key: 'pppoe' as any, label: 'Login PPPoE', description: 'Usuário de autenticação PPPoE do cliente' },
+  { key: 'pppoe_senha' as any, label: 'Senha PPPoE', description: 'Senha de autenticação PPPoE do cliente' },
   { key: 'cep', label: 'CEP', description: 'Código postal de endereço' },
   { key: 'endereco', label: 'Endereço', description: 'Rua, número e complementos' },
   { key: 'bairro', label: 'Bairro', description: 'Bairro do endereço cadastrado' },
@@ -110,6 +112,12 @@ export default function IXCActiveClientsExport() {
         ''
       );
     }
+    if (key === 'pppoe') {
+      return String(client.pppoe || '');
+    }
+    if (key === 'pppoe_senha') {
+      return String(client.pppoe_senha || '');
+    }
     const val = client[key];
     return val !== undefined && val !== null ? String(val) : '';
   };
@@ -146,7 +154,7 @@ export default function IXCActiveClientsExport() {
       // 1. Buscar clientes ativos
       const records = await ixcService.fetchAllClientesAtivos((total) => {
         setLoadedCount(total);
-        setProgress(Math.min(30, Math.floor((total / 1000) * 30)));
+        setProgress(Math.min(25, Math.floor((total / 1000) * 25)));
         setStatusMessage(`Buscando clientes ativos... (${total} carregados)`);
       });
 
@@ -159,9 +167,9 @@ export default function IXCActiveClientsExport() {
 
       // 2. Buscar contratos ativos
       setStatusMessage('Buscando planos contratados...');
-      setProgress(40);
+      setProgress(30);
       const contracts = await ixcService.fetchAllContratosAtivos((totalContracts) => {
-        setProgress(Math.min(70, 40 + Math.floor((totalContracts / 1000) * 30)));
+        setProgress(Math.min(50, 30 + Math.floor((totalContracts / 1000) * 20)));
         setStatusMessage(`Buscando contratos... (${totalContracts} carregados)`);
       });
 
@@ -175,9 +183,9 @@ export default function IXCActiveClientsExport() {
 
       // 3. Buscar faturas em aberto para pegar vencimentos mais precisos
       setStatusMessage('Buscando datas de vencimento...');
-      setProgress(75);
+      setProgress(55);
       const invoices = await ixcService.fetchAllFaturasAbertas((totalInvoices) => {
-        setProgress(Math.min(90, 75 + Math.floor((totalInvoices / 1000) * 15)));
+        setProgress(Math.min(75, 55 + Math.floor((totalInvoices / 1000) * 20)));
         setStatusMessage(`Buscando faturas... (${totalInvoices} carregadas)`);
       });
 
@@ -190,13 +198,33 @@ export default function IXCActiveClientsExport() {
         }
       });
 
-      // 4. Enriquecer clientes
+      // 4. Buscar logins PPPoE
+      setStatusMessage('Buscando logins PPPoE...');
+      setProgress(80);
+      const logins = await ixcService.fetchAllLogins((totalLogins) => {
+        setProgress(Math.min(95, 80 + Math.floor((totalLogins / 1000) * 15)));
+        setStatusMessage(`Buscando logins PPPoE... (${totalLogins} carregados)`);
+      });
+
+      const clientLoginsMap = new Map<string, { login: string; senha?: string }[]>();
+      logins.forEach(l => {
+        if (l.id_cliente && l.login) {
+          const clientLogins = clientLoginsMap.get(String(l.id_cliente)) || [];
+          clientLogins.push({ login: l.login, senha: l.senha });
+          clientLoginsMap.set(String(l.id_cliente), clientLogins);
+        }
+      });
+
+      // 5. Enriquecer clientes
       setStatusMessage('Processando e vinculando dados...');
-      setProgress(95);
+      setProgress(98);
 
       const enrichedRecords = records.map(client => {
         const contract = clientContractsMap.get(String(client.id));
         const invoiceVenc = clientInvoicesMap.get(String(client.id));
+        const loginsList = clientLoginsMap.get(String(client.id)) || [];
+        const pppoe = loginsList.map(l => l.login).join(', ');
+        const pppoe_senha = loginsList.map(l => l.senha || '').join(', ');
         
         let plano = '';
         let vencimento = '';
@@ -232,7 +260,9 @@ export default function IXCActiveClientsExport() {
         return {
           ...client,
           plano,
-          vencimento
+          vencimento,
+          pppoe,
+          pppoe_senha
         };
       });
 

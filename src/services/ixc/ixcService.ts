@@ -1802,6 +1802,71 @@ class IXCService {
       onProgress
     );
   }
+
+  /**
+   * Busca TODOS os logins/PPPoE recursivamente
+   */
+  async fetchAllLogins(onProgress?: (total: number) => void): Promise<IXCLoginData[]> {
+    return this.fetchAllRecords<IXCLoginData>(
+      '/radusuarios',
+      {
+        qtype: 'radusuarios.id',
+        query: '0',
+        oper: '>',
+        sortname: 'radusuarios.id',
+        sortorder: 'desc',
+      },
+      onProgress
+    );
+  }
+
+  async getAllClientesCount(): Promise<number> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente.id',
+      query: '0',
+      oper: '>',
+      page: '1',
+      rp: '1',
+    };
+    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    return response.total ? parseInt(String(response.total), 10) : 0;
+  }
+
+  async getClientesAtivosCount(): Promise<number> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente.ativo',
+      query: 'S',
+      oper: '=',
+      page: '1',
+      rp: '1',
+    };
+    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    return response.total ? parseInt(String(response.total), 10) : 0;
+  }
+
+  async getContratosAtivosCount(): Promise<number> {
+    const data: Partial<IXCParams> = {
+      qtype: 'cliente_contrato.status',
+      query: 'A',
+      oper: '=',
+      page: '1',
+      rp: '1',
+    };
+    const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+    return response.total ? parseInt(String(response.total), 10) : 0;
+  }
+
+  async getTicketsAbertosCount(): Promise<number> {
+    const data: Partial<IXCParams> = {
+      qtype: 'su_oss_chamado.status',
+      query: 'Aberto',
+      oper: 'L',
+      page: '1',
+      rp: '1',
+    };
+    const response = await this.makeRequest<IXCApiResponse<IXCTicketData>>('/su_oss_chamado', data);
+    return response.total ? parseInt(String(response.total), 10) : 0;
+  }
 }
 
 // Exportar instância única do serviço
