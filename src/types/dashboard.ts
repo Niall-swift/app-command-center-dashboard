@@ -73,4 +73,5 @@ export interface Client {
   tags?: string[];
   aiEnabled?: boolean;
   protocol?: string;
+  rouletteEnabled?: boolean;
 }

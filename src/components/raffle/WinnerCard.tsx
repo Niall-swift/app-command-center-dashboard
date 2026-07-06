@@ -60,6 +60,63 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
 
+  // Helper to proxy URLs from Whapi and WhatsApp CDN to avoid CORS issues
+  const getProxiedImageUrl = (url: string | null | undefined): string => {
+    if (!url) return '';
+    if (url.startsWith('https://gate.whapi.cloud')) {
+      return url.replace('https://gate.whapi.cloud', '/api/whapi');
+    }
+    if (url.startsWith('https://pps.whatsapp.net')) {
+      return url.replace('https://pps.whatsapp.net', '/api/whatsapp-cdn');
+    }
+    return url;
+  };
+
+  // Helper to load image on canvas with CORS support
+  const loadImage = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      
+      // Se for base64 (data URL), carrega direto sem CORS nem cache buster
+      if (url.startsWith('data:')) {
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Erro ao carregar imagem base64'));
+        img.src = url;
+        return;
+      }
+
+      // Se for URL do Whapi ou do CDN do WhatsApp, reescreve para usar o proxy local para contornar problemas de CORS
+      let finalUrl = url;
+      if (url.startsWith('https://gate.whapi.cloud')) {
+        finalUrl = url.replace('https://gate.whapi.cloud', '/api/whapi');
+      } else if (url.startsWith('https://pps.whatsapp.net')) {
+        finalUrl = url.replace('https://pps.whatsapp.net', '/api/whatsapp-cdn');
+      }
+
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        // Fallback: se falhou com proxy ou cache buster, tentamos a URL original pura sem cb
+        if (finalUrl !== url) {
+          const retryImg = new Image();
+          retryImg.crossOrigin = 'anonymous';
+          retryImg.onload = () => resolve(retryImg);
+          retryImg.onerror = () => reject(new Error('Erro no retry da imagem'));
+          retryImg.src = url;
+        } else {
+          reject(new Error('Erro ao carregar imagem'));
+        }
+      };
+
+      // Adiciona cache buster apenas para URLs externas (não locais nem proxy)
+      if (finalUrl.startsWith('http') && !finalUrl.includes('localhost') && !finalUrl.startsWith('/api/whapi') && !finalUrl.startsWith('/api/whatsapp-cdn')) {
+        img.src = finalUrl + (finalUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+      } else {
+        img.src = finalUrl;
+      }
+    });
+  };
+
   // Prioridade: foto do WhatsApp > avatar do Firebase > inicial do nome
   const effectiveAvatar = winnerProfilePic || winner.avatar || '';
 
@@ -98,26 +155,19 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
     ctx.roundRect(40, 40, W - 80, H - 80, br);
     ctx.stroke();
 
-    // ── Pre-Mix branding (top logo loading with cache buster) ───────────────────
+    // ── Pre-Mix branding (top logo loading) ───────────────────
     try {
-      const logoImg = new Image();
-      logoImg.crossOrigin = 'anonymous';
-      await new Promise<void>((resolve, reject) => {
-        logoImg.onload = () => {
-          const maxW = 340;
-          const maxH = 120;
-          let drawW = logoImg.width;
-          let drawH = logoImg.height;
-          const ratio = Math.min(maxW / drawW, maxH / drawH);
-          drawW *= ratio;
-          drawH *= ratio;
-          ctx.drawImage(logoImg, (W - drawW) / 2, 110 - drawH / 2, drawW, drawH);
-          resolve();
-        };
-        logoImg.onerror = () => reject();
-        logoImg.src = PREMIX_LOGO_URL + '&cb=' + Date.now();
-      });
-    } catch {
+      const logoImg = await loadImage(PREMIX_LOGO_URL);
+      const maxW = 340;
+      const maxH = 120;
+      let drawW = logoImg.width;
+      let drawH = logoImg.height;
+      const ratio = Math.min(maxW / drawW, maxH / drawH);
+      drawW *= ratio;
+      drawH *= ratio;
+      ctx.drawImage(logoImg, (W - drawW) / 2, 110 - drawH / 2, drawW, drawH);
+    } catch (err) {
+      console.warn('Erro ao carregar logo no canvas:', err);
       // Fallback
       ctx.fillStyle = '#10B981';
       ctx.font = 'bold 54px Arial';
@@ -164,26 +214,19 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
     const avatarSrc = winnerProfilePic || winner.avatar || '';
     try {
       if (avatarSrc) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(avatarX, avatarY, avatarR, 0, Math.PI * 2);
-            ctx.closePath();
-            ctx.clip();
-            ctx.drawImage(img, avatarX - avatarR, avatarY - avatarR, avatarR * 2, avatarR * 2);
-            ctx.restore();
-            resolve();
-          };
-          img.onerror = () => reject();
-          img.src = avatarSrc + (avatarSrc.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-        });
+        const img = await loadImage(avatarSrc);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, avatarR, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(img, avatarX - avatarR, avatarY - avatarR, avatarR * 2, avatarR * 2);
+        ctx.restore();
       } else {
         throw new Error('no avatar');
       }
-    } catch {
+    } catch (err) {
+      console.warn('Erro ao carregar avatar no canvas:', err);
       // Fallback: green gradient with initial
       const fallbackGrad = ctx.createRadialGradient(avatarX, avatarY, 0, avatarX, avatarY, avatarR);
       fallbackGrad.addColorStop(0, '#1E3A2F');
@@ -387,6 +430,7 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                 <img 
                   src={PREMIX_LOGO_URL} 
                   alt="Logo Pre-Mix" 
+                  crossOrigin="anonymous"
                   className="h-12 object-contain rounded-lg border border-emerald-500/20 bg-white/5 p-1 shadow-md"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
@@ -426,7 +470,7 @@ export default function WinnerCard({ winner, prize, onClose, winnerProfilePic, i
                       <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
                     </div>
                   ) : effectiveAvatar ? (
-                    <img src={effectiveAvatar} alt={winner.name || 'Vencedor'} className="w-full h-full object-cover" crossOrigin="anonymous" />
+                    <img src={getProxiedImageUrl(effectiveAvatar)} alt={winner.name || 'Vencedor'} className="w-full h-full object-cover" crossOrigin="anonymous" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-4xl font-black text-white" style={{ background: 'linear-gradient(135deg, #1E3A2F, #061C12)' }}>
                       {(winner.name || 'V').charAt(0).toUpperCase()}

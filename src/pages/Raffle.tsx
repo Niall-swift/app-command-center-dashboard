@@ -78,6 +78,7 @@ export default function Raffle() {
 
   // Estados da Roleta da Sorte
   const [rouletteActive, setRouletteActive] = useState(false);
+  const [onlySpecificClients, setOnlySpecificClients] = useState(false);
   const [rouletteItems, setRouletteItems] = useState<any[]>([]);
   const [rouletteWins, setRouletteWins] = useState<any[]>([]);
   const [newRouletteItem, setNewRouletteItem] = useState({
@@ -85,38 +86,37 @@ export default function Raffle() {
     quantity: 10,
     probability: 10,
     color: '#4338FF',
-    icon: 'gift-outline'
+    icon: 'gift-outline',
+    isDefeat: false
   });
 
   useEffect(() => {
-    const fetchClients = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
-        const users = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            name: data.name || data.nome,
-            phone: data.whatsapp || data.telefone || data.celular || data.telefone_celular || '',
-            cep: data.cep || '',
-            cpf: data.cpf || '',
-            instagram: data.instagram || '',
-            avatar: data.imageUrl || '',
-            address: data.address || '',
-            bairro: data.bairro || data.neighborhood || '',
-            city: data.city || '',
-            state: data.state || '',
-            lastMessage: '',
-            lastMessageTime: new Date(),
-            unreadCount: 0,
-            isOnline: false,
-          } as Client;
-        });
-        setUsersPremix(users);
-      } catch (error) {
-        console.error('Erro ao buscar usuários do Firebase:', error);
-      }
-    };
+    const unsubscribeClients = onSnapshot(collection(db, 'usuariosDoPreMix'), (snapshot) => {
+      const users = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || data.nome,
+          phone: data.whatsapp || data.telefone || data.celular || data.telefone_celular || '',
+          cep: data.cep || '',
+          cpf: data.cpf || '',
+          instagram: data.instagram || '',
+          avatar: data.imageUrl || '',
+          address: data.address || '',
+          bairro: data.bairro || data.neighborhood || '',
+          city: data.city || '',
+          state: data.state || '',
+          lastMessage: '',
+          lastMessageTime: new Date(),
+          unreadCount: 0,
+          isOnline: false,
+          rouletteEnabled: data.rouletteEnabled || false,
+        } as Client;
+      });
+      setUsersPremix(users);
+    }, (error) => {
+      console.error('Erro ao escutar usuários do Firebase:', error);
+    });
 
     const fetchWinners = async () => {
       try {
@@ -127,7 +127,6 @@ export default function Raffle() {
       }
     };
 
-    fetchClients();
     fetchWinners();
 
      // Listener para sorteios dinâmicos
@@ -147,8 +146,10 @@ export default function Raffle() {
     const unsubscribeRouletteConfig = onSnapshot(doc(db, 'configs', 'pre_mix_roulette'), (docSnap) => {
       if (docSnap.exists()) {
         setRouletteActive(docSnap.data().active || false);
+        setOnlySpecificClients(docSnap.data().onlySpecificClients || false);
       } else {
         setRouletteActive(false);
+        setOnlySpecificClients(false);
       }
     });
 
@@ -172,6 +173,7 @@ export default function Raffle() {
     });
 
     return () => {
+      unsubscribeClients();
       unsubscribeRaffles();
       unsubscribeRouletteConfig();
       unsubscribeRouletteItems();
@@ -224,6 +226,20 @@ export default function Raffle() {
     }
   };
 
+  const handleToggleOnlySpecificClients = async (onlySpecificState: boolean) => {
+    try {
+      await setDoc(doc(db, 'configs', 'pre_mix_roulette'), { onlySpecificClients: onlySpecificState }, { merge: true });
+      toast({ 
+        title: onlySpecificState ? "Restrição Ativada" : "Restrição Desativada", 
+        description: onlySpecificState 
+          ? "A roleta será exibida apenas para clientes especificamente permitidos." 
+          : "A roleta estará visível para todos os clientes quando ativa." 
+      });
+    } catch (err) {
+      toast({ title: "Erro", description: "Não foi possível atualizar o tipo de restrição.", variant: "destructive" });
+    }
+  };
+
   const handleAddRouletteItem = async () => {
     if (!newRouletteItem.name || newRouletteItem.probability <= 0) {
       toast({ title: "Erro", description: "Nome e peso de probabilidade são obrigatórios.", variant: "destructive" });
@@ -236,10 +252,11 @@ export default function Raffle() {
         probability: Number(newRouletteItem.probability),
         color: newRouletteItem.color,
         icon: newRouletteItem.icon,
+        isDefeat: !!newRouletteItem.isDefeat,
         createdAt: serverTimestamp()
       });
       toast({ title: "Sucesso", description: "Item adicionado à roleta com sucesso!" });
-      setNewRouletteItem({ name: '', quantity: 10, probability: 10, color: '#4338FF', icon: 'gift-outline' });
+      setNewRouletteItem({ name: '', quantity: 10, probability: 10, color: '#4338FF', icon: 'gift-outline', isDefeat: false });
     } catch (err) {
       toast({ title: "Erro", description: "Erro ao adicionar item à roleta.", variant: "destructive" });
     }
@@ -826,6 +843,19 @@ export default function Raffle() {
                   >
                     {rouletteActive ? "Desativar Roleta da Sorte" : "Ativar Roleta da Sorte"}
                   </Button>
+
+                  <div className="flex items-center space-x-2 bg-purple-50/50 p-3 rounded-lg border border-purple-100 w-full mt-2">
+                    <input 
+                      type="checkbox" 
+                      id="only-specific-clients"
+                      checked={onlySpecificClients} 
+                      onChange={(e) => handleToggleOnlySpecificClients(e.target.checked)} 
+                      className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
+                    />
+                    <label htmlFor="only-specific-clients" className="text-xs font-semibold text-gray-700 cursor-pointer select-none">
+                      🔒 Ativar apenas para clientes selecionados
+                    </label>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -884,6 +914,28 @@ export default function Raffle() {
                       />
                     </div>
                   </div>
+                  
+                  <div className="flex items-center space-x-2 bg-red-50/50 p-3 rounded-lg border border-red-100 w-full">
+                    <input 
+                      type="checkbox" 
+                      id="item-is-defeat"
+                      checked={newRouletteItem.isDefeat} 
+                      onChange={(e) => {
+                        const isDef = e.target.checked;
+                        setNewRouletteItem({
+                          ...newRouletteItem, 
+                          isDefeat: isDef,
+                          quantity: isDef ? -1 : 10,
+                          color: isDef ? '#EF4444' : '#4338FF',
+                          icon: isDef ? 'close-circle-outline' : 'gift-outline'
+                        });
+                      }} 
+                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                    />
+                    <label htmlFor="item-is-defeat" className="text-xs font-semibold text-red-700 cursor-pointer select-none">
+                      🚫 Este item representa uma Derrota / Sem prêmio (ex: Tente Novamente)
+                    </label>
+                  </div>
                   <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={handleAddRouletteItem}>
                     <Plus className="w-4 h-4 mr-2" /> Cadastrar na Roleta
                   </Button>
@@ -913,7 +965,12 @@ export default function Raffle() {
                             <Gift className="w-5 h-5" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-gray-900">{item.name}</h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-gray-900">{item.name}</h4>
+                              {item.isDefeat && (
+                                <Badge className="bg-red-500 hover:bg-red-600 text-white text-[10px] px-1.5 py-0.5">Derrota</Badge>
+                              )}
+                            </div>
                             <div className="flex gap-4 text-xs text-gray-500 mt-1">
                               <span>Probabilidade: <strong className="text-purple-600 font-black">{item.probability}</strong></span>
                               <span>Cor: <span className="font-mono">{item.color}</span></span>

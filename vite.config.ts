@@ -46,6 +46,12 @@ export default defineConfig(({ mode }) => ({
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/whapi/, ''),
       },
+      '/api/whatsapp-cdn': {
+        target: 'https://pps.whatsapp.net',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/whatsapp-cdn/, ''),
+      },
     },
   },
   plugins: [

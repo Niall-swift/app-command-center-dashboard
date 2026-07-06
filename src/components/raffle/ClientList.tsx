@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Check, CheckCheck, X, Search, Eye, Trash2, Phone } from 'lucide-react';
+import { Users, Check, CheckCheck, X, Search, Eye, Trash2, Phone, Gift } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ParticipantDetailsModal from './ParticipantDetailsModal';
 import type { Client } from '@/types/dashboard';
@@ -15,6 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/config/firebase';
+import { useToast } from '@/hooks/use-toast';
 
 interface ClientListProps {
   clients: Client[];
@@ -33,10 +36,51 @@ export default function ClientList({
   onDeselectAll,
   onDeleteClient,
 }: ClientListProps) {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBairro, setSelectedBairro] = useState('all');
   const [selectedParticipant, setSelectedParticipant] = useState<Client | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
+  const handleBulkEnableRoulette = async () => {
+    try {
+      const promises = selectedClients.map(client => 
+        updateDoc(doc(db, 'usuariosDoPreMix', client.id), { rouletteEnabled: true })
+      );
+      await Promise.all(promises);
+      toast({
+        title: "Roleta Ativada em Massa",
+        description: `Roleta liberada para ${selectedClients.length} clientes.`
+      });
+      onDeselectAll();
+    } catch (error) {
+      toast({
+        title: "Erro ao atualizar",
+        description: "Não foi possível ativar a roleta para os clientes selecionados.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleBulkDisableRoulette = async () => {
+    try {
+      const promises = selectedClients.map(client => 
+        updateDoc(doc(db, 'usuariosDoPreMix', client.id), { rouletteEnabled: false })
+      );
+      await Promise.all(promises);
+      toast({
+        title: "Roleta Desativada em Massa",
+        description: `Roleta bloqueada para ${selectedClients.length} clientes.`
+      });
+      onDeselectAll();
+    } catch (error) {
+      toast({
+        title: "Erro ao atualizar",
+        description: "Não foi possível desativar a roleta para os clientes selecionados.",
+        variant: "destructive"
+      });
+    }
+  };
 
   const bairros = Array.from(new Set(clients.map(c => c.bairro?.trim()).filter(Boolean))).sort();
 
@@ -155,9 +199,38 @@ export default function ClientList({
               </motion.div>
               Lista de Participantes
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {selectedClients.length > 0 && (
+                <>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBulkEnableRoulette();
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-purple-300 text-purple-600 hover:bg-purple-50"
+                  >
+                    <Gift className="w-3.5 h-3.5 mr-1" /> Ativar Roleta ({selectedClients.length})
+                  </Button>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBulkDisableRoulette();
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-gray-300 text-gray-500 hover:bg-gray-50"
+                  >
+                    <X className="w-3.5 h-3.5 mr-1" /> Desativar Roleta ({selectedClients.length})
+                  </Button>
+                </>
+              )}
               <Button
-                onClick={handleSelectAll}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectAll();
+                }}
                 variant={allSelected ? "destructive" : "default"}
                 size="sm"
                 className="text-xs"
@@ -252,6 +325,34 @@ export default function ClientList({
                     </div>
                     
                   <div className="flex items-center gap-2">
+                      <Button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const nextState = !client.rouletteEnabled;
+                          try {
+                            await updateDoc(doc(db, 'usuariosDoPreMix', client.id), {
+                              rouletteEnabled: nextState
+                            });
+                            toast({
+                              title: nextState ? "Roleta Ativada" : "Roleta Desativada",
+                              description: `Roleta da Sorte ${nextState ? 'permitida' : 'bloqueada'} para ${client.name}.`
+                            });
+                          } catch (err) {
+                            toast({
+                              title: "Erro ao atualizar",
+                              description: "Não foi possível alterar status da roleta do cliente.",
+                              variant: "destructive"
+                            });
+                          }
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className={`hover:bg-purple-50 ${client.rouletteEnabled ? 'text-purple-600 font-bold' : 'text-gray-400 hover:text-purple-400'}`}
+                        title={client.rouletteEnabled ? "Bloquear roleta para este cliente" : "Liberar roleta para este cliente"}
+                      >
+                        <Gift className="w-4 h-4" />
+                      </Button>
+
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();

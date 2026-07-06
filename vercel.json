@@ -17,6 +17,10 @@
             "destination": "https://gate.whapi.cloud/:path*"
         },
         {
+            "source": "/api/whatsapp-cdn/:path*",
+            "destination": "https://pps.whatsapp.net/:path*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/"
         }

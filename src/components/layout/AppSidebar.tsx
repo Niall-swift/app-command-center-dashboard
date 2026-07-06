@@ -12,6 +12,7 @@ import {
   SidebarGroupLabel, SidebarMenu, SidebarMenuButton,
   SidebarMenuItem, SidebarHeader, SidebarFooter,
 } from "@/components/ui/sidebar";
+import { useTheme } from 'next-themes';
 
 const menuItems = [
   { title: "Dashboard",        url: "/",                icon: Home },
@@ -52,15 +53,21 @@ const itemVariants = {
 
 export function AppSidebar() {
   const location = useLocation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
 
   return (
     <Sidebar className="border-r-0" style={{ background: 'transparent' }}>
-      {/* Dark glass background */}
+      {/* Dark/Light glass background */}
       <div
-        className="absolute inset-0 pointer-events-none"
+        className="absolute inset-0 pointer-events-none transition-all duration-300"
         style={{
-          background: 'linear-gradient(180deg, #0F172A 0%, #0F172A 60%, #0D1526 100%)',
-          borderRight: '1px solid rgba(255,255,255,0.07)',
+          background: isDark
+            ? 'linear-gradient(180deg, #0F172A 0%, #0F172A 60%, #0D1526 100%)'
+            : 'linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 60%, #E2E8F0 100%)',
+          borderRight: isDark
+            ? '1px solid rgba(255,255,255,0.07)'
+            : '1px solid rgba(0,0,0,0.08)',
         }}
       />
 
@@ -97,10 +104,10 @@ export function AppSidebar() {
           </motion.div>
 
           <div>
-            <h2 className="text-base font-bold text-white leading-none tracking-wide">
+            <h2 className="text-base font-bold leading-none tracking-wide text-slate-900 dark:text-white">
               AVL Control
             </h2>
-            <p className="text-[10px] font-medium mt-0.5" style={{ color: 'rgba(148,163,184,0.8)' }}>
+            <p className="text-[10px] font-medium mt-0.5" style={{ color: isDark ? 'rgba(148,163,184,0.8)' : 'rgba(71,85,105,0.8)' }}>
               Command Center
             </p>
           </div>
@@ -109,7 +116,7 @@ export function AppSidebar() {
         {/* Divider */}
         <div
           className="mt-4 h-px"
-          style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' }}
+          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
         />
       </SidebarHeader>
 
@@ -120,7 +127,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel
             className="text-xs font-semibold mb-2 px-2 tracking-widest uppercase"
-            style={{ color: 'rgba(148,163,184,0.5)' }}
+            style={{ color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.6)' }}
           >
             Navegação
           </SidebarGroupLabel>
@@ -142,10 +149,12 @@ export function AppSidebar() {
                             className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200"
                             style={{
                               background: isActive
-                                ? 'linear-gradient(135deg, rgba(37,99,235,0.25), rgba(124,58,237,0.15))'
+                                ? (isDark 
+                                    ? 'linear-gradient(135deg, rgba(37,99,235,0.25), rgba(124,58,237,0.15))'
+                                    : 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.08))')
                                 : 'transparent',
                               border: isActive
-                                ? '1px solid rgba(37,99,235,0.3)'
+                                ? (isDark ? '1px solid rgba(37,99,235,0.3)' : '1px solid rgba(37,99,235,0.2)')
                                 : '1px solid transparent',
                             }}
                           >
@@ -171,7 +180,7 @@ export function AppSidebar() {
                               <item.icon
                                 className="w-4.5 h-4.5 transition-colors duration-200"
                                 style={{
-                                  color: isActive ? '#60A5FA' : 'rgba(148,163,184,0.7)',
+                                  color: isActive ? (isDark ? '#60A5FA' : '#2563EB') : (isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)'),
                                   width: 18, height: 18,
                                 }}
                               />
@@ -180,7 +189,7 @@ export function AppSidebar() {
                             {/* Label */}
                             <span
                               className="text-sm font-medium transition-colors duration-200"
-                              style={{ color: isActive ? '#F1F5F9' : 'rgba(148,163,184,0.75)' }}
+                              style={{ color: isActive ? (isDark ? '#F1F5F9' : '#1E293B') : (isDark ? 'rgba(148,163,184,0.75)' : 'rgba(71,85,105,0.85)') }}
                             >
                               {item.title}
                             </span>
@@ -213,7 +222,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel
             className="text-xs font-semibold mb-2 px-2 tracking-widest uppercase flex items-center gap-2"
-            style={{ color: 'rgba(148,163,184,0.5)' }}
+            style={{ color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.6)' }}
           >
             <Database style={{ width: 10, height: 10 }} />
             Sistema IXC
@@ -236,10 +245,12 @@ export function AppSidebar() {
                             className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200"
                             style={{
                               background: isActive
-                                ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.1))'
+                                ? (isDark
+                                    ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.1))'
+                                    : 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(5,150,105,0.06))')
                                 : 'transparent',
                               border: isActive
-                                ? '1px solid rgba(16,185,129,0.3)'
+                                ? (isDark ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(16,185,129,0.2)')
                                 : '1px solid transparent',
                             }}
                           >
@@ -258,12 +269,12 @@ export function AppSidebar() {
                             <item.icon
                               style={{
                                 width: 18, height: 18,
-                                color: isActive ? '#34D399' : 'rgba(148,163,184,0.7)',
+                                color: isActive ? (isDark ? '#34D399' : '#059669') : (isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)'),
                               }}
                             />
                             <span
                               className="text-sm font-medium"
-                              style={{ color: isActive ? '#F1F5F9' : 'rgba(148,163,184,0.75)' }}
+                              style={{ color: isActive ? (isDark ? '#F1F5F9' : '#1E293B') : (isDark ? 'rgba(148,163,184,0.75)' : 'rgba(71,85,105,0.85)') }}
                             >
                               {item.title}
                             </span>
@@ -292,7 +303,10 @@ export function AppSidebar() {
         <motion.div
           whileHover={{ scale: 1.02 }}
           className="flex items-center gap-3 p-3 rounded-xl cursor-pointer"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+          style={{ 
+            background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', 
+            border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.08)' 
+          }}
         >
           <motion.div
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
@@ -303,8 +317,8 @@ export function AppSidebar() {
             A
           </motion.div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white leading-none">Admin</p>
-            <p className="text-xs mt-0.5 truncate" style={{ color: 'rgba(148,163,184,0.6)' }}>
+            <p className="text-sm font-semibold leading-none text-slate-900 dark:text-white">Admin</p>
+            <p className="text-xs mt-0.5 truncate" style={{ color: isDark ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)' }}>
               AVL Telecom
             </p>
           </div>

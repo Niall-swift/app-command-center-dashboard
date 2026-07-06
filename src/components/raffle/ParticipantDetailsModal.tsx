@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { User, Mail, Phone, CreditCard, MapPin, MessageCircle, X } from 'lucide-react';
+import { User, Mail, Phone, CreditCard, MapPin, MessageCircle, X, Gift } from 'lucide-react';
 import type { Client } from '@/types/dashboard';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/config/firebase';
+import { useToast } from '@/hooks/use-toast';
 
 interface ParticipantDetailsModalProps {
   isOpen: boolean;
@@ -20,6 +23,36 @@ interface ParticipantDetailsModalProps {
 
 export default function ParticipantDetailsModal({ isOpen, onClose, participant }: ParticipantDetailsModalProps) {
   if (!participant) return null;
+
+  const { toast } = useToast();
+  const [rouletteEnabled, setRouletteEnabled] = useState(false);
+
+  useEffect(() => {
+    if (participant) {
+      setRouletteEnabled(!!participant.rouletteEnabled);
+    }
+  }, [participant]);
+
+  const handleToggleRoulette = async () => {
+    const nextState = !rouletteEnabled;
+    setRouletteEnabled(nextState);
+    try {
+      await updateDoc(doc(db, 'usuariosDoPreMix', participant.id), {
+        rouletteEnabled: nextState
+      });
+      toast({
+        title: nextState ? "Roleta Ativada" : "Roleta Desativada",
+        description: `Roleta da Sorte ${nextState ? 'permitida' : 'bloqueada'} para ${participant.name}.`
+      });
+    } catch (error) {
+      setRouletteEnabled(!nextState); // Rollback
+      toast({
+        title: "Erro ao atualizar",
+        description: "Não foi possível atualizar o status da roleta do cliente.",
+        variant: "destructive"
+      });
+    }
+  };
 
   const sendWhatsApp = () => {
     const message = `Olá ${participant.name}! obrigado por participar do nosso sorteio. desejamos boa sorte! 🎉`;
@@ -94,6 +127,22 @@ export default function ParticipantDetailsModal({ isOpen, onClose, participant }
                 <p className="text-sm text-gray-500">CEP</p>
                 <p className="font-medium">{participant.cep || 'Não informado'}</p>
               </div>
+            </div>
+
+            <div className="border-t border-gray-200 my-2 pt-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Gift className="w-4 h-4 text-purple-500" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 text-left">Roleta da Sorte</p>
+                  <p className="text-xs text-gray-500 text-left">Permissão individual para girar a roleta</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={rouletteEnabled}
+                onChange={handleToggleRoulette}
+                className="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
+              />
             </div>
           </div>
 

@@ -117,6 +117,24 @@ app.use('/api/smartolt', createProxyMiddleware({
     secure: true
 }));
 
+app.use('/api/whapi', createProxyMiddleware({
+    target: 'https://gate.whapi.cloud',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/api/whapi': '',
+    },
+    secure: true
+}));
+
+app.use('/api/whatsapp-cdn', createProxyMiddleware({
+    target: 'https://pps.whatsapp.net',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/api/whatsapp-cdn': '',
+    },
+    secure: true
+}));
+
 // --- Instanciar Serviços ---
 const ixcService = new IXCBackendService(process.env.IXC_HOST || process.env.VITE_IXC_HOST || '', process.env.IXC_TOKEN || process.env.VITE_IXC_TOKEN || '');
 const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || process.env.VITE_WHAPI_BASE_URL || 'https://gate.whapi.cloud', process.env.WHAPI_API_KEY || process.env.VITE_WHAPI_API_KEY || '');
