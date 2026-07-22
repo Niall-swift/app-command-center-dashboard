@@ -1637,6 +1637,307 @@ export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes
   }
 });
 
+// =========================================================================
+// 🎟️ SISTEMA DE SORTEIOS PAGOS & INTEGRAÇÃO ASAAS
+// =========================================================================
+
+async function getAsaasConfig() {
+  const doc = await db.collection("settings").doc("asaas_config").get();
+  if (!doc.exists) {
+    throw new Error("Configuração do Asaas não encontrada no banco de dados.");
+  }
+  const data = doc.data() || {};
+  if (!data.apiKey) {
+    throw new Error("Chave de API do Asaas não configurada.");
+  }
+  return {
+    apiKey: data.apiKey,
+    environment: data.environment || "sandbox",
+    webhookToken: data.webhookToken || ""
+  };
+}
+
+async function callAsaas(method: "GET" | "POST", path: string, body: any, config: { apiKey: string, environment: string }) {
+  const baseUrl = config.environment === "production" 
+    ? "https://api.asaas.com/v3" 
+    : "https://sandbox.asaas.com/v3";
+  
+  const headers = {
+    "access_token": config.apiKey,
+    "Content-Type": "application/json"
+  };
+
+  const response = await axios({
+    method,
+    url: `${baseUrl}${path}`,
+    headers,
+    data: body,
+    timeout: 15000
+  });
+
+  return response.data;
+}
+
+/**
+ * Cloud Function para criar uma cobrança Pix no Asaas para compra de bilhetes
+ */
+export const createPaidRafflePayment = functions.https.onCall(async (data, context) => {
+  try {
+    const { raffleId, clientName, clientCpf, clientPhone, clientEmail, ticketQuantity } = data;
+
+    if (!raffleId || !clientName || !clientCpf || !clientPhone || !ticketQuantity) {
+      throw new functions.https.HttpsError("invalid-argument", "Campos obrigatórios ausentes.");
+    }
+
+    const qty = parseInt(ticketQuantity);
+    if (isNaN(qty) || qty <= 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Quantidade de bilhetes inválida.");
+    }
+
+    // 1. Obter dados do sorteio
+    const raffleSnap = await db.collection("paid_raffles").doc(raffleId).get();
+    if (!raffleSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Sorteio não encontrado.");
+    }
+    const raffleData = raffleSnap.data() || {};
+    if (raffleData.status !== "active") {
+      throw new functions.https.HttpsError("failed-precondition", "Este sorteio não está ativo.");
+    }
+
+    const ticketPrice = parseFloat(raffleData.ticketPrice);
+    if (isNaN(ticketPrice) || ticketPrice <= 0) {
+      throw new functions.https.HttpsError("failed-precondition", "Preço do bilhete inválido configurado.");
+    }
+
+    const totalValue = ticketPrice * qty;
+
+    // 2. Limpar CPF e telefone
+    const cleanCpf = clientCpf.replace(/\D/g, "");
+    const cleanPhone = clientPhone.replace(/\D/g, "");
+
+    // 3. Obter configuração do Asaas
+    const asaasConfig = await getAsaasConfig();
+
+    // 4. Buscar cliente no Asaas ou cadastrar
+    let customerId = "";
+    console.log(`🔍 [Asaas] Buscando cliente por CPF: ${cleanCpf}`);
+    const searchRes = await callAsaas("GET", `/customers?cpfCnpj=${cleanCpf}`, null, asaasConfig);
+    
+    if (searchRes.data && searchRes.data.length > 0) {
+      customerId = searchRes.data[0].id;
+      console.log(`✅ [Asaas] Cliente encontrado: ${customerId}`);
+    } else {
+      console.log(`➕ [Asaas] Cliente não encontrado. Criando novo cliente...`);
+      const createCustRes = await callAsaas("POST", "/customers", {
+        name: clientName,
+        cpfCnpj: cleanCpf,
+        email: clientEmail || undefined,
+        phone: cleanPhone,
+        notificationDisabled: true
+      }, asaasConfig);
+      customerId = createCustRes.id;
+      console.log(`✅ [Asaas] Cliente criado com sucesso: ${customerId}`);
+    }
+
+    // 5. Criar documento temporário no Firestore para pegar o ID
+    const paymentRef = db.collection("paid_raffle_payments").doc();
+    const paymentId = paymentRef.id;
+
+    // 6. Criar cobrança no Asaas
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dueDateStr = tomorrow.toISOString().split("T")[0];
+
+    console.log(`💳 [Asaas] Criando cobrança no Asaas para ${clientName} no valor de R$ ${totalValue.toFixed(2)}`);
+    const paymentRes = await callAsaas("POST", "/payments", {
+      customer: customerId,
+      billingType: "PIX",
+      value: totalValue,
+      dueDate: dueDateStr,
+      description: `Compra de ${qty} bilhete(s) para o sorteio: ${raffleData.title}`,
+      externalReference: paymentId
+    }, asaasConfig);
+
+    // 7. Buscar QR Code do Pix
+    console.log(`📱 [Asaas] Buscando QR Code Pix para pagamento ${paymentRes.id}`);
+    const pixRes = await callAsaas("GET", `/payments/${paymentRes.id}/pixQrCode`, null, asaasConfig);
+
+    // 8. Salvar no Firestore
+    const newPaymentData = {
+      id: paymentId,
+      raffleId: raffleId,
+      raffleTitle: raffleData.title,
+      clientName: clientName,
+      clientCpf: cleanCpf,
+      clientPhone: cleanPhone,
+      clientEmail: clientEmail || "",
+      ticketQuantity: qty,
+      totalValue: totalValue,
+      asaasCustomerId: customerId,
+      asaasPaymentId: paymentRes.id,
+      paymentStatus: "PENDING",
+      pixCode: pixRes.payload,
+      pixQrCodeBase64: pixRes.encodedImage,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      confirmedAt: null,
+      ticketsGenerated: false
+    };
+
+    await paymentRef.set(newPaymentData);
+    console.log(`💾 [Firestore] Cobrança Pix salva no banco de dados. ID: ${paymentId}`);
+
+    return {
+      success: true,
+      paymentId: paymentId,
+      pixCode: pixRes.payload,
+      pixQrCodeBase64: pixRes.encodedImage,
+      totalValue: totalValue,
+      raffleTitle: raffleData.title
+    };
+
+  } catch (error: any) {
+    console.error("❌ Erro em createPaidRafflePayment:", error);
+    throw new functions.https.HttpsError("internal", error.message || "Erro interno ao processar pagamento.");
+  }
+});
+
+/**
+ * Webhook HTTP para receber confirmação de pagamentos do Asaas
+ */
+export const asaasWebhook = functions.https.onRequest(async (req, res) => {
+  if (req.method === "GET") {
+    res.status(200).send("Webhook Asaas ativo.");
+    return;
+  }
+
+  try {
+    const asaasConfig = await getAsaasConfig();
+    const requestToken = req.headers["asaas-access-token"];
+
+    if (asaasConfig.webhookToken && requestToken !== asaasConfig.webhookToken) {
+      console.warn("⚠️ Token do Webhook inválido ou ausente no cabeçalho.");
+      res.status(401).send("Unauthorized: Invalid webhook token.");
+      return;
+    }
+
+    const { event, payment } = req.body;
+    console.log(`🔔 [Webhook Asaas] Recebido evento: ${event} para o pagamento Asaas ID: ${payment?.id}`);
+
+    if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED") {
+      const paymentId = payment.externalReference;
+      if (!paymentId) {
+        console.warn("⚠️ Evento de pagamento recebido, mas 'externalReference' está ausente.");
+        res.status(400).send("Bad Request: externalReference missing.");
+        return;
+      }
+
+      const paymentRef = db.collection("paid_raffle_payments").doc(paymentId);
+      const paymentSnap = await paymentRef.get();
+
+      if (!paymentSnap.exists) {
+        console.warn(`⚠️ Pagamento não encontrado no Firestore: ${paymentId}`);
+        res.status(404).send("Not Found: Payment document not found.");
+        return;
+      }
+
+      const paymentData = paymentSnap.data() || {};
+      if (paymentData.paymentStatus === "CONFIRMED") {
+        console.log(`ℹ️ Pagamento ${paymentId} já está confirmado no banco.`);
+        res.status(200).send("Success: Already confirmed.");
+        return;
+      }
+
+      const raffleId = paymentData.raffleId;
+      const ticketQuantity = paymentData.ticketQuantity;
+      const raffleRef = db.collection("paid_raffles").doc(raffleId);
+
+      const ticketNumbers: number[] = [];
+
+      console.log(`🎟️ Gerando ${ticketQuantity} bilhetes para o sorteio ${raffleId} em transação Firestore...`);
+      
+      await db.runTransaction(async (transaction) => {
+        const raffleSnapTrans = await transaction.get(raffleRef);
+        if (!raffleSnapTrans.exists) {
+          throw new Error("Sorteio não encontrado.");
+        }
+        
+        const raffleDataTrans = raffleSnapTrans.data() || {};
+        const currentSold = raffleDataTrans.totalTicketsSold || 0;
+        const startNumber = currentSold + 100001;
+
+        for (let i = 0; i < ticketQuantity; i++) {
+          ticketNumbers.push(startNumber + i);
+        }
+
+        transaction.update(raffleRef, {
+          totalTicketsSold: currentSold + ticketQuantity
+        });
+
+        transaction.update(paymentRef, {
+          paymentStatus: "CONFIRMED",
+          confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+          ticketsGenerated: true,
+          tickets: ticketNumbers
+        });
+
+        for (const num of ticketNumbers) {
+          const ticketRef = db.collection("paid_raffle_tickets").doc(`${raffleId}_${num}`);
+          transaction.set(ticketRef, {
+            id: `${raffleId}_${num}`,
+            raffleId: raffleId,
+            paymentId: paymentId,
+            clientName: paymentData.clientName,
+            clientPhone: paymentData.clientPhone,
+            clientCpf: paymentData.clientCpf,
+            ticketNumber: num,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      });
+
+      console.log(`✅ Transação concluída com sucesso! Bilhetes gerados: ${ticketNumbers.join(", ")}`);
+
+      try {
+        const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
+        const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
+        
+        if (whapiApiKey && paymentData.clientPhone) {
+          const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
+          const ticketListStr = ticketNumbers.join(", ");
+          const clientNameFirst = paymentData.clientName.split(" ")[0];
+          
+          const text = `✅ *Olá, ${clientNameFirst}!*
+
+Seu pagamento para o sorteio *${paymentData.raffleTitle}* foi confirmado com sucesso! 🎉
+
+Você adquiriu *${ticketQuantity} bilhete(s)*.
+Seus números da sorte são:
+👉 *${ticketListStr}*
+
+Boa sorte! 🍀
+_AVL Telecom_`;
+
+          await whapiService.sendCustomMessage(paymentData.clientPhone, text);
+          console.log(`💬 WhatsApp de confirmação enviado para ${paymentData.clientPhone}`);
+        } else {
+          console.warn("⚠️ WHAPI_KEY ou Telefone do cliente não encontrado. Ignorando notificação.");
+        }
+      } catch (waErr) {
+        console.error("❌ Erro ao enviar notificação de WhatsApp:", waErr);
+      }
+
+      res.status(200).send("Success: Payment processed and tickets generated.");
+      return;
+    }
+
+    res.status(200).send(`Received unhandled event type: ${event}`);
+
+  } catch (error: any) {
+    console.error("❌ Erro no webhook Asaas:", error);
+    res.status(500).send(`Internal Server Error: ${error.message}`);
+  }
+});
+
 // --- 5. SECURE API PROXY FOR MOBILE APP ---
 export {
   smartOltRebootOnu,

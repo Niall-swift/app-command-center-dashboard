@@ -177,4 +177,42 @@ export class WhapiService {
       };
     }
   }
+
+  /**
+   * Enviar mensagem de texto personalizada de forma direta
+   */
+  async sendCustomMessage(
+    phone: string,
+    text: string
+  ): Promise<WhapiResponse> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(phone);
+      const payload = {
+        to: formattedPhone,
+        body: text,
+      };
+
+      console.log(`📦 Enviando mensagem personalizada para ${formattedPhone}`);
+      const response = await this.client.post("/messages/text", payload);
+      console.log("✅ Mensagem personalizada enviada com sucesso:", response.data);
+
+      return {
+        sent: true,
+        id: response.data.id,
+        message: "Mensagem enviada com sucesso",
+      };
+    } catch (error) {
+      console.error("❌ Erro ao enviar mensagem personalizada:", error);
+      if (axios.isAxiosError(error)) {
+        return {
+          sent: false,
+          error: error.response?.data?.message || error.message,
+        };
+      }
+      return {
+        sent: false,
+        error: "Erro desconhecido ao enviar mensagem",
+      };
+    }
+  }
 }

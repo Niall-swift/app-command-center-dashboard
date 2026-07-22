@@ -25,6 +25,7 @@ const menuItems = [
   { title: "Gráficos",         url: "/analytics",       icon: BarChart3 },
   { title: "Criar Bots",       url: "/bots",            icon: Bot },
   { title: "Sorteio",          url: "/raffle",          icon: Gift },
+  { title: "Sorteios Pagos",   url: "/paid-raffles",    icon: Ticket },
   { title: "Filmes",           url: "/movies",          icon: Film },
   { title: "Séries",           url: "/series",          icon: Tv },
   { title: "Métricas AVL Play", url: "/avlplay-analytics", icon: Activity },

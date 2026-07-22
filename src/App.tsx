@@ -19,6 +19,8 @@ import Analytics from "./pages/Analytics";
 import Bots from "./pages/Bots";
 import Settings from "./pages/Settings";
 import Raffle from "./pages/Raffle";
+import PaidRaffles from "./pages/PaidRaffles";
+import PublicPaidRaffle from "./pages/PublicPaidRaffle";
 import TechnicalSupport from "./pages/TechnicalSupport";
 import NetworkMap from "./pages/NetworkMap";
 import Movies from "./pages/Movies";
@@ -54,6 +56,7 @@ function AnimatedRoutes() {
         <Route path="/bots" element={<Bots />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/raffle" element={<Raffle />} />
+        <Route path="/paid-raffles" element={<PaidRaffles />} />
         <Route path="/movies" element={<Movies />} />
         <Route path="/series" element={<Series />} />
         <Route path="/avlplay-analytics" element={<AVLPlayAnalytics />} />
@@ -75,6 +78,36 @@ function AnimatedRoutes() {
   );
 }
 
+function AppContent() {
+  const location = useLocation();
+  const isPublicRoute = location.pathname.startsWith("/sorteio-compra/");
+
+  if (isPublicRoute) {
+    return (
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/sorteio-compra/:id" element={<PublicPaidRaffle />} />
+        </Routes>
+      </ErrorBoundary>
+    );
+  }
+
+  return (
+    <ProtectedRoute>
+      <DashboardLayout>
+        <ErrorBoundary>
+          <AppContentWithRouterFix />
+        </ErrorBoundary>
+      </DashboardLayout>
+    </ProtectedRoute>
+  );
+}
+
+// Helper to keep location context working properly within the dashboard layout
+function AppContentWithRouterFix() {
+  return <AnimatedRoutes />;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
@@ -84,13 +117,7 @@ const App = () => (
         <AuthProvider>
           <ChatNotificationProvider>
             <BrowserRouter>
-              <ProtectedRoute>
-                <DashboardLayout>
-                  <ErrorBoundary>
-                    <AnimatedRoutes />
-                  </ErrorBoundary>
-                </DashboardLayout>
-              </ProtectedRoute>
+              <AppContent />
             </BrowserRouter>
           </ChatNotificationProvider>
         </AuthProvider>
