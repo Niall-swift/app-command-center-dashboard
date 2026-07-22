@@ -1660,22 +1660,28 @@ async function getAsaasConfig() {
 async function callAsaas(method: "GET" | "POST", path: string, body: any, config: { apiKey: string, environment: string }) {
   const baseUrl = config.environment === "production" 
     ? "https://api.asaas.com/v3" 
-    : "https://sandbox.asaas.com/v3";
+    : "https://api-sandbox.asaas.com/v3";
   
   const headers = {
     "access_token": config.apiKey,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "User-Agent": "AVL-Telecom-App"
   };
 
-  const response = await axios({
-    method,
-    url: `${baseUrl}${path}`,
-    headers,
-    data: body,
-    timeout: 15000
-  });
+  try {
+    const response = await axios({
+      method,
+      url: `${baseUrl}${path}`,
+      headers,
+      data: body,
+      timeout: 15000
+    });
 
-  return response.data;
+    return response.data;
+  } catch (error: any) {
+    console.error(`❌ Erro na API Asaas [${method} ${path}]:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.errors?.[0]?.description || error.message);
+  }
 }
 
 /**
