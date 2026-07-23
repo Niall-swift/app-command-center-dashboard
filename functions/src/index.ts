@@ -1959,5 +1959,6 @@ export {
   smartOltGetWifiDetails,
   smartOltSetWifiDetails,
   ixcFetchClient,
-  spinPreMixRoulette
+  spinPreMixRoulette,
+  createCustomToken
 } from "./apiProxy";

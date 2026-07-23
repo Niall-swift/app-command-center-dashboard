@@ -285,3 +285,31 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError("internal", error.message);
   }
 });
+
+/**
+ * 🚀 Proxy: Criar Custom Token do Firebase a partir do CPF validado
+ */
+export const createCustomToken = functions.https.onCall(async (data, context) => {
+  const { cpf } = data;
+  if (!cpf) {
+    throw new functions.https.HttpsError("invalid-argument", "CPF/CNPJ é obrigatório.");
+  }
+  
+  const cleanCpf = cpf.replace(/\D/g, "");
+  if (cleanCpf.length < 11) {
+    throw new functions.https.HttpsError("invalid-argument", "CPF/CNPJ inválido.");
+  }
+
+  try {
+    console.log(`🤖 [Proxy] Gerando Custom Token para CPF: ${cleanCpf}`);
+    // Gerar Custom Token usando o Admin SDK
+    const customToken = await admin.auth().createCustomToken(cleanCpf);
+    return {
+      success: true,
+      token: customToken
+    };
+  } catch (error: any) {
+    console.error("❌ Erro ao criar Custom Token:", error.message);
+    throw new functions.https.HttpsError("internal", `Erro ao gerar token: ${error.message}`);
+  }
+});

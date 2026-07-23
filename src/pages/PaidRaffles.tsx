@@ -29,6 +29,7 @@ import {
   setDoc, 
   updateDoc, 
   addDoc, 
+  deleteDoc,
   serverTimestamp, 
   where,
   getDocs
@@ -51,7 +52,10 @@ import {
   TrendingUp,
   Search,
   CheckCircle2,
-  HelpCircle
+  HelpCircle,
+  Edit,
+  Trash2,
+  Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -133,6 +137,10 @@ export default function PaidRaffles() {
     drawDate: ''
   });
 
+  // Edit Raffle State
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingRaffle, setEditingRaffle] = useState<any>(null);
+
   // Asaas Config State
   const [asaasConfig, setAsaasConfig] = useState({
     apiKey: '',
@@ -193,12 +201,13 @@ export default function PaidRaffles() {
 
     const qTickets = query(
       collection(db, 'paid_raffle_tickets'),
-      where('raffleId', '==', selectedRaffle.id),
-      orderBy('ticketNumber', 'asc')
+      where('raffleId', '==', selectedRaffle.id)
     );
 
     const unsubTickets = onSnapshot(qTickets, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TicketDoc));
+      // Sort in memory to avoid requiring a composite index in Firestore
+      items.sort((a, b) => a.ticketNumber - b.ticketNumber);
       setTickets(items);
     });
 
@@ -253,6 +262,85 @@ export default function PaidRaffles() {
         description: error.message || "Erro inesperado.",
         variant: "destructive"
       });
+    }
+  };
+
+  // Edit Raffle Handler
+  const handleEditRaffleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRaffle || !editingRaffle.title || !editingRaffle.prizeName || !editingRaffle.ticketPrice || !editingRaffle.drawDate) {
+      toast({
+        title: "Erro de Validação",
+        description: "Preencha todos os campos obrigatórios (*).",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'paid_raffles', editingRaffle.id), {
+        title: editingRaffle.title,
+        description: editingRaffle.description,
+        prizeName: editingRaffle.prizeName,
+        prizeDescription: editingRaffle.prizeDescription,
+        prizeImageUrl: editingRaffle.prizeImageUrl || '',
+        ticketPrice: parseFloat(editingRaffle.ticketPrice.toString()),
+        minTickets: parseInt(editingRaffle.minTickets?.toString() || "0"),
+        drawDate: editingRaffle.drawDate,
+      });
+
+      toast({
+        title: "Sorteio Atualizado!",
+        description: "As informações do sorteio foram alteradas com sucesso."
+      });
+
+      setIsEditOpen(false);
+      setEditingRaffle(null);
+    } catch (error: any) {
+      toast({
+        title: "Erro ao Atualizar",
+        description: error.message || "Erro inesperado.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Toggle Status Handler
+  const handleToggleStatus = async (raffle: PaidRaffle) => {
+    const newStatus = raffle.status === 'active' ? 'cancelled' : 'active';
+    try {
+      await updateDoc(doc(db, 'paid_raffles', raffle.id), {
+        status: newStatus
+      });
+      toast({
+        title: "Status Atualizado",
+        description: `O sorteio agora está ${newStatus === 'active' ? 'Ativo' : 'Pausado/Inativo'}.`
+      });
+    } catch (error: any) {
+      toast({
+        title: "Erro ao atualizar status",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Delete Raffle Handler
+  const handleDeleteRaffle = async (raffle: PaidRaffle) => {
+    if (window.confirm(`Tem certeza que deseja excluir o sorteio "${raffle.title}"? Isso NÃO apagará o histórico de vendas, mas a campanha sumirá.`)) {
+      try {
+        await deleteDoc(doc(db, 'paid_raffles', raffle.id));
+        toast({
+          title: "Sorteio Excluído",
+          description: "O sorteio foi removido com sucesso."
+        });
+      } catch (error: any) {
+        toast({
+          title: "Erro ao Excluir",
+          description: error.message,
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -532,7 +620,7 @@ export default function PaidRaffles() {
                         </div>
                       </div>
 
-                      <div className="pt-6 border-t border-border/40 mt-5 flex gap-2">
+                      <div className="pt-6 border-t border-border/40 mt-5 flex flex-wrap gap-2">
                         <Button 
                           variant="outline" 
                           onClick={() => {
@@ -541,7 +629,7 @@ export default function PaidRaffles() {
                           }}
                           className="flex-1 rounded-xl gap-1 text-xs"
                         >
-                          <Eye className="w-3.5 h-3.5" /> Detalhes & Sorteio
+                          <Eye className="w-3.5 h-3.5" /> Detalhes
                         </Button>
                         <Button 
                           onClick={() => {
@@ -557,6 +645,33 @@ export default function PaidRaffles() {
                           title="Copiar Link de Venda"
                         >
                           <Copy className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          onClick={() => {
+                            setEditingRaffle(raffle);
+                            setIsEditOpen(true);
+                          }}
+                          className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400 p-2.5 rounded-xl border-none"
+                          size="icon"
+                          title="Editar Sorteio"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          onClick={() => handleToggleStatus(raffle)}
+                          className={`${raffle.status === 'active' ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400' : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'} p-2.5 rounded-xl border-none`}
+                          size="icon"
+                          title={raffle.status === 'active' ? "Pausar Sorteio" : "Ativar Sorteio"}
+                        >
+                          {raffle.status === 'active' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </Button>
+                        <Button 
+                          onClick={() => handleDeleteRaffle(raffle)}
+                          className="bg-red-500/10 text-red-600 hover:bg-red-500/20 dark:text-red-400 p-2.5 rounded-xl border-none"
+                          size="icon"
+                          title="Excluir Sorteio"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
                     </CardContent>
@@ -651,6 +766,37 @@ export default function PaidRaffles() {
                                 }`}>
                                   {pay.paymentStatus === 'CONFIRMED' ? 'Confirmado' : pay.paymentStatus === 'PENDING' ? 'Pendente' : 'Expirado'}
                                 </Badge>
+                                
+                                {pay.paymentStatus === 'PENDING' && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="ml-2 h-7 text-[10px] bg-emerald-500/10 text-emerald-600 border-none hover:bg-emerald-500/20"
+                                    onClick={async () => {
+                                      if (window.confirm('Forçar a aprovação deste pagamento para testes? (Isso vai gerar os bilhetes)')) {
+                                        try {
+                                          toast({ title: 'Simulando Webhook...', description: 'Aguarde a geração dos bilhetes.' });
+                                          await fetch(webhookUrl, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'asaas-access-token': asaasConfig.webhookToken || ''
+                                            },
+                                            body: JSON.stringify({
+                                              event: 'PAYMENT_CONFIRMED',
+                                              payment: { id: 'simulated_payment', externalReference: pay.id }
+                                            })
+                                          });
+                                          toast({ title: 'Sucesso', description: 'O pagamento foi confirmado e os bilhetes foram gerados!' });
+                                        } catch (e: any) {
+                                          toast({ title: 'Erro', description: e.message, variant: 'destructive' });
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    <Check className="w-3 h-3 mr-1" /> Simular Pagamento
+                                  </Button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -926,6 +1072,140 @@ export default function PaidRaffles() {
                   className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20"
                 >
                   Criar Sorteio
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* MODAL: EDITAR SORTEIO */}
+        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+          <DialogContent className="max-w-2xl bg-card border-border/40 rounded-2xl max-h-[85vh] overflow-y-auto">
+            <form onSubmit={handleEditRaffleSubmit} className="space-y-6">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                  <Edit className="w-5 h-5 text-indigo-500" />
+                  Editar Sorteio Pago
+                </DialogTitle>
+                <DialogDescription>
+                  Altere as informações da campanha de sorteio.
+                </DialogDescription>
+              </DialogHeader>
+
+              {editingRaffle && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-title">Título da Campanha *</Label>
+                    <Input 
+                      id="edit-title" 
+                      required
+                      value={editingRaffle.title}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, title: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-description">Descrição (Regras, Detalhes)</Label>
+                    <textarea 
+                      id="edit-description"
+                      rows={3}
+                      value={editingRaffle.description}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, description: e.target.value }))}
+                      className="w-full rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-ticketPrice">Preço (R$) *</Label>
+                      <Input 
+                        id="edit-ticketPrice" 
+                        type="number"
+                        step="0.01"
+                        required
+                        value={editingRaffle.ticketPrice}
+                        onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, ticketPrice: e.target.value }))}
+                        className="rounded-xl border-border/50"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-minTickets">Mínimo de Bilhetes</Label>
+                      <Input 
+                        id="edit-minTickets" 
+                        type="number"
+                        placeholder="Ex: 50"
+                        value={editingRaffle.minTickets}
+                        onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, minTickets: e.target.value }))}
+                        className="rounded-xl border-border/50"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-drawDate">Data Prevista do Sorteio *</Label>
+                    <Input 
+                      id="edit-drawDate" 
+                      type="date"
+                      required
+                      value={editingRaffle.drawDate}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, drawDate: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-semibold text-sm text-muted-foreground uppercase">Detalhes do Prêmio</h4>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-prizeName">Nome do Prêmio *</Label>
+                    <Input 
+                      id="edit-prizeName" 
+                      required
+                      value={editingRaffle.prizeName}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, prizeName: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-prizeDescription">Descrição do Prêmio</Label>
+                    <Input 
+                      id="edit-prizeDescription" 
+                      value={editingRaffle.prizeDescription}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, prizeDescription: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-prizeImageUrl">URL da Imagem do Prêmio (Opcional)</Label>
+                    <Input 
+                      id="edit-prizeImageUrl" 
+                      value={editingRaffle.prizeImageUrl}
+                      onChange={(e) => setEditingRaffle((prev: any) => ({ ...prev, prizeImageUrl: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
+                </div>
+              </div>
+              )}
+
+              <DialogFooter className="gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setIsEditOpen(false)}
+                  className="rounded-xl"
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg hover:shadow-blue-500/20"
+                >
+                  Salvar Alterações
                 </Button>
               </DialogFooter>
             </form>

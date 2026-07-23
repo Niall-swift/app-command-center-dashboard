@@ -286,6 +286,12 @@ export default function PublicPaidRaffle() {
     return `${min}:${remainingSec.toString().padStart(2, '0')}`;
   };
 
+  useEffect(() => {
+    // Prevent white flash/penumbra on mobile bounce scroll
+    document.body.style.backgroundColor = '#09090b'; // zinc-950
+    return () => { document.body.style.backgroundColor = ''; };
+  }, []);
+
   // Loading Screen
   if (loadingPage) {
     return (
@@ -310,26 +316,23 @@ export default function PublicPaidRaffle() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-950 via-slate-900 to-indigo-950 text-white font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-[100dvh] bg-zinc-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-emerald-950/20 text-white font-sans selection:bg-emerald-500 selection:text-white pb-10">
       
       {/* Visual Ambient Blur effects */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-10 right-1/4 w-[400px] h-[400px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-10 right-1/4 w-[400px] h-[400px] bg-yellow-500/5 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Brand Header */}
-      <header className="relative z-10 max-w-4xl mx-auto px-6 py-6 flex items-center justify-between border-b border-white/5 bg-slate-950/20 backdrop-blur-md">
+      <header className="relative z-10 max-w-4xl mx-auto px-6 py-6 flex items-center justify-between border-b border-white/5 bg-zinc-950/20 backdrop-blur-md">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
-            P
-          </div>
-          <span className="font-extrabold text-sm uppercase tracking-widest text-slate-100">Pre-Mix Sorteios</span>
+          <img src="/pre-mix-logo.png" alt="Pre-Mix Sorteios" className="h-10 w-auto object-contain" />
         </div>
 
-        <div className="flex bg-slate-900/80 p-0.5 rounded-lg border border-white/5">
+        <div className="flex bg-zinc-900/80 p-0.5 rounded-lg border border-white/5">
           <button
             onClick={() => setActiveTab('buy')}
             className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-200 ${
-              activeTab === 'buy' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              activeTab === 'buy' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
             Adquirir Bilhetes
@@ -342,7 +345,7 @@ export default function PublicPaidRaffle() {
               setSearchCpfOrPhone('');
             }}
             className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-200 ${
-              activeTab === 'tickets' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              activeTab === 'tickets' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
             Meus Bilhetes
@@ -417,7 +420,7 @@ export default function PublicPaidRaffle() {
                     setClientPhone('');
                     setClientEmail('');
                   }}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold h-12 rounded-xl shadow-lg shadow-indigo-500/20"
+                  className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold h-12 rounded-xl shadow-lg shadow-emerald-500/20"
                 >
                   Adquirir Mais Bilhetes
                 </Button>
@@ -430,18 +433,18 @@ export default function PublicPaidRaffle() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                className="space-y-6 bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl"
+                className="space-y-6 bg-zinc-900/60 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl"
               >
                 <div className="text-center space-y-1">
-                  <Badge variant="outline" className="bg-indigo-500/10 text-indigo-400 border-none text-[10px] uppercase font-bold tracking-widest">
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-none text-[10px] uppercase font-bold tracking-widest">
                     Checkout Pix
                   </Badge>
                   <h3 className="text-xl font-black">Aguardando Pagamento</h3>
-                  <p className="text-slate-400 text-xs">Pague o Pix para receber seus bilhetes instantaneamente.</p>
+                  <p className="text-zinc-400 text-xs">Pague o Pix para receber seus bilhetes instantaneamente.</p>
                 </div>
 
                 {/* QR Code and payload */}
-                <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 flex flex-col items-center space-y-4">
+                <div className="bg-zinc-950 p-6 rounded-2xl border border-white/5 flex flex-col items-center space-y-4">
                   {pixQrCode ? (
                     <div className="bg-white p-3 rounded-2xl">
                       <img 
@@ -451,13 +454,13 @@ export default function PublicPaidRaffle() {
                       />
                     </div>
                   ) : (
-                    <div className="w-48 h-48 bg-slate-900 rounded-2xl flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                    <div className="w-48 h-48 bg-zinc-900 rounded-2xl flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                     </div>
                   )}
 
                   <div className="text-center">
-                    <span className="text-[10px] text-slate-500 uppercase font-semibold">Valor Total</span>
+                    <span className="text-[10px] text-zinc-500 uppercase font-semibold">Valor Total</span>
                     <h2 className="text-2xl font-black text-emerald-400 mt-0.5">
                       R$ {totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </h2>
@@ -465,8 +468,8 @@ export default function PublicPaidRaffle() {
                 </div>
 
                 {/* Expiration Timer */}
-                <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400 bg-white/5 py-2.5 rounded-xl border border-white/5">
-                  <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                <div className="flex items-center justify-center gap-1.5 text-xs text-zinc-400 bg-white/5 py-2.5 rounded-xl border border-white/5">
+                  <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
                   <span>
                     O Pix expira em: <b className="text-white font-mono">{formatMinutes(timeLeft)}</b>
                   </span>
@@ -474,16 +477,16 @@ export default function PublicPaidRaffle() {
 
                 {/* Pix copy paste */}
                 <div className="space-y-2">
-                  <Label className="text-xs text-slate-400">Código Pix Copia e Cola</Label>
+                  <Label className="text-xs text-zinc-400">Código Pix Copia e Cola</Label>
                   <div className="flex gap-2">
                     <Input 
                       readOnly 
                       value={pixCode}
-                      className="bg-slate-950 border-white/5 text-xs font-mono select-all h-10 rounded-xl"
+                      className="bg-zinc-950 border-white/5 text-xs font-mono select-all h-10 rounded-xl"
                     />
                     <Button
                       onClick={copyPix}
-                      className="bg-indigo-600 hover:bg-indigo-700 h-10 rounded-xl px-4 gap-1.5"
+                      className="bg-emerald-600 hover:bg-emerald-700 h-10 rounded-xl px-4 gap-1.5"
                     >
                       {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                       {copied ? "Copiado" : "Copiar"}
@@ -498,7 +501,7 @@ export default function PublicPaidRaffle() {
                       setPaymentId(null);
                       setPixCode('');
                     }}
-                    className="w-full text-slate-400 hover:text-white rounded-xl text-xs"
+                    className="w-full text-zinc-400 hover:text-white rounded-xl text-xs"
                   >
                     Voltar e alterar dados
                   </Button>
@@ -516,7 +519,7 @@ export default function PublicPaidRaffle() {
                 className="space-y-6"
               >
                 {/* Hero Prize Card */}
-                <Card className="overflow-hidden border border-white/5 bg-slate-900/60 backdrop-blur-md rounded-3xl relative">
+                <Card className="overflow-hidden border border-white/5 bg-zinc-900/60 backdrop-blur-md rounded-3xl relative">
                   
                   {raffle.prizeImageUrl ? (
                     <div className="h-44 relative overflow-hidden">
@@ -525,17 +528,17 @@ export default function PublicPaidRaffle() {
                         alt={raffle.prizeName} 
                         className="w-full h-full object-cover opacity-60"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent" />
                     </div>
                   ) : (
-                    <div className="h-40 bg-gradient-to-br from-indigo-900/50 via-slate-900 to-slate-950 flex items-center justify-center p-6 text-center">
+                    <div className="h-40 bg-gradient-to-br from-emerald-900/50 via-zinc-900 to-zinc-950 flex items-center justify-center p-6 text-center">
                       <div className="space-y-1">
-                        <Badge className="bg-indigo-500 text-white text-[9px] uppercase tracking-widest font-black rounded-full">
+                        <Badge className="bg-emerald-500 text-white text-[9px] uppercase tracking-widest font-black rounded-full">
                           Sorteio Ativo
                         </Badge>
-                        <h4 className="text-xs uppercase font-semibold text-indigo-400 mt-2">Prêmio</h4>
+                        <h4 className="text-xs uppercase font-semibold text-emerald-400 mt-2">Prêmio</h4>
                         <h3 className="text-lg font-black truncate max-w-[260px]">{raffle.prizeName}</h3>
-                        <p className="text-[10px] text-slate-400 line-clamp-1">{raffle.prizeDescription}</p>
+                        <p className="text-[10px] text-zinc-400 line-clamp-1">{raffle.prizeDescription}</p>
                       </div>
                     </div>
                   )}
@@ -543,41 +546,41 @@ export default function PublicPaidRaffle() {
                   <CardContent className="p-6 space-y-4">
                     <div>
                       <h2 className="text-xl font-extrabold text-white">{raffle.title}</h2>
-                      <p className="text-slate-400 text-xs mt-1 leading-relaxed">{raffle.description}</p>
+                      <p className="text-zinc-400 text-xs mt-1 leading-relaxed">{raffle.description}</p>
                     </div>
 
                     <div className="flex justify-between items-center bg-white/5 p-3 rounded-2xl border border-white/5 text-sm">
-                      <span className="text-slate-400 font-medium">Preço do Bilhete:</span>
-                      <span className="font-black text-indigo-400 text-base">
+                      <span className="text-zinc-400 font-medium">Preço do Bilhete:</span>
+                      <span className="font-black text-emerald-400 text-base">
                         R$ {raffle.ticketPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Sorteio previsto para: <b className="text-slate-200">{raffle.drawDate}</b></span>
+                    <div className="flex items-center gap-2 text-xs text-zinc-400">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Sorteio previsto para: <b className="text-zinc-200">{raffle.drawDate}</b></span>
                     </div>
                   </CardContent>
                 </Card>
 
                 {/* Customer Information Form */}
-                <Card className="border border-white/5 bg-slate-900/60 backdrop-blur-md rounded-3xl p-6 shadow-xl">
+                <Card className="border border-white/5 bg-zinc-900/60 backdrop-blur-md rounded-3xl p-6 shadow-xl">
                   <form onSubmit={handlePurchase} className="space-y-4">
-                    <h3 className="font-extrabold text-base border-b border-white/5 pb-2 text-slate-200">
+                    <h3 className="font-extrabold text-base border-b border-white/5 pb-2 text-zinc-200">
                       Preencha os dados de participação
                     </h3>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="name" className="text-slate-400">Nome Completo</Label>
+                      <Label htmlFor="name" className="text-zinc-400">Nome Completo</Label>
                       <div className="relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                         <Input 
                           id="name" 
                           placeholder="Digite seu nome"
                           required
                           value={clientName}
                           onChange={(e) => setClientName(e.target.value)}
-                          className="pl-9 bg-slate-950 border-white/5 rounded-xl h-10 text-sm focus:border-indigo-500/50"
+                          className="pl-9 bg-zinc-950 text-white border-white/5 rounded-xl h-10 text-sm focus:border-emerald-500/50"
                         />
                       </div>
                     </div>
@@ -593,38 +596,38 @@ export default function PublicPaidRaffle() {
                             required
                             value={clientCpf}
                             onChange={handleCpfChange}
-                            className="pl-9 bg-slate-950 border-white/5 rounded-xl h-10 text-sm"
+                            className="pl-9 bg-slate-950 text-white border-white/5 rounded-xl h-10 text-sm"
                           />
                         </div>
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label htmlFor="phone" className="text-slate-400">WhatsApp</Label>
+                        <Label htmlFor="phone" className="text-zinc-400">WhatsApp</Label>
                         <div className="relative">
-                          <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                          <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                           <Input 
                             id="phone" 
                             placeholder="(00) 00000-0000"
                             required
                             value={clientPhone}
                             onChange={handlePhoneChange}
-                            className="pl-9 bg-slate-950 border-white/5 rounded-xl h-10 text-sm"
+                            className="pl-9 bg-zinc-950 text-white border-white/5 rounded-xl h-10 text-sm"
                           />
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="email" className="text-slate-400">E-mail (Opcional)</Label>
+                      <Label htmlFor="email" className="text-zinc-400">E-mail (Opcional)</Label>
                       <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                         <Input 
                           id="email" 
                           type="email"
                           placeholder="seu@email.com"
                           value={clientEmail}
                           onChange={(e) => setClientEmail(e.target.value)}
-                          className="pl-9 bg-slate-950 border-white/5 rounded-xl h-10 text-sm"
+                          className="pl-9 bg-zinc-950 text-white border-white/5 rounded-xl h-10 text-sm"
                         />
                       </div>
                     </div>
@@ -632,15 +635,15 @@ export default function PublicPaidRaffle() {
                     {/* Quantity Selector */}
                     <div className="border-t border-white/5 pt-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <Label className="text-slate-300 font-bold">Quantidade de Bilhetes</Label>
-                        <div className="flex items-center gap-3 bg-slate-950 p-1 rounded-xl border border-white/5">
+                        <Label className="text-zinc-300 font-bold">Quantidade de Bilhetes</Label>
+                        <div className="flex items-center gap-3 bg-zinc-950 p-1 rounded-xl border border-white/5">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
                             disabled={quantity <= 1}
                             onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
-                            className="w-8 h-8 rounded-lg text-slate-400 hover:text-white"
+                            className="w-8 h-8 rounded-lg text-zinc-400 hover:text-white"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </Button>
@@ -650,7 +653,7 @@ export default function PublicPaidRaffle() {
                             variant="ghost"
                             size="icon"
                             onClick={() => setQuantity(prev => prev + 1)}
-                            className="w-8 h-8 rounded-lg text-slate-400 hover:text-white"
+                            className="w-8 h-8 rounded-lg text-zinc-400 hover:text-white"
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </Button>
@@ -664,8 +667,8 @@ export default function PublicPaidRaffle() {
                           onClick={() => setQuantity(3)}
                           className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg border transition-all ${
                             quantity === 3 
-                              ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' 
-                              : 'bg-white/5 text-slate-400 border-transparent hover:bg-white/10'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                              : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10'
                           }`}
                         >
                           Pack x3
@@ -675,8 +678,8 @@ export default function PublicPaidRaffle() {
                           onClick={() => setQuantity(5)}
                           className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg border transition-all ${
                             quantity === 5 
-                              ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' 
-                              : 'bg-white/5 text-slate-400 border-transparent hover:bg-white/10'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                              : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10'
                           }`}
                         >
                           Pack x5
@@ -686,8 +689,8 @@ export default function PublicPaidRaffle() {
                           onClick={() => setQuantity(10)}
                           className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg border transition-all ${
                             quantity === 10 
-                              ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' 
-                              : 'bg-white/5 text-slate-400 border-transparent hover:bg-white/10'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                              : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10'
                           }`}
                         >
                           Pack x10
@@ -696,7 +699,7 @@ export default function PublicPaidRaffle() {
 
                       {/* Total Value */}
                       <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5 mt-4">
-                        <span className="text-xs text-slate-400 font-medium">Subtotal de Compra</span>
+                        <span className="text-xs text-zinc-400 font-medium">Subtotal de Compra</span>
                         <span className="text-xl font-black text-emerald-400">
                           R$ {(raffle.ticketPrice * quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
@@ -706,7 +709,7 @@ export default function PublicPaidRaffle() {
                     <Button
                       type="submit"
                       disabled={creatingPayment}
-                      className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-extrabold h-12 rounded-xl shadow-lg shadow-indigo-500/30 gap-2 mt-4"
+                      className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-extrabold h-12 rounded-xl shadow-lg shadow-emerald-500/30 gap-2 mt-4"
                     >
                       {creatingPayment ? (
                         <>
@@ -729,19 +732,19 @@ export default function PublicPaidRaffle() {
           <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-6 bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl"
+            className="space-y-6 bg-zinc-900/60 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl"
           >
             <div className="text-center space-y-1">
-              <Badge variant="outline" className="bg-indigo-500/10 text-indigo-400 border-none text-[10px] uppercase font-bold tracking-widest">
+              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-none text-[10px] uppercase font-bold tracking-widest">
                 Pesquisa de Números
               </Badge>
               <h3 className="text-xl font-black">Consultar Bilhetes</h3>
-              <p className="text-slate-400 text-xs">Insira seu CPF ou WhatsApp para listar seus bilhetes adquiridos.</p>
+              <p className="text-zinc-400 text-xs">Insira seu CPF ou WhatsApp para listar seus bilhetes adquiridos.</p>
             </div>
 
             <form onSubmit={handleSearchTickets} className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="searchField" className="text-slate-400">CPF ou Telefone (com DDD)</Label>
+                <Label htmlFor="searchField" className="text-zinc-400">CPF ou Telefone (com DDD)</Label>
                 <div className="flex gap-2">
                   <Input 
                     id="searchField"
@@ -749,12 +752,12 @@ export default function PublicPaidRaffle() {
                     required
                     value={searchCpfOrPhone}
                     onChange={(e) => setSearchCpfOrPhone(e.target.value)}
-                    className="bg-slate-950 border-white/5 rounded-xl h-11 text-sm focus:border-indigo-500/50"
+                    className="bg-zinc-950 text-white border-white/5 rounded-xl h-11 text-sm focus:border-emerald-500/50"
                   />
                   <Button
                     type="submit"
                     disabled={searching}
-                    className="bg-indigo-600 hover:bg-indigo-700 rounded-xl h-11 px-5"
+                    className="bg-emerald-600 hover:bg-emerald-700 rounded-xl h-11 px-5"
                   >
                     {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   </Button>
@@ -770,26 +773,26 @@ export default function PublicPaidRaffle() {
                   className="pt-4 border-t border-white/5 space-y-4"
                 >
                   {searchResult.length === 0 ? (
-                    <div className="text-center py-6 bg-slate-950/60 rounded-2xl border border-white/5">
+                    <div className="text-center py-6 bg-zinc-950/60 rounded-2xl border border-white/5">
                       <AlertCircle className="w-8 h-8 text-amber-500/60 mx-auto mb-2" />
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-zinc-400">
                         Nenhum bilhete confirmado encontrado para estes dados neste sorteio.
                       </p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="bg-indigo-500/5 p-4 rounded-xl border border-indigo-500/10">
-                        <span className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold">Cliente</span>
-                        <h4 className="font-black text-sm text-slate-200 mt-0.5">{searchedName}</h4>
+                      <div className="bg-emerald-500/5 p-4 rounded-xl border border-emerald-500/10">
+                        <span className="text-[10px] text-emerald-400 uppercase tracking-wider font-semibold">Cliente</span>
+                        <h4 className="font-black text-sm text-zinc-200 mt-0.5">{searchedName}</h4>
                       </div>
 
                       <div className="space-y-2">
-                        <Label className="text-xs text-slate-400">Seus Bilhetes Ativos ({searchResult.length})</Label>
+                        <Label className="text-xs text-zinc-400">Seus Bilhetes Ativos ({searchResult.length})</Label>
                         <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
                           {searchResult.map((t) => (
                             <div 
                               key={t.ticketNumber} 
-                              className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs text-center py-2 rounded-lg font-black tracking-wide"
+                              className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs text-center py-2 rounded-lg font-black tracking-wide"
                             >
                               #{t.ticketNumber}
                             </div>
@@ -807,7 +810,7 @@ export default function PublicPaidRaffle() {
       </main>
 
       {/* Public Footer */}
-      <footer className="max-w-md mx-auto text-center py-10 text-[10px] text-slate-500 relative z-10 leading-relaxed px-6">
+      <footer className="max-w-md mx-auto text-center py-10 text-[10px] text-zinc-500 relative z-10 leading-relaxed px-6">
         <p>Pre-Mix Sorteios Pagos é uma funcionalidade interna desenvolvida pela AVL Telecom.</p>
         <p className="mt-1">Pagamentos processados de forma segura e imediata pela API do Asaas.</p>
       </footer>
