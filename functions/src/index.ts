@@ -1665,22 +1665,31 @@ async function callAsaas(method: "GET" | "POST", path: string, body: any, config
   const headers = {
     "access_token": config.apiKey,
     "Content-Type": "application/json",
-    "User-Agent": "AVL-Telecom-App"
+    "Accept": "application/json"
   };
 
   try {
-    const response = await axios({
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
-      url: `${baseUrl}${path}`,
       headers,
-      data: body,
-      timeout: 15000
+      body: body ? JSON.stringify(body) : undefined,
     });
 
-    return response.data;
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch (e) {
+        throw new Error(`Asaas API HTTP ${response.status}: ${errorText}`);
+      }
+      throw new Error(errorData.errors?.[0]?.description || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
   } catch (error: any) {
-    console.error(`❌ Erro na API Asaas [${method} ${path}]:`, error.response?.data || error.message);
-    throw new Error(error.response?.data?.errors?.[0]?.description || error.message);
+    console.error(`❌ Erro na API Asaas [${method} ${path}]:`, error.message);
+    throw error;
   }
 }
 

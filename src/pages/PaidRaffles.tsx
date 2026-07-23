@@ -65,6 +65,7 @@ interface PaidRaffle {
   ticketPrice: number;
   status: 'active' | 'drawn' | 'cancelled';
   drawDate: string;
+  minTickets?: number;
   totalTicketsSold: number;
   winnerTicketNumber?: number;
   winnerClientInfo?: {
@@ -128,6 +129,7 @@ export default function PaidRaffles() {
     prizeDescription: '',
     prizeImageUrl: '',
     ticketPrice: '',
+    minTickets: '',
     drawDate: ''
   });
 
@@ -223,6 +225,7 @@ export default function PaidRaffles() {
         prizeDescription: newRaffle.prizeDescription,
         prizeImageUrl: newRaffle.prizeImageUrl || '',
         ticketPrice: parseFloat(newRaffle.ticketPrice),
+        minTickets: parseInt(newRaffle.minTickets) || 0,
         status: 'active',
         drawDate: newRaffle.drawDate,
         totalTicketsSold: 0,
@@ -857,6 +860,17 @@ export default function PaidRaffles() {
                       className="rounded-xl border-border/50"
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="minTickets">Meta de Bilhetes (Mínimo)</Label>
+                    <Input 
+                      id="minTickets" 
+                      type="number"
+                      placeholder="Ex: 50"
+                      value={newRaffle.minTickets}
+                      onChange={(e) => setNewRaffle(prev => ({ ...prev, minTickets: e.target.value }))}
+                      className="rounded-xl border-border/50"
+                    />
+                  </div>
                 </div>
 
                 <div className="border-t border-border/40 pt-4 space-y-4">
@@ -962,13 +976,20 @@ export default function PaidRaffles() {
                       </p>
                     </div>
                     
-                    <Button 
-                      onClick={handleDrawWinner}
-                      disabled={isDrawing || tickets.length === 0}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20 gap-2 shrink-0 w-full md:w-auto h-11"
-                    >
-                      <Play className="w-4 h-4 fill-white" /> Realizar Sorteio Pago
-                    </Button>
+                    <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                      {(selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets) ? (
+                        <div className="bg-amber-500/10 text-amber-500 text-xs font-semibold px-3 py-2 rounded-xl flex items-center justify-center border border-amber-500/20 whitespace-nowrap">
+                          Faltam {selectedRaffle.minTickets - tickets.length} bilhetes para a meta
+                        </div>
+                      ) : null}
+                      <Button 
+                        onClick={handleDrawWinner}
+                        disabled={isDrawing || tickets.length === 0 || (selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20 gap-2 shrink-0 h-11"
+                      >
+                        <Play className="w-4 h-4 fill-white" /> Realizar Sorteio Pago
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="bg-red-500/10 p-4 rounded-2xl border border-red-500/20 text-red-500 flex items-center gap-3">
