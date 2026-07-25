@@ -27,19 +27,19 @@ import {
   Database,
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { 
-  IXCSearchState, 
-  IXCSearchType,
-  IXCClienteData 
-} from '@/types/ixc';
-import { TechnicalDiagnostics } from '@/components/ixc/TechnicalDiagnostics';
-import { ClientContracts } from '@/components/ixc/ClientContracts';
-import { NewTicketForm } from '@/components/ixc/NewTicketForm';
-import { ClientTickets } from '@/components/ixc/ClientTickets';
+  ISPFYSearchState, 
+  ISPFYSearchType,
+  ISPFYClienteData 
+} from '@/types/ispfy';
+import { TechnicalDiagnostics } from '@/components/ispfy/TechnicalDiagnostics';
+import { ClientContracts } from '@/components/ispfy/ClientContracts';
+import { NewTicketForm } from '@/components/ispfy/NewTicketForm';
+import { ClientTickets } from '@/components/ispfy/ClientTickets';
 
-const IXCConsulta: React.FC = () => {
-  const [searchState, setSearchState] = useState<IXCSearchState>({
+const ISPFYConsulta: React.FC = () => {
+  const [searchState, setSearchState] = useState<ISPFYSearchState>({
     loading: false,
     error: null,
     results: [],
@@ -49,7 +49,7 @@ const IXCConsulta: React.FC = () => {
     currentPage: 1,
   });
 
-  const [selectedClient, setSelectedClient] = useState<IXCClienteData | null>(null);
+  const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'testing' | 'connected' | 'disconnected' | null>(null);
   const navigate = useNavigate();
 
@@ -57,7 +57,7 @@ const IXCConsulta: React.FC = () => {
   const testConnection = async () => {
     setConnectionStatus('testing');
     try {
-      const isConnected = await ixcService.testConnection();
+      const isConnected = await ispfyService.testConnection();
       setConnectionStatus(isConnected ? 'connected' : 'disconnected');
     } catch (error) {
       setConnectionStatus('disconnected');
@@ -74,43 +74,43 @@ const IXCConsulta: React.FC = () => {
     setSearchState(prev => ({ ...prev, loading: true, error: null }));
 
     try {
-      let results: IXCClienteData[] = [];
+      let results: ISPFYClienteData[] = [];
 
       switch (searchState.searchType) {
         case 'cnpj_cpf': {
-          const cliente = await ixcService.getClienteByCnpjCpf(searchState.searchValue);
+          const cliente = await ispfyService.getClienteByCnpjCpf(searchState.searchValue);
           results = cliente ? [cliente] : [];
           break;
         }
         case 'nome': {
-          results = await ixcService.getClienteByNome(searchState.searchValue);
+          results = await ispfyService.getClienteByNome(searchState.searchValue);
           break;
         }
         case 'id': {
-          const clienteById = await ixcService.getClienteById(searchState.searchValue);
+          const clienteById = await ispfyService.getClienteById(searchState.searchValue);
           results = clienteById ? [clienteById] : [];
           break;
         }
         case 'cidade': {
-          results = await ixcService.getClientesByCidade(searchState.searchValue);
+          results = await ispfyService.getClientesByCidade(searchState.searchValue);
           break;
         }
         case 'email': {
-          const emailResults = await ixcService.searchClientes(
+          const emailResults = await ispfyService.searchClientes(
             'cliente.email',
             searchState.searchValue,
             'L'
           );
-          results = emailResults.registros as IXCClienteData[];
+          results = emailResults.registros as ISPFYClienteData[];
           break;
         }
         case 'whatsapp': {
-          const whatsappResults = await ixcService.searchClientes(
+          const whatsappResults = await ispfyService.searchClientes(
             'cliente.fone_whatsapp',
             searchState.searchValue,
             'L'
           );
-          results = whatsappResults.registros as IXCClienteData[];
+          results = whatsappResults.registros as ISPFYClienteData[];
           break;
         }
         default:
@@ -141,7 +141,7 @@ const IXCConsulta: React.FC = () => {
   const handleGetClientesAtivos = async () => {
     setSearchState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const results = await ixcService.getClientesAtivos();
+      const results = await ispfyService.getClientesAtivos();
       setSearchState(prev => ({
         ...prev,
         loading: false,
@@ -163,7 +163,7 @@ const IXCConsulta: React.FC = () => {
   const handleGetLeads = async () => {
     setSearchState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const results = await ixcService.getLeads();
+      const results = await ispfyService.getLeads();
       setSearchState(prev => ({
         ...prev,
         loading: false,
@@ -229,7 +229,7 @@ const IXCConsulta: React.FC = () => {
         >
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Database className="w-4 h-4" />
-            <span>Sistema IXC</span>
+            <span>Sistema ISPFY</span>
             <span>/</span>
             <span className="text-gray-900 font-medium">Consulta de Clientes</span>
           </div>
@@ -239,10 +239,10 @@ const IXCConsulta: React.FC = () => {
                 <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
                   <User className="w-6 h-6 text-white" />
                 </div>
-                Consulta IXC
+                Consulta ISPFY
               </h1>
               <p className="text-gray-600 mt-2">
-                Busque informações de clientes na base de dados IXC
+                Busque informações de clientes na base de dados ISPFY
               </p>
             </div>
             
@@ -284,7 +284,7 @@ const IXCConsulta: React.FC = () => {
                 <Label htmlFor="search-type">Tipo de Busca</Label>
                 <Select
                   value={searchState.searchType}
-                  onValueChange={(value: IXCSearchType) =>
+                  onValueChange={(value: ISPFYSearchType) =>
                     setSearchState(prev => ({ ...prev, searchType: value }))
                   }
                 >
@@ -605,14 +605,14 @@ const IXCConsulta: React.FC = () => {
                   <div className="flex gap-2">
                     <Button 
                       className="bg-primary hover:bg-primary/90" 
-                      onClick={() => navigate(`/ixc/cliente/${selectedClient.id}`)}
+                      onClick={() => navigate(`/ispfy/cliente/${selectedClient.id}`)}
                     >
                       <Database className="w-4 h-4 mr-2" />
                       Abrir Dashboard
                     </Button>
                     <Button variant="outline" size="sm" className="hidden md:flex">
                       <ExternalLink className="w-3 h-3 mr-2" />
-                      Abrir no IXC
+                      Abrir no ISPFY
                     </Button>
                     <NewTicketForm idCliente={selectedClient.id || ''} />
                   </div>
@@ -656,4 +656,4 @@ const IXCConsulta: React.FC = () => {
   );
 };
 
-export default IXCConsulta;
+export default ISPFYConsulta;

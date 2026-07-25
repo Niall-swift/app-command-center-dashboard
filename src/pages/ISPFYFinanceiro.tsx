@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import PageTransition from '@/components/PageTransition';
-import { FinancialKPIs } from '@/components/ixc/financial/FinancialKPIs';
-import { DebtorsList } from '@/components/ixc/financial/DebtorsList';
-import { CashFlowChart } from '@/components/ixc/financial/CashFlowChart';
-import { CashSummaryReport } from '@/components/ixc/financial/CashSummaryReport';
-import { CaixaManager } from '@/components/ixc/financial/CaixaManager';
+import { FinancialKPIs } from '@/components/ispfy/financial/FinancialKPIs';
+import { DebtorsList } from '@/components/ispfy/financial/DebtorsList';
+import { CashFlowChart } from '@/components/ispfy/financial/CashFlowChart';
+import { CashSummaryReport } from '@/components/ispfy/financial/CashSummaryReport';
+import { CaixaManager } from '@/components/ispfy/financial/CaixaManager';
 import { Database, TrendingUp, RefreshCcw, Wallet, ArrowUpCircle, ArrowDownCircle, PieChart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -17,7 +17,7 @@ import { generateFinancialAnalysis } from '@/services/gemini/geminiService';
 import { whapiService } from '@/services/whapi/whapiService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
-const IXCFinanceiro: React.FC = () => {
+const ISPFYFinanceiro: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<any>(null);
     const [fullSummary, setFullSummary] = useState<any>(null);
@@ -95,11 +95,11 @@ const IXCFinanceiro: React.FC = () => {
                 movements, 
                 debtorsData
             ] = await Promise.all([
-                ixcService.getFinancialSummary(selectedCaixaId),
-                ixcService.getFullFinancialSummary(30, selectedCaixaId),
-                ixcService.getCashAccounts(),
-                ixcService.getCashMovements(30, selectedCaixaId),
-                ixcService.getTopDebtors(10)
+                ispfyService.getFinancialSummary(selectedCaixaId),
+                ispfyService.getFullFinancialSummary(30, selectedCaixaId),
+                ispfyService.getCashAccounts(),
+                ispfyService.getCashMovements(30, selectedCaixaId),
+                ispfyService.getTopDebtors(10)
             ]);
 
             setSummary(summaryData);
@@ -142,7 +142,7 @@ const IXCFinanceiro: React.FC = () => {
                 >
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                         <Database className="w-4 h-4" />
-                        <span>Sistema IXC</span>
+                        <span>Sistema ISPFY</span>
                         <span>/</span>
                         <span className="text-gray-900 font-medium">Gestão Financeira Elite</span>
                     </div>
@@ -179,7 +179,7 @@ const IXCFinanceiro: React.FC = () => {
                                 className="gap-2 h-11 px-6 rounded-xl border-gray-200 hover:bg-white hover:border-indigo-600 transition-all font-semibold"
                             >
                                 <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                                Sincronizar IXC
+                                Sincronizar ISPFY
                             </Button>
                         </div>
                     </div>
@@ -313,4 +313,4 @@ const IXCFinanceiro: React.FC = () => {
     );
 };
 
-export default IXCFinanceiro;
+export default ISPFYFinanceiro;

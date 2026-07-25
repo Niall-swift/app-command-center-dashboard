@@ -1,8 +1,8 @@
 import axios, { AxiosInstance } from 'axios';
-import { IXCClienteData, IXCFaturaData, IXCApiResponse, IXCParams } from './ixcTypes';
+import { ISPFYClienteData, ISPFYFaturaData, ISPFYApiResponse, ISPFYParams } from './ispfyTypes';
 import * as https from 'https';
 
-export class IXCBackendService {
+export class ISPFYBackendService {
   private client: AxiosInstance;
   private encodedToken: string;
 
@@ -22,28 +22,28 @@ export class IXCBackendService {
 
   private async makeRequest<T>(
     endpoint: string,
-    data: Partial<IXCParams>
+    data: Partial<ISPFYParams>
   ): Promise<T> {
     try {
       const response = await this.client.post<T>(endpoint, data, {
         headers: {
           'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'listar',
+          'ispfysoft': 'listar',
         },
       });
       return response.data;
     } catch (error: any) {
-      console.error(`Erro na API IXC (${endpoint}):`, error.message);
+      console.error(`Erro na API ISPFY (${endpoint}):`, error.message);
       throw error;
     }
   }
 
-  async getClienteByPhone(phone: string): Promise<IXCClienteData | null> {
+  async getClienteByPhone(phone: string): Promise<ISPFYClienteData | null> {
     // Limpar telefone para busca
     const cleanPhone = phone.replace(/\D/g, '').slice(-9); // Pegar os últimos 9 dígitos para ser mais flexível
     
     // Tentar fone_whatsapp
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.fone_whatsapp',
       query: `%${cleanPhone}`,
       oper: 'L',
@@ -51,14 +51,14 @@ export class IXCBackendService {
       rp: '1',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     if (response.registros && response.registros.length > 0) {
       return response.registros[0];
     }
 
     // Tentar telefone_celular
     data.qtype = 'cliente.telefone_celular';
-    const response2 = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response2 = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     if (response2.registros && response2.registros.length > 0) {
       return response2.registros[0];
     }
@@ -66,11 +66,11 @@ export class IXCBackendService {
     return null;
   }
 
-  async getClienteByCpfCnpj(cpfCnpj: string): Promise<IXCClienteData | null> {
+  async getClienteByCpfCnpj(cpfCnpj: string): Promise<ISPFYClienteData | null> {
     const cleanCpfCnpj = cpfCnpj.replace(/\D/g, '');
     console.log(`🔍 Buscando cliente por CPF/CNPJ: ${cleanCpfCnpj}`);
     
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.cnpj_cpf',
       query: `%${cleanCpfCnpj}%`, // Usar LIKE para ser mais flexível com formatação
       oper: 'L',
@@ -79,7 +79,7 @@ export class IXCBackendService {
     };
 
     try {
-      const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+      const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
       console.log(`📊 Resultado busca CPF/CNPJ (${cleanCpfCnpj}): Found ${response.registros?.length || 0} records`);
       return (response.registros && response.registros.length > 0) ? response.registros[0] : null;
     } catch (err: any) {
@@ -88,8 +88,8 @@ export class IXCBackendService {
     }
   }
 
-  async getFaturasAbertas(idCliente: string): Promise<IXCFaturaData[]> {
-    const data: Partial<IXCParams> = {
+  async getFaturasAbertas(idCliente: string): Promise<ISPFYFaturaData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'fn_areceber.id_cliente',
       query: idCliente,
       oper: '=',
@@ -99,7 +99,7 @@ export class IXCBackendService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', data);
     const faturas = response.registros || [];
     
     // Filtrar apenas faturas abertas (status 'A' e sem data de pagamento)
@@ -138,7 +138,7 @@ export class IXCBackendService {
       await this.client.put(`/fn_areceber/${idFatura}/email`, payload, {
         headers: {
           'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'listar'
+          'ispfysoft': 'listar'
         }
       });
       return true;

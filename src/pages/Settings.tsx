@@ -13,8 +13,8 @@ import { doc, onSnapshot, setDoc, collection, query, orderBy, addDoc, deleteDoc 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from '@/components/ui/switch';
 import { Label as LabelUI } from '@/components/ui/label';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCClienteData, IXCContratoData, IXCFaturaData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData } from '@/types/ispfy';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from 'sonner';
 import { formatDate } from '@/utils/date';
@@ -69,8 +69,8 @@ export default function Settings() {
 
   // Estados para Clientes por Filial
   const [filiais, setFiliais] = useState<Filial[]>([]);
-  const [clientes, setClientes] = useState<IXCClienteData[]>([]);
-  const [loadingIXC, setLoadingIXC] = useState(false);
+  const [clientes, setClientes] = useState<ISPFYClienteData[]>([]);
+  const [loadingISPFY, setLoadingISPFY] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [detectedFilialField, setDetectedFilialField] = useState<string | null>(null);
   const [clientStatus, setClientStatus] = useState<'S' | 'N'>('S');
@@ -82,19 +82,19 @@ export default function Settings() {
   const [swapProgress, setSwapProgress] = useState({ current: 0, total: 0, success: 0, errors: 0 });
 
   // Estados para Auditoria Financeira
-  const [contratos, setContratos] = useState<IXCContratoData[]>([]);
-  const [faturasPagas, setFaturasPagas] = useState<IXCFaturaData[]>([]);
+  const [contratos, setContratos] = useState<ISPFYContratoData[]>([]);
+  const [faturasPagas, setFaturasPagas] = useState<ISPFYFaturaData[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditFilter, setAuditFilter] = useState<'todos' | 'incorretos'>('todos');
 
-  const fetchIXCData = async () => {
-    setLoadingIXC(true);
+  const fetchISPFYData = async () => {
+    setLoadingISPFY(true);
     setLoadingProgress(0);
     try {
-      const filiaisData = await ixcService.getFiliais();
+      const filiaisData = await ispfyService.getFiliais();
       setFiliais(filiaisData);
 
-      const allClientes = await ixcService.fetchAllClientesByStatus(clientStatus, (total) => {
+      const allClientes = await ispfyService.fetchAllClientesByStatus(clientStatus, (total) => {
         setLoadingProgress(total);
       });
       setClientes(allClientes);
@@ -126,12 +126,12 @@ export default function Settings() {
         }
       }
       
-      toast.success('Dados do IXC sincronizados com sucesso!');
+      toast.success('Dados do ISPFY sincronizados com sucesso!');
     } catch (error) {
-      console.error('Erro ao buscar dados do IXC:', error);
-      toast.error('Erro ao sincronizar dados do IXC.');
+      console.error('Erro ao buscar dados do ISPFY:', error);
+      toast.error('Erro ao sincronizar dados do ISPFY.');
     } finally {
-      setLoadingIXC(false);
+      setLoadingISPFY(false);
     }
   };
 
@@ -168,7 +168,7 @@ export default function Settings() {
         filial_id: targetFilialId
       };
       
-      const result = await ixcService.updateCliente(cliente.id, updateData);
+      const result = await ispfyService.updateCliente(cliente.id, updateData);
       
       setSwapProgress(prev => ({
         ...prev,
@@ -182,7 +182,7 @@ export default function Settings() {
 
     toast.success('Operação concluída!');
     setIsSwapping(false);
-    fetchIXCData();
+    fetchISPFYData();
   };
 
   const fetchAuditData = async () => {
@@ -190,12 +190,12 @@ export default function Settings() {
     try {
       toast.info('Iniciando auditoria... Isso pode levar alguns minutos.');
       
-      const allContratos = await ixcService.fetchAllContratos((total) => {
+      const allContratos = await ispfyService.fetchAllContratos((total) => {
         setLoadingProgress(total);
       });
       setContratos(allContratos);
 
-      const recentFaturas = await ixcService.fetchRecentFaturasPagas(180, (total) => {
+      const recentFaturas = await ispfyService.fetchRecentFaturasPagas(180, (total) => {
         setLoadingProgress(total);
       });
       setFaturasPagas(recentFaturas);
@@ -461,13 +461,13 @@ export default function Settings() {
           </motion.div>
 
             <Button 
-            onClick={fetchIXCData} 
-            disabled={loadingIXC}
+            onClick={fetchISPFYData} 
+            disabled={loadingISPFY}
             variant="outline"
             className="gap-2"
           >
-            {loadingIXC ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
-            Sincronizar IXC
+            {loadingISPFY ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+            Sincronizar ISPFY
           </Button>
         </div>
 
@@ -503,7 +503,7 @@ export default function Settings() {
                   <Building2 className="w-5 h-5 text-blue-600" />
                   Agrupamento de Clientes ({clientStatus === 'S' ? 'Ativos' : 'Inativos'}) por Filial
                 </div>
-                {loadingIXC && (
+                {loadingISPFY && (
                   <Badge variant="secondary" className="animate-pulse">
                     Carregando {loadingProgress} clientes...
                   </Badge>
@@ -554,7 +554,7 @@ export default function Settings() {
               ) : (
                 <div className="p-8 text-center text-gray-500">
                   <Building2 className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                  <p>Clique em "Sincronizar IXC" para carregar os grupos por filial</p>
+                  <p>Clique em "Sincronizar ISPFY" para carregar os grupos por filial</p>
                 </div>
               )}
             </CardContent>
@@ -645,7 +645,7 @@ export default function Settings() {
                 <div className="mt-8">
                   <Button 
                     onClick={handleBulkSwap}
-                    disabled={!sourceFilialId || !targetFilialId || loadingIXC}
+                    disabled={!sourceFilialId || !targetFilialId || loadingISPFY}
                     className="w-full bg-orange-600 hover:bg-orange-700 h-12 text-lg font-bold"
                   >
                     Iniciar Troca em Massa
@@ -695,7 +695,7 @@ export default function Settings() {
                   </Button>
                   <Button 
                     onClick={fetchAuditData} 
-                    disabled={loadingAudit || loadingIXC}
+                    disabled={loadingAudit || loadingISPFY}
                     size="sm"
                     className="bg-purple-600 hover:bg-purple-700 h-8 font-medium"
                   >

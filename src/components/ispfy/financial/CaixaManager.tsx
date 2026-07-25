@@ -2,15 +2,15 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Plus, Wallet, Landmark, ArrowRightLeft, RefreshCcw } from 'lucide-react';
-import { IXCFinancialCaixaData } from '@/types/ixc';
+import { ISPFYFinancialCaixaData } from '@/types/ispfy';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface CaixaManagerProps {
-  accounts: IXCFinancialCaixaData[];
+  accounts: ISPFYFinancialCaixaData[];
   selectedId: string;
   onSelect: (id: string) => void;
   onRefresh: () => void;
@@ -36,7 +36,7 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
   const handleCreate = async () => {
     if (!newAccountName.trim()) return;
     try {
-      const res = await ixcService.createCashAccount(newAccountName);
+      const res = await ispfyService.createCashAccount(newAccountName);
       if (res.success) {
         toast.success(res.message);
         setNewAccountName('');
@@ -63,7 +63,7 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
 
       setIsTransferring(true);
       try {
-          const res = await ixcService.transferBetweenAccounts(
+          const res = await ispfyService.transferBetweenAccounts(
               selectedId,
               transferData.toId,
               parseFloat(transferData.value)

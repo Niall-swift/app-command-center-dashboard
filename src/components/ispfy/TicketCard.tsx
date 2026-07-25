@@ -2,12 +2,12 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, User, AlertCircle } from 'lucide-react';
-import { IXCTicketData } from '@/types/ixc';
+import { ISPFYTicketData } from '@/types/ispfy';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface TicketCardProps {
-  ticket: IXCTicketData;
+  ticket: ISPFYTicketData;
   onClick?: () => void;
 }
 

@@ -21,8 +21,8 @@ import {
   Sparkles,
   Zap
 } from "lucide-react";
-import { ixcService } from "@/services/ixc/ixcService";
-import { IXCClienteData, IXCContratoData, IXCFaturaData } from "@/types/ixc";
+import { ispfyService } from "@/services/ispfy/ispfyService";
+import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData } from "@/types/ispfy";
 import { db } from "@/config/firebase";
 import { doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, collection, addDoc } from "firebase/firestore";
 import { toast } from "sonner";
@@ -44,9 +44,9 @@ const AVAILABLE_TAGS = [
 
 export default function ClientInfoCard({ clientId, clientPhone, clientName, onSendMessage }: ClientInfoCardProps) {
   const [loading, setLoading] = useState(true);
-  const [ixcData, setIxcData] = useState<IXCClienteData | null>(null);
-  const [contracts, setContracts] = useState<IXCContratoData[]>([]);
-  const [invoices, setInvoices] = useState<IXCFaturaData[]>([]);
+  const [ispfyData, setIspfyData] = useState<ISPFYClienteData | null>(null);
+  const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
+  const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>([]);
 
   // Carregar tags e status da IA do Firestore em tempo real
@@ -89,9 +89,9 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
     }
   };
 
-  // Carregar dados do IXC
+  // Carregar dados do ISPFY
   useEffect(() => {
-    const fetchIxcData = async () => {
+    const fetchIspfyData = async () => {
       setLoading(true);
       try {
         let client = null;
@@ -99,21 +99,21 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
         // Tentar buscar por telefone primeiro se disponível
         const phoneToSearch = clientPhone || clientId;
         if (phoneToSearch) {
-          client = await ixcService.getClienteByPhone(phoneToSearch);
+          client = await ispfyService.getClienteByPhone(phoneToSearch);
         }
         
         // Se não achou por telefone, tenta por nome
         if (!client && clientName) {
-          const results = await ixcService.getClienteByNome(clientName);
+          const results = await ispfyService.getClienteByNome(clientName);
           if (results.length > 0) client = results[0];
         }
 
         if (client) {
-          setIxcData(client);
+          setIspfyData(client);
           // Buscar contratos e faturas
           const [clientContracts, clientInvoices] = await Promise.all([
-            ixcService.getContratosByCliente(client.id),
-            ixcService.getFaturasByCliente(client.id)
+            ispfyService.getContratosByCliente(client.id),
+            ispfyService.getFaturasByCliente(client.id)
           ]);
           setContracts(clientContracts);
           // Filtrar apenas faturas abertas (status 'A') e sem data de pagamento
@@ -121,13 +121,13 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
           setInvoices(openInvoices.slice(0, 3)); 
         }
       } catch (error) {
-        console.error("Erro ao carregar dados do IXC:", error);
+        console.error("Erro ao carregar dados do ISPFY:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchIxcData();
+    fetchIspfyData();
   }, [clientPhone, clientName]);
 
   const toggleTag = async (tagId: string) => {
@@ -148,7 +148,7 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
     
     try {
       toast.loading("Gerando PIX...", { id: 'pix-task' });
-      const pixData = await ixcService.getPixQrCode(faturaId);
+      const pixData = await ispfyService.getPixQrCode(faturaId);
       
       if (pixData && pixData.qrcode_text) {
         const message = `✅ *Código PIX Gerado*\n\n💰 *Valor:* R$ ${valor}\n📅 *Vencimento:* ${vencimento}\n\n👇 *Copia e Cola:*\n\n${pixData.qrcode_text}\n\n_Para pagar, abra o app do seu banco e escolha a opção "PIX Copia e Cola"._`;
@@ -167,7 +167,7 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
       <Card className="bg-white shadow-sm border-gray-200 overflow-hidden">
         <CardContent className="p-8 flex flex-col items-center justify-center">
           <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
-          <p className="text-xs text-gray-500 font-medium">Buscando dados no IXC...</p>
+          <p className="text-xs text-gray-500 font-medium">Buscando dados no ISPFY...</p>
         </CardContent>
       </Card>
     );
@@ -245,26 +245,26 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
         <CardHeader className="p-3 border-b bg-gray-50/50">
           <CardTitle className="text-xs font-bold flex items-center gap-2 text-gray-700 uppercase tracking-wider">
             <User className="w-3.5 h-3.5" />
-            Dados do Assinante (IXC)
+            Dados do Assinante (ISPFY)
           </CardTitle>
         </CardHeader>
         <CardContent className="p-3 space-y-3">
-          {ixcData ? (
+          {ispfyData ? (
             <>
               <div className="space-y-2">
                 <div className="flex items-start gap-2">
                   <User className="w-4 h-4 text-gray-400 mt-0.5" />
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-900 truncate">{ixcData.razao || ixcData.nome}</p>
-                    <p className="text-[10px] text-gray-500 font-mono">ID: {ixcData.id} • {ixcData.cnpj_cpf}</p>
+                    <p className="text-sm font-bold text-gray-900 truncate">{ispfyData.razao || ispfyData.nome}</p>
+                    <p className="text-[10px] text-gray-500 font-mono">ID: {ispfyData.id} • {ispfyData.cnpj_cpf}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-start gap-2">
                   <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                   <p className="text-[11px] text-gray-600 leading-relaxed">
-                    {ixcData.endereco}, {ixcData.numero}<br />
-                    {ixcData.bairro} • {ixcData.cidade}-{ixcData.uf}
+                    {ispfyData.endereco}, {ispfyData.numero}<br />
+                    {ispfyData.bairro} • {ispfyData.cidade}-{ispfyData.uf}
                   </p>
                 </div>
               </div>
@@ -292,7 +292,7 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
                           className="w-full h-6 text-[9px] border-orange-200 text-orange-600 hover:bg-orange-50 font-bold gap-1.5"
                           onClick={async () => {
                             toast.loading("Realizando desbloqueio...", { id: 'unlock-task' });
-                            const res = await ixcService.unlockContract(c.id!);
+                            const res = await ispfyService.unlockContract(c.id!);
                             if (res.success) {
                               toast.success(res.message, { id: 'unlock-task' });
                               // Opcional: enviar mensagem avisando o cliente
@@ -374,32 +374,32 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
           ) : (
             <div className="py-4 text-center space-y-3">
               <AlertCircle className="w-8 h-8 text-orange-200 mx-auto" />
-              <p className="text-xs text-gray-500 px-4">Não foi possível localizar este cliente automaticamente no IXC.</p>
+              <p className="text-xs text-gray-500 px-4">Não foi possível localizar este cliente automaticamente no ISPFY.</p>
               <div className="px-4">
                 <Button 
                   variant="outline" 
                   size="sm" 
                   className="w-full text-[10px] h-7 border-orange-200 text-orange-600 hover:bg-orange-50"
                   onClick={() => {
-                    const term = prompt("Digite o CPF, CNPJ ou Nome do cliente para buscar no IXC:");
+                    const term = prompt("Digite o CPF, CNPJ ou Nome do cliente para buscar no ISPFY:");
                     if (term) {
                       setLoading(true);
                       const searchManual = async () => {
                         try {
                           let client = null;
                           if (term.match(/^\d+$/)) {
-                            client = await ixcService.getClienteByCnpjCpf(term);
+                            client = await ispfyService.getClienteByCnpjCpf(term);
                           }
                           if (!client) {
-                            const results = await ixcService.getClienteByNome(term);
+                            const results = await ispfyService.getClienteByNome(term);
                             if (results.length > 0) client = results[0];
                           }
                           
                           if (client) {
-                            setIxcData(client);
+                            setIspfyData(client);
                             const [clientContracts, clientInvoices] = await Promise.all([
-                              ixcService.getContratosByCliente(client.id),
-                              ixcService.getFaturasByCliente(client.id)
+                              ispfyService.getContratosByCliente(client.id),
+                              ispfyService.getFaturasByCliente(client.id)
                             ]);
                             setContracts(clientContracts);
                             setInvoices(clientInvoices.filter(f => !f.pagamento_data).slice(0, 3));

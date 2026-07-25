@@ -6,13 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { toast } from 'sonner';
-import { IXCCashMovementData } from '@/types/ixc';
+import { ISPFYCashMovementData } from '@/types/ispfy';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface CashSummaryReportProps {
-  movements: IXCCashMovementData[];
+  movements: ISPFYCashMovementData[];
   loading: boolean;
   selectedCaixaId: string;
   onRefresh: () => void;
@@ -42,7 +42,7 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
       
       setIsSubmitting(true);
       try {
-          const res = await ixcService.createCashMovement({
+          const res = await ispfyService.createCashMovement({
               ...newMovement,
               id_caixa: selectedCaixaId
           });

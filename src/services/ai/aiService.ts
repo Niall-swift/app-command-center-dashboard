@@ -1,6 +1,6 @@
 import { Message } from "@/types/dashboard";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
-import { ixcService } from "@/services/ixc/ixcService";
+import { ispfyService } from "@/services/ispfy/ispfyService";
 
 // Chave recuperada do geminiService.ts
 const GEMINI_API_KEY = 'AIzaSyA4Q6BN5vKPUQrEiEONprIknhS-loVYYo0';
@@ -12,7 +12,7 @@ const tools: any[] = [
     functionDeclarations: [
       {
         name: "get_client_info",
-        description: "Busca informações detalhadas do cliente no IXC através do CPF ou CNPJ.",
+        description: "Busca informações detalhadas do cliente no ISPFY através do CPF ou CNPJ.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
@@ -23,11 +23,11 @@ const tools: any[] = [
       },
       {
         name: "list_invoices",
-        description: "Lista as faturas em aberto do cliente no IXC.",
+        description: "Lista as faturas em aberto do cliente no ISPFY.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            clientId: { type: SchemaType.STRING, description: "O ID do cliente no IXC." }
+            clientId: { type: SchemaType.STRING, description: "O ID do cliente no ISPFY." }
           },
           required: ["clientId"]
         }
@@ -111,9 +111,9 @@ export const aiService = {
         let toolResult;
 
         if (call.name === "get_client_info") {
-          const client = await ixcService.getClienteByCPF(call.args.cpf as string);
+          const client = await ispfyService.getClienteByCPF(call.args.cpf as string);
           if (client) {
-            const contracts = await ixcService.getContratosByCliente(client.id);
+            const contracts = await ispfyService.getContratosByCliente(client.id);
             toolResult = { 
               status: "sucesso", 
               cliente: { 
@@ -128,14 +128,14 @@ export const aiService = {
           }
         } 
         else if (call.name === "list_invoices") {
-          const faturas = await ixcService.getFaturasAbertas(call.args.clientId as string);
+          const faturas = await ispfyService.getFaturasAbertas(call.args.clientId as string);
           toolResult = { 
             status: "sucesso", 
             faturas: faturas.map(f => ({ id: f.id, valor: f.valor, vencimento: f.data_vencimento })) 
           };
         }
         else if (call.name === "trust_unlock") {
-          const res = await ixcService.unlockContract(call.args.contractId as string);
+          const res = await ispfyService.unlockContract(call.args.contractId as string);
           toolResult = res;
         }
 

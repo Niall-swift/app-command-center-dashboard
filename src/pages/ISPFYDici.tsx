@@ -5,8 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Download, Loader2, FileSpreadsheet, Info, Eye, Table as TableIcon, RefreshCw } from 'lucide-react';
-import ixcService from '@/services/ixc/ixcService';
-import { IXCClienteData, IXCContratoData, IXCPlanoData } from '@/types/ixc';
+import ispfyService from '@/services/ispfy/ispfyService';
+import { ISPFYClienteData, ISPFYContratoData, ISPFYPlanoData } from '@/types/ispfy';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,7 +25,7 @@ interface DiciRow {
   acessos: string;
 }
 
-export default function IXCDici() {
+export default function ISPFYDici() {
   const [cnpj, setCnpj] = useState('45517137000156');
   const [ano, setAno] = useState(new Date().getFullYear().toString());
   const [mes, setMes] = useState(
@@ -44,10 +44,10 @@ export default function IXCDici() {
       
       // 1. Buscar Planos
       setProgress('Buscando planos...');
-      const planos = await ixcService.getAllVdPlanos((total) => {
+      const planos = await ispfyService.getAllVdPlanos((total) => {
         setProgress(`Buscando planos... (${total})`);
       });
-      const planosMap = new Map<string, IXCPlanoData>();
+      const planosMap = new Map<string, ISPFYPlanoData>();
       planos.forEach(p => {
         if (p.id) planosMap.set(String(p.id), p);
       });
@@ -56,32 +56,32 @@ export default function IXCDici() {
 
       // 2. Buscar Clientes (Tentar todos se os ativos forem poucos)
       setProgress('Buscando clientes...');
-      let clientes = await ixcService.fetchAllClientesAtivos((total) => {
+      let clientes = await ispfyService.fetchAllClientesAtivos((total) => {
         setProgress(`Buscando clientes ativos... (${total})`);
       });
       
       if (clientes.length === 0) {
         setProgress('Nenhum cliente ativo? Buscando todos os clientes...');
-        clientes = await ixcService.getAllClientes(1, 1000).then(r => r.registros || []);
+        clientes = await ispfyService.getAllClientes(1, 1000).then(r => r.registros || []);
       }
       
       console.log('👥 Clientes carregados:', clientes.length);
       
-      const clientesMap = new Map<string, IXCClienteData>();
+      const clientesMap = new Map<string, ISPFYClienteData>();
       clientes.forEach(c => {
         if (c.id) clientesMap.set(String(c.id), c);
       });
 
       // 3. Buscar Contratos Ativos
       setProgress('Buscando contratos ativos...');
-      const contratos = await ixcService.fetchAllContratosAtivos((total) => {
+      const contratos = await ispfyService.fetchAllContratosAtivos((total) => {
         setProgress(`Buscando contratos ativos... (${total})`);
       });
 
       console.log('📊 Contratos ativos encontrados:', contratos.length);
       
       if (contratos.length === 0) {
-        throw new Error('Nenhum contrato ativo foi encontrado no IXC.');
+        throw new Error('Nenhum contrato ativo foi encontrado no ISPFY.');
       }
 
       // 4. Processar Dados
@@ -220,7 +220,7 @@ export default function IXCDici() {
       toast({
         variant: "destructive",
         title: "Erro fatal",
-        description: error.message || "Falha na comunicação com o IXC.",
+        description: error.message || "Falha na comunicação com o ISPFY.",
       });
     } finally {
       setLoading(false);
@@ -236,7 +236,7 @@ export default function IXCDici() {
           Gerador DICI Anatel
         </h1>
         <p className="text-slate-400">
-          Consolidação automática de contratos IXC para coleta de dados regulatórios.
+          Consolidação automática de contratos ISPFY para coleta de dados regulatórios.
         </p>
       </div>
 
@@ -305,7 +305,7 @@ export default function IXCDici() {
                 variant="ghost"
                 className="text-[10px] text-slate-600 hover:text-slate-400"
                 onClick={async () => {
-                  const contracts = await ixcService.fetchAllContratosAtivos();
+                  const contracts = await ispfyService.fetchAllContratosAtivos();
                   console.log('🔍 DEBUG CONTRATO (Campos disponíveis):', contracts[0]);
                   toast({ title: "Check Console", description: "Campos do contrato logados." });
                 }}
@@ -391,7 +391,7 @@ export default function IXCDici() {
             <Info className="h-4 w-4 text-blue-400" />
             <AlertTitle className="text-slate-200 text-xs">Nota sobre Velocidades</AlertTitle>
             <AlertDescription className="text-[10px] text-slate-500">
-              O sistema busca a velocidade no Contrato e, se ausente, recorre ao Plano associado no IXC. 
+              O sistema busca a velocidade no Contrato e, se ausente, recorre ao Plano associado no ISPFY. 
               Planos sem velocidade numérica explícita no nome ou campo serão ignorados na contagem.
             </AlertDescription>
          </Alert>

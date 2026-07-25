@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageSquare, Calendar, User, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCTicketData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYTicketData } from '@/types/ispfy';
 import { format } from 'date-fns';
 
 interface ClientTicketsProps {
@@ -12,7 +12,7 @@ interface ClientTicketsProps {
 }
 
 export const ClientTickets: React.FC<ClientTicketsProps> = ({ idCliente }) => {
-  const [tickets, setTickets] = useState<IXCTicketData[]>([]);
+  const [tickets, setTickets] = useState<ISPFYTicketData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +26,7 @@ export const ClientTickets: React.FC<ClientTicketsProps> = ({ idCliente }) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await ixcService.getTicketsByCliente(idCliente);
+      const data = await ispfyService.getTicketsByCliente(idCliente);
       setTickets(data);
     } catch (err) {
       setError('Erro ao carregar chamados.');

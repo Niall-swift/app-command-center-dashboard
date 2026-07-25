@@ -1,5 +1,5 @@
 
-export interface IXCContactData {
+export interface ISPFYContactData {
   id?: string; // ID do cliente
   principal?: 'S' | 'N'; // S = Sim, N = Não
   nome: string; // OBRIGATÓRIO
@@ -23,9 +23,9 @@ export interface IXCContactData {
   [key: string]: any; // Permite campos adicionais da API
 }
 
-export type IXCClienteData = IXCContactData;
+export type ISPFYClienteData = ISPFYContactData;
 
-export interface IXCPreRegistrationFormData {
+export interface ISPFYPreRegistrationFormData {
   nome: string;
   tipo_pessoa: 'F' | 'J';
   cnpj_cpf: string;
@@ -41,7 +41,7 @@ export interface IXCPreRegistrationFormData {
 }
 
 // Tipos para Contratos
-export interface IXCContratoData {
+export interface ISPFYContratoData {
   id?: string;
   id_cliente?: string;
   descricao?: string;
@@ -59,7 +59,7 @@ export interface IXCContratoData {
 }
 
 // Tipos para Faturas/Contas a Receber
-export interface IXCFaturaData {
+export interface ISPFYFaturaData {
   id?: string;
   id_cliente?: string;
   valor?: string;
@@ -80,7 +80,7 @@ export interface IXCFaturaData {
   [key: string]: any;
 }
 
-export interface IXCPixData {
+export interface ISPFYPixData {
   qrcode: string;
   qrcode_text: string;
   id_pix?: string;
@@ -88,7 +88,7 @@ export interface IXCPixData {
 }
 
 // Tipos para Tickets/Chamados
-export interface IXCTicketData {
+export interface ISPFYTicketData {
   id?: string;
   id_cliente?: string;
   assunto?: string;
@@ -105,7 +105,7 @@ export interface IXCTicketData {
 }
 
 // Tipos para Planos/Produtos
-export interface IXCPlanoData {
+export interface ISPFYPlanoData {
   id?: string;
   descricao?: string;
   valor?: string;
@@ -117,7 +117,7 @@ export interface IXCPlanoData {
 }
 
 // Tipos para Equipamentos
-export interface IXCEquipamentoData {
+export interface ISPFYEquipamentoData {
   id?: string;
   id_cliente?: string;
   descricao?: string;
@@ -130,7 +130,7 @@ export interface IXCEquipamentoData {
 }
 
 // Tipos para Conexões (sessões ativas)
-export interface IXCConexaoData {
+export interface ISPFYConexaoData {
   id?: string;
   id_cliente?: string;
   login?: string;
@@ -144,7 +144,7 @@ export interface IXCConexaoData {
 }
 
 // Tipos para Caixas FTTH (CTOs)
-export interface IXCCaixaData {
+export interface ISPFYCaixaData {
   id?: string;
   caixa: string;
   id_setor?: string;
@@ -157,7 +157,7 @@ export interface IXCCaixaData {
 }
 
 // Tipos Financeiros (fn_caixa, fn_apagar, fn_movim_caixa)
-export interface IXCFinancialCaixaData {
+export interface ISPFYFinancialCaixaData {
   id?: string;
   descricao?: string;
   conta?: string;
@@ -166,7 +166,7 @@ export interface IXCFinancialCaixaData {
   [key: string]: any;
 }
 
-export interface IXCPayableData {
+export interface ISPFYPayableData {
   id?: string;
   id_fornecedor?: string;
   fornecedor_nome?: string;
@@ -179,7 +179,7 @@ export interface IXCPayableData {
   [key: string]: any;
 }
 
-export interface IXCCashMovementData {
+export interface ISPFYCashMovementData {
   id?: string;
   id_caixa?: string;
   data?: string;
@@ -191,7 +191,7 @@ export interface IXCCashMovementData {
 }
 
 // Tipos para Logins (PPPoE/Hotspot - radusuarios)
-export interface IXCLoginData {
+export interface ISPFYLoginData {
   id?: string;
   id_cliente?: string;
   login?: string;
@@ -210,7 +210,7 @@ export interface IXCLoginData {
 }
 
 // Tipos para respostas da API
-export interface IXCApiResponse<T = unknown> {
+export interface ISPFYApiResponse<T = unknown> {
   registros: T[];
   total: number;
   page: number;
@@ -221,19 +221,19 @@ export interface IXCApiResponse<T = unknown> {
 }
 
 // Tipos para busca
-export type IXCSearchType = 'cnpj_cpf' | 'nome' | 'id' | 'cidade' | 'email' | 'whatsapp' | 'ativo' | 'lead';
+export type ISPFYSearchType = 'cnpj_cpf' | 'nome' | 'id' | 'cidade' | 'email' | 'whatsapp' | 'ativo' | 'lead';
 
-export interface IXCSearchState {
+export interface ISPFYSearchState {
   loading: boolean;
   error: string | null;
-  results: IXCClienteData[];
-  searchType: IXCSearchType;
+  results: ISPFYClienteData[];
+  searchType: ISPFYSearchType;
   searchValue: string;
   totalResults: number;
   currentPage: number;
 }
 // Tipos para consumo de banda
-export interface IXCBandwidthUsage {
+export interface ISPFYBandwidthUsage {
   id_login: string;
   data: string; // YYYY-MM-DD
   download: number; // em bytes ou formatado
@@ -241,14 +241,14 @@ export interface IXCBandwidthUsage {
   total?: number;
 }
 
-export interface IXCUsageSeries {
+export interface ISPFYUsageSeries {
   date: string;
   download: number;
   upload: number;
 }
 
 // Tipos para Postes
-export interface IXCPosteData {
+export interface ISPFYPosteData {
   id?: string;
   descricao?: string;
   codigo?: string;
@@ -259,7 +259,7 @@ export interface IXCPosteData {
 }
 
 // Tipos para POPs (Pontos de Presença)
-export interface IXCPopData {
+export interface ISPFYPopData {
   id?: string;
   descricao?: string;
   nome?: string;

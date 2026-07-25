@@ -17,8 +17,8 @@ import {
   Globe,
   Clock
 } from 'lucide-react';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCLoginData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYLoginData } from '@/types/ispfy';
 import { toast } from 'sonner';
 
 interface TechnicalDiagnosticsProps {
@@ -27,7 +27,7 @@ interface TechnicalDiagnosticsProps {
 
 export const TechnicalDiagnostics: React.FC<TechnicalDiagnosticsProps> = ({ idCliente }) => {
   const [loading, setLoading] = useState(false);
-  const [logins, setLogins] = useState<IXCLoginData[]>([]);
+  const [logins, setLogins] = useState<ISPFYLoginData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -35,7 +35,7 @@ export const TechnicalDiagnostics: React.FC<TechnicalDiagnosticsProps> = ({ idCl
     setLoading(true);
     setError(null);
     try {
-      const data = await ixcService.getLoginsByCliente(idCliente);
+      const data = await ispfyService.getLoginsByCliente(idCliente);
       setLogins(data);
     } catch (err) {
       setError('Erro ao carregar logins do cliente.');
@@ -56,7 +56,7 @@ export const TechnicalDiagnostics: React.FC<TechnicalDiagnosticsProps> = ({ idCl
 
     setProcessingId(idLogin);
     try {
-      const result = await ixcService.desconectarCliente(idLogin);
+      const result = await ispfyService.desconectarCliente(idLogin);
       if (result.success) {
         toast.success(result.message);
         // Recarregar status após um breve delay

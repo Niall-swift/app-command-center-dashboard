@@ -2,12 +2,12 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, DollarSign, Wifi, ArrowUpDown } from 'lucide-react';
-import { IXCContratoData } from '@/types/ixc';
+import { ISPFYContratoData } from '@/types/ispfy';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface ContratoCardProps {
-  contrato: IXCContratoData;
+  contrato: ISPFYContratoData;
   onClick?: () => void;
 }
 

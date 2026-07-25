@@ -544,8 +544,8 @@ export interface FirebaseCollections {
       enableNotifications: boolean;
     };
     
-    // Configurações do IXCSoft
-    ixcsoft?: {
+    // Configurações do ISPFYSoft
+    ispfysoft?: {
       apiKey: string;
       baseUrl: string;
       enableAutoSync: boolean;

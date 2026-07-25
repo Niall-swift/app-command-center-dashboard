@@ -422,10 +422,10 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-4 grid grid-cols-2 gap-3">
               
-              <Link to="/ixc/consulta" className="group">
+              <Link to="/ispfy/consulta" className="group">
                 <div className="p-3 rounded-xl border border-gray-100 hover:border-blue-100 hover:bg-blue-50/30 transition-all flex flex-col items-center text-center">
                   <Database className="w-5 h-5 text-blue-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-bold text-gray-700">Consulta IXC</span>
+                  <span className="text-xs font-bold text-gray-700">Consulta ISPFY</span>
                 </div>
               </Link>
 
@@ -443,7 +443,7 @@ export default function Dashboard() {
                 </div>
               </Link>
 
-              <Link to="/ixc/dici" className="group">
+              <Link to="/ispfy/dici" className="group">
                 <div className="p-3 rounded-xl border border-gray-100 hover:border-purple-100 hover:bg-purple-50/30 transition-all flex flex-col items-center text-center">
                   <FileSpreadsheet className="w-5 h-5 text-purple-500 mb-1.5 group-hover:scale-110 transition-transform" />
                   <span className="text-xs font-bold text-gray-700">Relatório DICI</span>

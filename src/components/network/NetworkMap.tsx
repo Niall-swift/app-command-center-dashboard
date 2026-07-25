@@ -9,8 +9,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCLoginData, IXCCaixaData, IXCPosteData, IXCPopData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYLoginData, ISPFYCaixaData, ISPFYPosteData, ISPFYPopData } from '@/types/ispfy';
 import { smartOltService } from '@/services/smartolt/smartOltService';
 import { SmartOltOnu, SmartOltOlt } from '@/types/smartOlt';
 import {
@@ -128,10 +128,10 @@ const NetworkMap = () => {
   const [apiLoaded, setApiLoaded] = useState(false);
 
   // Data
-  const [logins, setLogins] = useState<(IXCLoginData & { clientName?: string })[]>([]);
-  const [ctos, setCtos] = useState<IXCCaixaData[]>([]);
-  const [postes, setPostes] = useState<IXCPosteData[]>([]);
-  const [pops, setPops] = useState<IXCPopData[]>([]);
+  const [logins, setLogins] = useState<(ISPFYLoginData & { clientName?: string })[]>([]);
+  const [ctos, setCtos] = useState<ISPFYCaixaData[]>([]);
+  const [postes, setPostes] = useState<ISPFYPosteData[]>([]);
+  const [pops, setPops] = useState<ISPFYPopData[]>([]);
   const [olts, setOlts] = useState<SmartOltOlt[]>([]);
   const [smartOnus, setSmartOnus] = useState<SmartOltOnu[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
@@ -166,17 +166,17 @@ const NetworkMap = () => {
     });
   }, []);
 
-  // IXC + SmartOLT data
+  // ISPFY + SmartOLT data
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
         const [rawLogins, allCtos, allClients, rawPostes, rawPops, smartOnusRes, smartOltsRes] = await Promise.all([
-          ixcService.fetchAllLoginsComCoordenadas(),
-          ixcService.fetchAllCaixasComCoordenadas(),
-          ixcService.fetchAllClientesAtivos(),
-          ixcService.getPostesComCoordenadas(),
-          ixcService.getPopsComCoordenadas(),
+          ispfyService.fetchAllLoginsComCoordenadas(),
+          ispfyService.fetchAllCaixasComCoordenadas(),
+          ispfyService.fetchAllClientesAtivos(),
+          ispfyService.getPostesComCoordenadas(),
+          ispfyService.getPopsComCoordenadas(),
           smartOltService.getOnus().catch(() => [] as SmartOltOnu[]),
           smartOltService.getOlts().catch(() => [] as SmartOltOlt[]),
         ]);
@@ -233,7 +233,7 @@ const NetworkMap = () => {
         }
       } catch (e) {
         console.error('Erro ao carregar dados do mapa:', e);
-        toast({ title: 'Erro ao carregar mapa', description: 'Verifique a conexão com o IXC.', variant: 'destructive' });
+        toast({ title: 'Erro ao carregar mapa', description: 'Verifique a conexão com o ISPFY.', variant: 'destructive' });
       } finally {
         setLoading(false);
       }

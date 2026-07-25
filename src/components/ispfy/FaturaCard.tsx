@@ -3,11 +3,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Copy, Download, Calendar, DollarSign } from 'lucide-react';
-import { IXCFaturaData } from '@/types/ixc';
+import { ISPFYFaturaData } from '@/types/ispfy';
 import { formatDate } from '@/utils/date';
 
 interface FaturaCardProps {
-  fatura: IXCFaturaData;
+  fatura: ISPFYFaturaData;
   onCopyLinhaDigitavel?: (linha: string) => void;
 }
 

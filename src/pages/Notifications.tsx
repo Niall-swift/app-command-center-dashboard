@@ -114,7 +114,7 @@ export default function Notifications() {
               Faturas (Automático)
             </CardTitle>
             <CardDescription>
-              A verificação de faturas (Pre-mix / IXC) está agendada para rodar todos os dias às 08:00 AM automaticamente.
+              A verificação de faturas (Pre-mix / ISPFY) está agendada para rodar todos os dias às 08:00 AM automaticamente.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -255,7 +255,7 @@ export default function Notifications() {
                     name="userId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>ID do Cliente (IXC) ou CPF</FormLabel>
+                        <FormLabel>ID do Cliente (ISPFY) ou CPF</FormLabel>
                         <FormControl>
                           <Input placeholder="Digite o ID ou CPF do cliente" {...field} />
                         </FormControl>

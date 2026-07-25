@@ -18,12 +18,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { ixcService } from '@/services/ixc/ixcService';
-import type { IXCClienteData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import type { ISPFYClienteData } from '@/types/ispfy';
 import { whapiService } from '@/services/whapi/whapiService';
 import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency, formatDate } from '@/services/whapi/messageTemplates';
 import { spin } from '@/utils/spintax';
-import type { IXCFaturaData, IXCContratoData } from '@/types/ixc';
+import type { ISPFYFaturaData, ISPFYContratoData } from '@/types/ispfy';
 import type { WhapiBulkRecipient, GroupedClients, VencimentoGroup, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 import PageTransition from '@/components/PageTransition';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -31,7 +31,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 export default function WhatsAppBulkSender() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<{ clientes: IXCClienteData[], faturas: IXCFaturaData[], blockedContracts: IXCContratoData[] }>({ clientes: [], faturas: [], blockedContracts: [] });
+  const [data, setData] = useState<{ clientes: ISPFYClienteData[], faturas: ISPFYFaturaData[], blockedContracts: ISPFYContratoData[] }>({ clientes: [], faturas: [], blockedContracts: [] });
   const [groupedClients, setGroupedClients] = useState<GroupedClients[]>([]);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
@@ -76,19 +76,19 @@ export default function WhatsAppBulkSender() {
     try {
       // 1. Buscar TODOS os clientes (recursivo)
       setLoadingMessage('Buscando clientes ativos... (0)');
-      const clientes = await ixcService.fetchAllClientesAtivos((total) => {
+      const clientes = await ispfyService.fetchAllClientesAtivos((total) => {
         setLoadingMessage(`Buscando clientes ativos... (${total})`);
       });
       
       // 2. Buscar TODAS as faturas em aberto (recursivo)
       setLoadingMessage('Buscando faturas em aberto... (0)');
-      const faturas = await ixcService.fetchAllFaturasAbertas((total) => {
+      const faturas = await ispfyService.fetchAllFaturasAbertas((total) => {
         setLoadingMessage(`Buscando faturas em aberto... (${total})`);
       });
       
       // 3. Buscar contratos BLOQUEADOS (status_internet = 'BA')
       setLoadingMessage('Buscando clientes bloqueados... (BA)');
-      const blockedContracts = await ixcService.fetchAllContratosBloqueados((total) => {
+      const blockedContracts = await ispfyService.fetchAllContratosBloqueados((total) => {
         setLoadingMessage(`Buscando bloqueados... (${total})`);
       });
       
@@ -112,8 +112,8 @@ export default function WhatsAppBulkSender() {
   };
 
   const groupClientsByDueDate = (
-    clientes: IXCClienteData[],
-    faturas: IXCFaturaData[]
+    clientes: ISPFYClienteData[],
+    faturas: ISPFYFaturaData[]
   ): GroupedClients[] => {
     
     // Objeto para agrupar por data de vencimento (YYYY-MM-DD -> Clientes)
@@ -228,7 +228,7 @@ export default function WhatsAppBulkSender() {
       const clienteId = cliente.id || '';
       
       // Get ALL phone numbers for this client
-      const phones = ixcService.getClientPhones(cliente);
+      const phones = ispfyService.getClientPhones(cliente);
       
       // Skip if no valid phones
       if (phones.length === 0) return;
@@ -297,7 +297,7 @@ export default function WhatsAppBulkSender() {
           description: `Enviando e-mail de cobrança para ${client.nome}...`,
         });
         
-        await ixcService.sendEmailFatura(client.fatura.id);
+        await ispfyService.sendEmailFatura(client.fatura.id);
         await new Promise(r => setTimeout(r, 2000));
       }
 
@@ -313,7 +313,7 @@ export default function WhatsAppBulkSender() {
         });
         if (client.fatura?.id) {
           try {
-            await ixcService.sendEmailFatura(client.fatura.id);
+            await ispfyService.sendEmailFatura(client.fatura.id);
             await new Promise(r => setTimeout(r, 3000));
           } catch (e) {
             console.warn('Não foi possível gerar link via e-mail:', e);
@@ -580,8 +580,8 @@ export default function WhatsAppBulkSender() {
              // Atualizar UI para mostrar que está enviando e-mail
              setProgress(prev => prev ? { ...prev, current: `📧 Enviando E-mail para ${recipient.nome}...` } : prev);
              
-             // Disparar e-mail pelo IXC
-             await ixcService.sendEmailFatura(recipient.fatura.id);
+             // Disparar e-mail pelo ISPFY
+             await ispfyService.sendEmailFatura(recipient.fatura.id);
              // Aguardar 2 segundos para garantir processamento/geração do link
              await new Promise(r => setTimeout(r, 2000)); 
           }
@@ -743,7 +743,7 @@ export default function WhatsAppBulkSender() {
 
   // Carregar histórico de envios do localStorage ao iniciar
   useEffect(() => {
-    const saved = localStorage.getItem('ixc_blocked_sent_map');
+    const saved = localStorage.getItem('ispfy_blocked_sent_map');
     if (saved) {
       try {
         setSentMap(JSON.parse(saved));
@@ -759,7 +759,7 @@ export default function WhatsAppBulkSender() {
         const id = String(contractId);
         const newMap = { ...sentMap, [id]: Date.now() };
         setSentMap(newMap);
-        localStorage.setItem('ixc_blocked_sent_map', JSON.stringify(newMap));
+        localStorage.setItem('ispfy_blocked_sent_map', JSON.stringify(newMap));
     } catch (error) {
         console.error('Erro ao salvar timestamp', error);
     }
@@ -779,7 +779,7 @@ export default function WhatsAppBulkSender() {
     }
   };
 
-  const handleResolveBlocked = async (contract: IXCContratoData) => {
+  const handleResolveBlocked = async (contract: ISPFYContratoData) => {
     if (isBlocked24h(contract.id)) return;
 
     const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
@@ -824,7 +824,7 @@ export default function WhatsAppBulkSender() {
     setResolvingId(contract.id || null);
 
     try {
-      // Gerar mensagem via IA (Gemini) com dados financeiros completos do IXC
+      // Gerar mensagem via IA (Gemini) com dados financeiros completos do ISPFY
       let messageBody = await generateAIBlockedMessage({
         nomeCliente,
         dataVencimento,

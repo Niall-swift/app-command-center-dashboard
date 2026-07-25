@@ -18,7 +18,7 @@ import {
 } from 'recharts';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { 
   Loader2, 
   Users, 
@@ -42,7 +42,7 @@ interface AppStats {
   cityDistribution: any[];
 }
 
-interface IxcStats {
+interface IspfyStats {
   totalClients: number;
   activeClients: number;
   activeContracts: number;
@@ -85,8 +85,8 @@ const getUserMonth = (docId: string, createdAt?: any) => {
 export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'premix' | 'ixc'>('premix');
-  const [ixcOffline, setIxcOffline] = useState(false);
+  const [activeTab, setActiveTab] = useState<'premix' | 'ispfy'>('premix');
+  const [ispfyOffline, setIspfyOffline] = useState(false);
 
   const [appStats, setAppStats] = useState<AppStats>({
     totalUsers: 0,
@@ -96,7 +96,7 @@ export default function Analytics() {
     cityDistribution: []
   });
 
-  const [ixcStats, setIxcStats] = useState<IxcStats>({
+  const [ispfyStats, setIspfyStats] = useState<IspfyStats>({
     totalClients: 0,
     activeClients: 0,
     activeContracts: 0,
@@ -108,7 +108,7 @@ export default function Analytics() {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
-      setIxcOffline(false);
+      setIspfyOffline(false);
       
       try {
         // 1. Carregar dados do Firebase Firestore
@@ -192,7 +192,7 @@ export default function Analytics() {
           cityDistribution
         });
 
-        // 2. Carregar dados da API IXC
+        // 2. Carregar dados da API ISPFY
         let totalClients = 0;
         let activeClients = 0;
         let activeContracts = 0;
@@ -200,27 +200,27 @@ export default function Analytics() {
 
         try {
           const [totalRes, activeRes, contractsRes, ticketsRes] = await Promise.all([
-            ixcService.getAllClientesCount(),
-            ixcService.getClientesAtivosCount(),
-            ixcService.getContratosAtivosCount(),
-            ixcService.getTicketsAbertosCount()
+            ispfyService.getAllClientesCount(),
+            ispfyService.getClientesAtivosCount(),
+            ispfyService.getContratosAtivosCount(),
+            ispfyService.getTicketsAbertosCount()
           ]);
           totalClients = totalRes;
           activeClients = activeRes;
           activeContracts = contractsRes;
           openTickets = ticketsRes;
-        } catch (ixcErr) {
-          console.warn('IXC API offline ou sem permissão:', ixcErr);
-          setIxcOffline(true);
+        } catch (ispfyErr) {
+          console.warn('ISPFY API offline ou sem permissão:', ispfyErr);
+          setIspfyOffline(true);
         }
 
-        setIxcStats({
+        setIspfyStats({
           totalClients,
           activeClients,
           activeContracts,
           openTickets,
           clientComparisonData: [
-            { name: 'Total IXC', value: totalClients },
+            { name: 'Total ISPFY', value: totalClients },
             { name: 'Clientes Ativos', value: activeClients },
             { name: 'Contratos Ativos', value: activeContracts }
           ]
@@ -265,7 +265,7 @@ export default function Analytics() {
             <Activity className="w-8 h-8 text-sky-500" />
             Analytics do Sistema
           </h1>
-          <p className="text-gray-500">Métricas consolidadas do aplicativo móvel PreMix e do ERP IXC Telecom.</p>
+          <p className="text-gray-500">Métricas consolidadas do aplicativo móvel PreMix e do ERP ISPFY Telecom.</p>
         </div>
 
         {/* Tab Selector Toggle */}
@@ -281,14 +281,14 @@ export default function Analytics() {
             App PreMix
           </Button>
           <Button
-            variant={activeTab === 'ixc' ? 'default' : 'ghost'}
+            variant={activeTab === 'ispfy' ? 'default' : 'ghost'}
             className={`font-semibold rounded-lg h-9 px-4 text-xs ${
-              activeTab === 'ixc' ? 'bg-sky-600 text-white hover:bg-sky-700' : 'text-gray-600 hover:text-gray-900'
+              activeTab === 'ispfy' ? 'bg-sky-600 text-white hover:bg-sky-700' : 'text-gray-600 hover:text-gray-900'
             }`}
-            onClick={() => setActiveTab('ixc')}
+            onClick={() => setActiveTab('ispfy')}
           >
             <Database className="w-3.5 h-3.5 mr-1.5" />
-            IXC Telecom
+            ISPFY Telecom
           </Button>
         </div>
       </div>
@@ -456,40 +456,40 @@ export default function Analytics() {
           </motion.div>
         ) : (
           <motion.div
-            key="ixc-tab"
+            key="ispfy-tab"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.25 }}
             className="space-y-6"
           >
-            {ixcOffline && (
+            {ispfyOffline && (
               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 flex items-start gap-3 shadow-sm">
                 <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="font-bold text-sm">Integração IXC Offline</h4>
+                  <h4 className="font-bold text-sm">Integração ISPFY Offline</h4>
                   <p className="text-xs text-amber-700 leading-relaxed mt-0.5">
-                    Não foi possível conectar ao servidor da API do IXC no momento. Verifique as credenciais e o token VITE_IXC_TOKEN no arquivo de configuração do sistema.
+                    Não foi possível conectar ao servidor da API do ISPFY no momento. Verifique as credenciais e o token VITE_ISPFY_TOKEN no arquivo de configuração do sistema.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* KPI Cards IXC Telecom */}
+            {/* KPI Cards ISPFY Telecom */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <Card className="bg-white border-none shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-                    Total Clientes IXC
+                    Total Clientes ISPFY
                     <Users className="w-4 h-4 text-blue-500" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-gray-950">{ixcStats.totalClients.toLocaleString()}</span>
+                    <span className="text-3xl font-black text-gray-950">{ispfyStats.totalClients.toLocaleString()}</span>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-2">Cadastros totais salvos na base do IXC</p>
+                  <p className="text-[10px] text-gray-400 mt-2">Cadastros totais salvos na base do ISPFY</p>
                 </CardContent>
               </Card>
 
@@ -503,7 +503,7 @@ export default function Analytics() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-gray-950">{ixcStats.activeClients.toLocaleString()}</span>
+                    <span className="text-3xl font-black text-gray-950">{ispfyStats.activeClients.toLocaleString()}</span>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-2">Clientes ativos com status ativo no sistema</p>
                 </CardContent>
@@ -519,7 +519,7 @@ export default function Analytics() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-gray-950">{ixcStats.activeContracts.toLocaleString()}</span>
+                    <span className="text-3xl font-black text-gray-950">{ispfyStats.activeContracts.toLocaleString()}</span>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-2">Contratos regulares de internet habilitados</p>
                 </CardContent>
@@ -535,14 +535,14 @@ export default function Analytics() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-gray-950">{ixcStats.openTickets.toLocaleString()}</span>
+                    <span className="text-3xl font-black text-gray-950">{ispfyStats.openTickets.toLocaleString()}</span>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-2">Chamados de suporte abertos aguardando solução</p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Charts Grid IXC */}
+            {/* Charts Grid ISPFY */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="lg:col-span-2 bg-white border-none shadow-sm">
                 <CardHeader>
@@ -551,13 +551,13 @@ export default function Analytics() {
                     Comparativo Cadastros vs. Habilitados
                   </CardTitle>
                   <CardDescription className="text-xs text-gray-500">
-                    Proporção de cadastros na base do IXC Telecom que possuem ciclos de cobrança e internet ativos.
+                    Proporção de cadastros na base do ISPFY Telecom que possuem ciclos de cobrança e internet ativos.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={ixcStats.clientComparisonData}>
+                      <BarChart data={ispfyStats.clientComparisonData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                         <XAxis dataKey="name" stroke="#64748b" fontSize={11} fontWeight={600} />
                         <YAxis stroke="#64748b" fontSize={11} fontWeight={600} />
@@ -585,7 +585,7 @@ export default function Analytics() {
                 <CardHeader>
                   <CardTitle className="text-gray-900 text-lg flex items-center gap-2">
                     <HelpCircle className="w-5 h-5 text-sky-500" />
-                    Consolidação IXC
+                    Consolidação ISPFY
                   </CardTitle>
                   <CardDescription className="text-xs text-gray-500">
                     Resumo analítico das condições da infraestrutura.
@@ -598,8 +598,8 @@ export default function Analytics() {
                       <p className="text-[10px] text-gray-400 mt-0.5">Porcentagem de clientes ativos</p>
                     </div>
                     <span className="text-xl font-black text-emerald-600">
-                      {ixcStats.totalClients > 0 
-                        ? `${((ixcStats.activeClients / ixcStats.totalClients) * 100).toFixed(1)}%` 
+                      {ispfyStats.totalClients > 0 
+                        ? `${((ispfyStats.activeClients / ispfyStats.totalClients) * 100).toFixed(1)}%` 
                         : '0%'
                       }
                     </span>
@@ -611,8 +611,8 @@ export default function Analytics() {
                       <p className="text-[10px] text-gray-400 mt-0.5">Porcentagem de ativos contratados</p>
                     </div>
                     <span className="text-xl font-black text-indigo-600">
-                      {ixcStats.activeClients > 0 
-                        ? `${((ixcStats.activeContracts / ixcStats.activeClients) * 100).toFixed(1)}%` 
+                      {ispfyStats.activeClients > 0 
+                        ? `${((ispfyStats.activeContracts / ispfyStats.activeClients) * 100).toFixed(1)}%` 
                         : '0%'
                       }
                     </span>
@@ -624,7 +624,7 @@ export default function Analytics() {
                       <p className="text-[10px] text-gray-400 mt-0.5">Suporte técnico aberto</p>
                     </div>
                     <span className="text-xl font-black text-rose-500">
-                      {ixcStats.openTickets} chamados
+                      {ispfyStats.openTickets} chamados
                     </span>
                   </div>
                 </CardContent>

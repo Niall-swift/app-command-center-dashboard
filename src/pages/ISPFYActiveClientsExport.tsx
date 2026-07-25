@@ -21,18 +21,18 @@ import {
   ListFilter
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCClienteData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYClienteData } from '@/types/ispfy';
 import { toast } from 'sonner';
 
 interface ColumnOption {
-  key: keyof IXCClienteData;
+  key: keyof ISPFYClienteData;
   label: string;
   description: string;
 }
 
 const AVAILABLE_COLUMNS: ColumnOption[] = [
-  { key: 'id', label: 'ID', description: 'Identificador único no IXC' },
+  { key: 'id', label: 'ID', description: 'Identificador único no ISPFY' },
   { key: 'nome', label: 'Nome / Razão Social', description: 'Nome completo ou Razão Social cadastrada' },
   { key: 'tipo_pessoa', label: 'Tipo de Pessoa', description: 'Física (F) ou Jurídica (J)' },
   { key: 'cnpj_cpf', label: 'CPF / CNPJ', description: 'Documento nacional de identificação' },
@@ -68,7 +68,7 @@ const getStandardDueDay = (rawDay: string): string => {
   return `Dia ${day}`;
 };
 
-export default function IXCActiveClientsExport() {
+export default function ISPFYActiveClientsExport() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     AVAILABLE_COLUMNS.map(col => col.key as string)
   );
@@ -76,10 +76,10 @@ export default function IXCActiveClientsExport() {
   const [progress, setProgress] = useState(0);
   const [loadedCount, setLoadedCount] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
-  const [activeClients, setActiveClients] = useState<IXCClienteData[]>([]);
+  const [activeClients, setActiveClients] = useState<ISPFYClienteData[]>([]);
   const [delimiter, setDelimiter] = useState<';' | ','>(';');
 
-  const getClientValue = (client: IXCClienteData, key: string): string => {
+  const getClientValue = (client: ISPFYClienteData, key: string): string => {
     if (key === 'nome') {
       return String(client.nome || client.razao || '');
     }
@@ -152,7 +152,7 @@ export default function IXCActiveClientsExport() {
 
     try {
       // 1. Buscar clientes ativos
-      const records = await ixcService.fetchAllClientesAtivos((total) => {
+      const records = await ispfyService.fetchAllClientesAtivos((total) => {
         setLoadedCount(total);
         setProgress(Math.min(25, Math.floor((total / 1000) * 25)));
         setStatusMessage(`Buscando clientes ativos... (${total} carregados)`);
@@ -168,7 +168,7 @@ export default function IXCActiveClientsExport() {
       // 2. Buscar contratos ativos
       setStatusMessage('Buscando planos contratados...');
       setProgress(30);
-      const contracts = await ixcService.fetchAllContratosAtivos((totalContracts) => {
+      const contracts = await ispfyService.fetchAllContratosAtivos((totalContracts) => {
         setProgress(Math.min(50, 30 + Math.floor((totalContracts / 1000) * 20)));
         setStatusMessage(`Buscando contratos... (${totalContracts} carregados)`);
       });
@@ -184,7 +184,7 @@ export default function IXCActiveClientsExport() {
       // 3. Buscar faturas em aberto para pegar vencimentos mais precisos
       setStatusMessage('Buscando datas de vencimento...');
       setProgress(55);
-      const invoices = await ixcService.fetchAllFaturasAbertas((totalInvoices) => {
+      const invoices = await ispfyService.fetchAllFaturasAbertas((totalInvoices) => {
         setProgress(Math.min(75, 55 + Math.floor((totalInvoices / 1000) * 20)));
         setStatusMessage(`Buscando faturas... (${totalInvoices} carregadas)`);
       });
@@ -201,7 +201,7 @@ export default function IXCActiveClientsExport() {
       // 4. Buscar logins PPPoE
       setStatusMessage('Buscando logins PPPoE...');
       setProgress(80);
-      const logins = await ixcService.fetchAllLogins((totalLogins) => {
+      const logins = await ispfyService.fetchAllLogins((totalLogins) => {
         setProgress(Math.min(95, 80 + Math.floor((totalLogins / 1000) * 15)));
         setStatusMessage(`Buscando logins PPPoE... (${totalLogins} carregados)`);
       });
@@ -272,8 +272,8 @@ export default function IXCActiveClientsExport() {
       toast.success(`${enrichedRecords.length} clientes ativos carregados com sucesso!`);
     } catch (error: any) {
       console.error(error);
-      setStatusMessage('Ocorreu um erro ao buscar os dados do IXC.');
-      toast.error(error.message || 'Erro ao carregar dados do IXC. Verifique a conexão.');
+      setStatusMessage('Ocorreu um erro ao buscar os dados do ISPFY.');
+      toast.error(error.message || 'Erro ao carregar dados do ISPFY. Verifique a conexão.');
     } finally {
       setLoading(false);
     }
@@ -321,7 +321,7 @@ export default function IXCActiveClientsExport() {
       const link = document.createElement('a');
       const dateStr = new Date().toISOString().split('T')[0];
       link.setAttribute('href', url);
-      link.setAttribute('download', `clientes_ativos_ixc_${dateStr}.csv`);
+      link.setAttribute('download', `clientes_ativos_ispfy_${dateStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -344,7 +344,7 @@ export default function IXCActiveClientsExport() {
         >
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Database className="w-4 h-4" />
-            <span>Sistema IXC</span>
+            <span>Sistema ISPFY</span>
             <span>/</span>
             <span className="text-gray-900 font-medium">Exportador de Clientes Ativos</span>
           </div>
@@ -358,7 +358,7 @@ export default function IXCActiveClientsExport() {
                 Exportar Clientes Ativos
               </h1>
               <p className="text-gray-500 mt-2 font-medium">
-                Busca recursiva na base IXC para extrair e gerar planilha de cadastros ativos.
+                Busca recursiva na base ISPFY para extrair e gerar planilha de cadastros ativos.
               </p>
             </div>
           </div>
@@ -475,7 +475,7 @@ export default function IXCActiveClientsExport() {
                   ) : (
                     <>
                       <Database className="w-5 h-5" />
-                      Iniciar Importação IXC
+                      Iniciar Importação ISPFY
                     </>
                   )}
                 </Button>
@@ -572,7 +572,7 @@ export default function IXCActiveClientsExport() {
             <Info className="h-4 w-4 text-sky-500" />
             <AlertTitle className="text-gray-800 font-bold text-sm">Controle de Progresso</AlertTitle>
             <AlertDescription className="text-xs text-gray-500 leading-relaxed mt-1">
-              A API do IXC Soft retorna registros paginados de 1.000 em 1.000. O sistema acumulará recursivamente 
+              A API do ISPFY Soft retorna registros paginados de 1.000 em 1.000. O sistema acumulará recursivamente 
               todos os clientes ativos e atualizará o progresso em lotes.
             </AlertDescription>
           </Alert>

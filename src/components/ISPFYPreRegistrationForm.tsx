@@ -14,14 +14,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, UserPlus, Wifi } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { UserDetails } from '@/types/dashboard';
-import type { IXCContactData, IXCPreRegistrationFormData } from '@/types/ixc';
+import type { ISPFYContactData, ISPFYPreRegistrationFormData } from '@/types/ispfy';
 
-interface IXCPreRegistrationFormProps {
+interface ISPFYPreRegistrationFormProps {
   userDetails: UserDetails;
   requestId: string;
 }
 
-const ixcSchema = z.object({
+const ispfySchema = z.object({
   nome: z.string().min(2, 'Nome é obrigatório (mínimo 2 caracteres)'),
   tipo_pessoa: z.enum(['F', 'J'], {
     required_error: 'Selecione o tipo de pessoa',
@@ -39,15 +39,15 @@ const ixcSchema = z.object({
   token: z.string().min(1, 'Token da API é obrigatório'),
 });
 
-type IXCFormData = z.infer<typeof ixcSchema>;
+type ISPFYFormData = z.infer<typeof ispfySchema>;
 
-export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPreRegistrationFormProps) {
+export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISPFYPreRegistrationFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const form = useForm<IXCFormData>({
-    resolver: zodResolver(ixcSchema),
+  const form = useForm<ISPFYFormData>({
+    resolver: zodResolver(ispfySchema),
     defaultValues: {
       nome: userDetails.name || '',
       tipo_pessoa: 'F',
@@ -64,12 +64,12 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
     },
   });
 
-  const handleIXCPreRegistration = async (data: IXCFormData) => {
+  const handleISPFYPreRegistration = async (data: ISPFYFormData) => {
     setIsLoading(true);
 
     try {
-      // Mapear dados do formulário para o formato esperado pela API do IXC
-      const ixcData: IXCContactData = {
+      // Mapear dados do formulário para o formato esperado pela API do ISPFY
+      const ispfyData: ISPFYContactData = {
         principal: 'N',
         nome: data.nome,
         tipo_pessoa: data.tipo_pessoa,
@@ -87,42 +87,42 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
         ativo: 'S',
       };
 
-      console.log('Dados para envio ao IXC:', ixcData);
+      console.log('Dados para envio ao ISPFY:', ispfyData);
 
-      // Chamada real para a API do IXC
-      const response = await axios.post(`${data.host}/contato`, ixcData, {
+      // Chamada real para a API do ISPFY
+      const response = await axios.post(`${data.host}/contato`, ispfyData, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${data.token}`,
-          'ixcsoft': data.token, // IXC pode usar este header também
+          'ispfysoft': data.token, // ISPFY pode usar este header também
         },
         timeout: 30000, // 30 segundos de timeout
       });
 
-      console.log('Resposta da API IXC:', response.data);
+      console.log('Resposta da API ISPFY:', response.data);
 
       toast({
-        title: "Pré-cadastro IXC realizado com sucesso!",
-        description: `Cliente ${data.nome} foi cadastrado no sistema IXC como lead`,
+        title: "Pré-cadastro ISPFY realizado com sucesso!",
+        description: `Cliente ${data.nome} foi cadastrado no sistema ISPFY como lead`,
       });
 
       setIsOpen(false);
       form.reset();
     } catch (error) {
-      console.error('Erro na chamada da API IXC:', error);
+      console.error('Erro na chamada da API ISPFY:', error);
       
-      let errorMessage = "Não foi possível realizar o cadastro no IXC. Tente novamente.";
+      let errorMessage = "Não foi possível realizar o cadastro no ISPFY. Tente novamente.";
       
       if (axios.isAxiosError(error)) {
         if (error.response) {
-          errorMessage = `Erro da API IXC: ${error.response.status} - ${error.response.data?.message || error.response.statusText}`;
+          errorMessage = `Erro da API ISPFY: ${error.response.status} - ${error.response.data?.message || error.response.statusText}`;
         } else if (error.request) {
-          errorMessage = "Erro de conexão com a API IXC. Verifique a URL e conectividade.";
+          errorMessage = "Erro de conexão com a API ISPFY. Verifique a URL e conectividade.";
         }
       }
 
       toast({
-        title: "Erro no pré-cadastro IXC",
+        title: "Erro no pré-cadastro ISPFY",
         description: errorMessage,
         variant: "destructive",
       });
@@ -139,22 +139,22 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
           className="bg-blue-600 hover:bg-blue-700 text-white"
         >
           <UserPlus className="w-4 h-4 mr-1" />
-          Cadastrar IXC
+          Cadastrar ISPFY
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wifi className="w-5 h-5 text-blue-600" />
-            Pré-cadastro IXCSoft
+            Pré-cadastro ISPFYSoft
           </DialogTitle>
           <DialogDescription>
-            Cadastre o cliente {userDetails.name} no sistema IXC como lead
+            Cadastre o cliente {userDetails.name} no sistema ISPFY como lead
           </DialogDescription>
         </DialogHeader>
         
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleIXCPreRegistration)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleISPFYPreRegistration)} className="space-y-4">
             <motion.div 
               className="space-y-4"
               initial={{ opacity: 0, y: 20 }}
@@ -163,14 +163,14 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
             >
               {/* Configuração da API */}
               <div className="p-4 bg-gray-50 rounded-lg border">
-                <h3 className="font-semibold text-gray-900 mb-3">Configuração da API IXC</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">Configuração da API ISPFY</h3>
                 <div className="grid grid-cols-1 gap-4">
                   <FormField
                     control={form.control}
                     name="host"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>URL da API IXC *</FormLabel>
+                        <FormLabel>URL da API ISPFY *</FormLabel>
                         <FormControl>
                           <Input placeholder="https://seu-servidor.com/webservice/v1" {...field} />
                         </FormControl>
@@ -188,7 +188,7 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
                         <FormControl>
                           <Input 
                             type="password" 
-                            placeholder="Seu token de acesso à API IXC" 
+                            placeholder="Seu token de acesso à API ISPFY" 
                             {...field} 
                           />
                         </FormControl>
@@ -379,7 +379,7 @@ export default function IXCPreRegistrationForm({ userDetails, requestId }: IXCPr
                   ) : (
                     <>
                       <UserPlus className="w-4 h-4 mr-2" />
-                      Cadastrar no IXC
+                      Cadastrar no ISPFY
                     </>
                   )}
                 </Button>

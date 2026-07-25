@@ -109,7 +109,7 @@ export interface GeminiBlockedMessageParams {
 
 /**
  * Gera uma mensagem humanizada para cliente BLOQUEADO usando o Google Gemini.
- * Inclui dados financeiros completos do IXC: quantidade de faturas, valor total e link.
+ * Inclui dados financeiros completos do ISPFY: quantidade de faturas, valor total e link.
  * Em caso de erro, retorna null para o chamador usar o fallback.
  */
 export async function generateAIBlockedMessage(params: GeminiBlockedMessageParams): Promise<string | null> {

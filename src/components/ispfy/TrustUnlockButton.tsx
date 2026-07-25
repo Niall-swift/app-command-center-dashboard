@@ -12,7 +12,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { LockOpen, Loader2 } from 'lucide-react';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { toast } from 'sonner';
 
 interface TrustUnlockButtonProps {
@@ -30,7 +30,7 @@ export const TrustUnlockButton: React.FC<TrustUnlockButtonProps> = ({
   const [open, setOpen] = useState(false);
 
   // Verifica se está bloqueado (CM = Corte Manual, CA = Corte Automático, etc.)
-  // Ajuste conforme as siglas do IXC do cliente
+  // Ajuste conforme as siglas do ISPFY do cliente
   const isBlocked = ['CM', 'CA', 'FA', 'BA'].includes(statusInternet);
 
   if (!isBlocked) return null;
@@ -38,7 +38,7 @@ export const TrustUnlockButton: React.FC<TrustUnlockButtonProps> = ({
   const handleUnlock = async () => {
     setLoading(true);
     try {
-      const result = await ixcService.unlockContract(contratoId);
+      const result = await ispfyService.unlockContract(contratoId);
       
       if (result.success) {
         toast.success(result.message);

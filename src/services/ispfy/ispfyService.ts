@@ -1,26 +1,26 @@
 import axios, { AxiosInstance } from 'axios';
 import type { 
-  IXCContratoData, 
-  IXCFaturaData, 
-  IXCTicketData, 
-  IXCPlanoData, 
-  IXCEquipamentoData, 
-  IXCConexaoData,
-  IXCClienteData,
-  IXCLoginData,
-  IXCPixData,
-  IXCApiResponse,
-  IXCUsageSeries,
-  IXCBandwidthUsage,
-  IXCCaixaData,
-  IXCPosteData,
-  IXCPopData,
-  IXCFinancialCaixaData,
-  IXCPayableData,
-  IXCCashMovementData
-} from '@/types/ixc';
+  ISPFYContratoData, 
+  ISPFYFaturaData, 
+  ISPFYTicketData, 
+  ISPFYPlanoData, 
+  ISPFYEquipamentoData, 
+  ISPFYConexaoData,
+  ISPFYClienteData,
+  ISPFYLoginData,
+  ISPFYPixData,
+  ISPFYApiResponse,
+  ISPFYUsageSeries,
+  ISPFYBandwidthUsage,
+  ISPFYCaixaData,
+  ISPFYPosteData,
+  ISPFYPopData,
+  ISPFYFinancialCaixaData,
+  ISPFYPayableData,
+  ISPFYCashMovementData
+} from '@/types/ispfy';
 
-export interface IXCParams {
+export interface ISPFYParams {
   qtype: string;
   query: string;
   oper: '=' | '>' | '<' | '>=' | '<=' | 'L';
@@ -31,23 +31,23 @@ export interface IXCParams {
   [key: string]: unknown; // Permite filtros extras como 'status', etc.
 }
 
-class IXCService {
+class ISPFYService {
   private client: AxiosInstance;
   private encodedToken: string;
 
   constructor() {
     // Validar configuração
-    const host = import.meta.env.VITE_IXC_HOST;
-    const token = import.meta.env.VITE_IXC_TOKEN;
+    const host = import.meta.env.VITE_ISPFY_HOST;
+    const token = import.meta.env.VITE_ISPFY_TOKEN;
 
     if (!host) {
-      throw new Error('Configuração IXC incompleta. Verifique a variável VITE_IXC_HOST no arquivo .env.local');
+      throw new Error('Configuração ISPFY incompleta. Verifique a variável VITE_ISPFY_HOST no arquivo .env.local');
     }
 
-    // Configuração da API para browser
+    // Configuração da API para browser (timeout ampliado para 120 segundos para pesquisas extensas no ISPFY)
     this.client = axios.create({
       baseURL: host,
-      timeout: 15000,
+      timeout: 120000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -68,31 +68,40 @@ class IXCService {
 
   private async makeRequest<T>(
     endpoint: string,
-    data: Partial<IXCParams>
+    data: Partial<ISPFYParams>,
+    retries = 2
   ): Promise<T> {
-    try {
-      const headers: Record<string, string> = {
-        'ixcsoft': 'listar',
-      };
+    const headers: Record<string, string> = {
+      'ISPFYsoft': 'listar',
+    };
 
-      if (this.encodedToken) {
-        headers['Authorization'] = `Basic ${this.encodedToken}`;
-      }
-
-      const response = await this.client.post<T>(endpoint, data, { headers });
-
-      return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        throw new Error(`Erro na API IXC: ${error.message}`);
-      }
-      throw error;
+    if (this.encodedToken) {
+      headers['Authorization'] = `Basic ${this.encodedToken}`;
     }
+
+    for (let attempt = 1; attempt <= retries + 1; attempt++) {
+      try {
+        const response = await this.client.post<T>(endpoint, data, { headers });
+        return response.data;
+      } catch (error: any) {
+        const isTimeout = error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout') || error.response?.status >= 500;
+        if (isTimeout && attempt <= retries) {
+          console.warn(`⏳ [ISPFY API Timeout/Retry] Tentativa ${attempt} falhou em ${endpoint}. Retentando em ${attempt * 1500}ms...`);
+          await new Promise(r => setTimeout(r, attempt * 1500));
+          continue;
+        }
+        if (axios.isAxiosError(error)) {
+          throw new Error(`Erro na API ISPFY: ${error.message}`);
+        }
+        throw error;
+      }
+    }
+    throw new Error('Falha na requisição ISPFY após retentativas.');
   }
 
   // Buscar cliente por CNPJ/CPF
-  async getClienteByCnpjCpf(cnpjCpf: string): Promise<IXCClienteData | null> {
-    const data: Partial<IXCParams> = {
+  async getClienteByCnpjCpf(cnpjCpf: string): Promise<ISPFYClienteData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.cnpj_cpf',
       query: cnpjCpf,
       oper: '=',
@@ -102,7 +111,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -112,8 +121,8 @@ class IXCService {
   }
 
   // Buscar cliente por telefone (celular ou fixo)
-  async getClienteByPhone(phone: string): Promise<IXCClienteData | null> {
-    console.log(`🔍 Iniciando busca no IXC para o telefone: ${phone}`);
+  async getClienteByPhone(phone: string): Promise<ISPFYClienteData | null> {
+    console.log(`🔍 Iniciando busca no ISPFY para o telefone: ${phone}`);
     
     // Limpar o número para buscar apenas dígitos
     // Se vier do WhatsApp, pode vir como 552299887766
@@ -152,7 +161,7 @@ class IXCService {
     for (const term of searchTerms) {
       for (const field of fields) {
         console.log(`📡 Tentando campo: ${field} com termo: ${term}`);
-        const data: Partial<IXCParams> = {
+        const data: Partial<ISPFYParams> = {
           qtype: field,
           query: term,
           oper: term.includes('%') ? 'L' : '=', // Usa = se for formato exato
@@ -163,7 +172,7 @@ class IXCService {
         };
 
         try {
-          const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+          const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
           if (response.registros && response.registros.length > 0) {
             console.log(`✅ Cliente encontrado! Campo: ${field}, Termo: ${term}`, response.registros[0].razao);
             return response.registros[0];
@@ -174,29 +183,29 @@ class IXCService {
       }
     }
 
-    console.warn(`⚠️ Nenhum cliente encontrado no IXC para o telefone ${phone}`);
+    console.warn(`⚠️ Nenhum cliente encontrado no ISPFY para o telefone ${phone}`);
     return null;
   }
 
   // Buscar cliente por nome
-  async getClienteByNome(nome: string): Promise<IXCClienteData[]> {
-    const data: Partial<IXCParams> = {
+  async getClienteByNome(nome: string): Promise<ISPFYClienteData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.nome',
       query: `%${nome}%`,
       oper: 'L',
       page: '1',
-      rp: '1000',
+      rp: '200', // Reduzido de 1000 para 200 para evitar timeout em busca textual
       sortname: 'cliente.nome',
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.registros || [];
   }
 
   // Buscar cliente por ID
-  async getClienteById(id: string): Promise<IXCClienteData | null> {
-    const data: Partial<IXCParams> = {
+  async getClienteById(id: string): Promise<ISPFYClienteData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.id',
       query: id,
       oper: '=',
@@ -206,7 +215,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -216,7 +225,7 @@ class IXCService {
   }
 
   // Buscar cliente por CPF/CNPJ
-  async getClienteByCPF(cpf: string): Promise<IXCClienteData | null> {
+  async getClienteByCPF(cpf: string): Promise<ISPFYClienteData | null> {
     // Primeiro, limpamos para ter apenas números
     const numbers = cpf.replace(/\D/g, '');
     
@@ -231,9 +240,9 @@ class IXCService {
       formattedCPF = numbers.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
     }
 
-    console.log(`🔍 Josué buscando cliente no IXC com documento formatado: ${formattedCPF}`);
+    console.log(`🔍 Josué buscando cliente no ISPFY com documento formatado: ${formattedCPF}`);
 
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.cnpj_cpf',
       query: formattedCPF,
       oper: '=',
@@ -243,7 +252,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -252,14 +261,13 @@ class IXCService {
     return response.registros[0];
   }
 
-  // Buscar todos os clientes (com paginação)
   async getAllClientes(
     page: number = 1,
-    rp: number = 1000,
+    rp: number = 300,
     sortname: string = 'cliente.id',
     sortorder: 'asc' | 'desc' = 'desc'
-  ): Promise<IXCApiResponse<IXCClienteData>> {
-    const data: Partial<IXCParams> = {
+  ): Promise<ISPFYApiResponse<ISPFYClienteData>> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.id',
       query: '', // Query vazia para buscar todos
       oper: 'L', // LIKE funciona melhor que = para buscar todos
@@ -269,12 +277,12 @@ class IXCService {
       sortorder,
     };
 
-    return await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    return await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
   }
 
   // Buscar clientes por cidade
-  async getClientesByCidade(cidade: string): Promise<IXCClienteData[]> {
-    const data: Partial<IXCParams> = {
+  async getClientesByCidade(cidade: string): Promise<ISPFYClienteData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.cidade',
       query: `%${cidade}%`,
       oper: 'L',
@@ -284,13 +292,13 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.registros || [];
   }
 
   // Buscar clientes ativos
-  async getClientesAtivos(): Promise<IXCClienteData[]> {
-    const data: Partial<IXCParams> = {
+  async getClientesAtivos(): Promise<ISPFYClienteData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.ativo',
       query: 'S',
       oper: '=',
@@ -300,13 +308,13 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.registros || [];
   }
 
   // Buscar leads (clientes potenciais)
-  async getLeads(): Promise<IXCClienteData[]> {
-    const data: Partial<IXCParams> = {
+  async getLeads(): Promise<ISPFYClienteData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.lead',
       query: 'S',
       oper: '=',
@@ -316,7 +324,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.registros || [];
   }
 
@@ -329,8 +337,8 @@ class IXCService {
     rp: number = 100,
     sortname: string = 'cliente.id',
     sortorder: 'asc' | 'desc' = 'desc'
-  ): Promise<IXCApiResponse> {
-    const data: Partial<IXCParams> = {
+  ): Promise<ISPFYApiResponse> {
+    const data: Partial<ISPFYParams> = {
       qtype,
       query,
       oper,
@@ -340,7 +348,7 @@ class IXCService {
       sortorder,
     };
 
-    return await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    return await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
   }
 
   // Testar conexão com a API
@@ -349,7 +357,7 @@ class IXCService {
       await this.getAllClientes(1, 1);
       return true;
     } catch (error) {
-      console.error('Erro ao testar conexão com IXC:', error);
+      console.error('Erro ao testar conexão com ISPFY:', error);
       return false;
     }
   }
@@ -357,8 +365,8 @@ class IXCService {
   // ==================== MÉTODOS DE CONTRATOS ====================
 
   // Buscar contratos por cliente
-  async getContratosByCliente(idCliente: string): Promise<IXCContratoData[]> {
-    const data: Partial<IXCParams> = {
+  async getContratosByCliente(idCliente: string): Promise<ISPFYContratoData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente_contrato.id_cliente',
       query: idCliente,
       oper: '=',
@@ -368,13 +376,13 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYContratoData>>('/cliente_contrato', data);
     return response.registros || [];
   }
 
   // Buscar contrato por ID
-  async getContratoById(id: string): Promise<IXCContratoData | null> {
-    const data: Partial<IXCParams> = {
+  async getContratoById(id: string): Promise<ISPFYContratoData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente_contrato.id',
       query: id,
       oper: '=',
@@ -384,7 +392,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYContratoData>>('/cliente_contrato', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -394,8 +402,8 @@ class IXCService {
   }
 
   // Buscar contratos ativos
-  async getContratosAtivos(): Promise<IXCContratoData[]> {
-    const data: Partial<IXCParams> = {
+  async getContratosAtivos(): Promise<ISPFYContratoData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente_contrato.status',
       query: 'A',
       oper: '=',
@@ -405,7 +413,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYContratoData>>('/cliente_contrato', data);
     return response.registros || [];
   }
 
@@ -427,7 +435,7 @@ class IXCService {
       await this.client.post('/cliente_contrato_desbloqueio', payload, {
         headers: {
           'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'listar', 
+          'ISPFYsoft': 'listar', 
         }
       });
 
@@ -445,8 +453,8 @@ class IXCService {
   // ==================== MÉTODOS DE FATURAS ====================
 
   // Buscar faturas por cliente
-  async getFaturasByCliente(idCliente: string): Promise<IXCFaturaData[]> {
-    const data: Partial<IXCParams> = {
+  async getFaturasByCliente(idCliente: string): Promise<ISPFYFaturaData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'fn_areceber.id_cliente',
       query: idCliente,
       oper: '=',
@@ -456,13 +464,13 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', data);
     return response.registros || [];
   }
 
   // Buscar faturas abertas (não pagas)
-  async getFaturasAbertas(idCliente?: string): Promise<IXCFaturaData[]> {
-    const data: Partial<IXCParams> = idCliente ? {
+  async getFaturasAbertas(idCliente?: string): Promise<ISPFYFaturaData[]> {
+    const data: Partial<ISPFYParams> = idCliente ? {
       qtype: 'fn_areceber.id_cliente',
       query: idCliente,
       oper: '=',
@@ -480,16 +488,16 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', data);
     
     // Filtrar apenas faturas abertas
     const faturas = response.registros || [];
-    return faturas.filter((f: IXCFaturaData) => !f.pagamento_data);
+    return faturas.filter((f: ISPFYFaturaData) => !f.pagamento_data);
   }
 
   // Buscar fatura por ID
-  async getFaturaById(id: string): Promise<IXCFaturaData | null> {
-    const data: Partial<IXCParams> = {
+  async getFaturaById(id: string): Promise<ISPFYFaturaData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'fn_areceber.id',
       query: id,
       oper: '=',
@@ -499,7 +507,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -509,10 +517,10 @@ class IXCService {
   }
 
   // Buscar faturas vencidas
-  async getFaturasVencidas(): Promise<IXCFaturaData[]> {
+  async getFaturasVencidas(): Promise<ISPFYFaturaData[]> {
     const hoje = new Date().toISOString().split('T')[0];
     
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'fn_areceber.data_vencimento',
       query: hoje,
       oper: '<',
@@ -522,11 +530,11 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', data);
     
   // Filtrar apenas faturas não pagas
     const faturas = response.registros || [];
-    return faturas.filter((f: IXCFaturaData) => !f.pagamento_data);
+    return faturas.filter((f: ISPFYFaturaData) => !f.pagamento_data);
   }
 
   // Disparar envio de fatura por e-mail
@@ -546,7 +554,7 @@ class IXCService {
       await this.client.put(`/fn_areceber/${idFatura}/email`, payload, {
          headers: {
           'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'listar' // Mantendo header padrão
+          'ISPFYsoft': 'listar' // Mantendo header padrão
         }
       });
       
@@ -563,11 +571,11 @@ class IXCService {
   /**
    * Obtém QR Code PIX para uma fatura
    */
-  async getPixQrCode(idFatura: string): Promise<IXCPixData | null> {
+  async getPixQrCode(idFatura: string): Promise<ISPFYPixData | null> {
     try {
       console.log(`💎 Gerando PIX para fatura ${idFatura}...`);
       const payload = { id: idFatura };
-      const response = await this.client.post<IXCPixData>(`/get_pix_qrcode/${idFatura}`, payload, {
+      const response = await this.client.post<ISPFYPixData>(`/get_pix_qrcode/${idFatura}`, payload, {
         headers: { 'Authorization': `Basic ${this.encodedToken}` }
       });
       return response.data;
@@ -616,12 +624,12 @@ class IXCService {
       oper: '=',
     };
     if (idCaixa) {
-        // No IXC, id_caixa_receb identifica onde entrou o dinheiro
+        // No ISPFY, id_caixa_receb identifica onde entrou o dinheiro
         // Nota: A API pode ter limitações em filtrar múltiplos campos via fetchAllRecords simples
     }
 
     // 1. Receita do dia (pago hoje)
-    const todayPayments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', incomesParams);
+    const todayPayments = await this.fetchAllRecords<ISPFYFaturaData>('/fn_areceber', incomesParams);
     
     // Filtrar por caixa se idCaixa for fornecido (filtro em memória se a API não suportar AND complexo)
     const todayPaymentsFiltered = idCaixa 
@@ -631,7 +639,7 @@ class IXCService {
     const todayRevenue = todayPaymentsFiltered.reduce((acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'), 0);
 
     // 2. Receita do mês (pago >= dia 1)
-    const monthPayments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
+    const monthPayments = await this.fetchAllRecords<ISPFYFaturaData>('/fn_areceber', {
       qtype: 'fn_areceber.pagamento_data',
       query: firstDayOfMonth,
       oper: '>=',
@@ -644,7 +652,7 @@ class IXCService {
     const monthRevenue = monthPaymentsFiltered.reduce((acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'), 0);
 
     // 3. A Receber (Aberto)
-    const openInvoices = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
+    const openInvoices = await this.fetchAllRecords<ISPFYFaturaData>('/fn_areceber', {
       qtype: 'fn_areceber.status',
       query: 'A',
       oper: '=',
@@ -674,7 +682,7 @@ class IXCService {
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString().split('T')[0];
 
-    const payments = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
+    const payments = await this.fetchAllRecords<ISPFYFaturaData>('/fn_areceber', {
       qtype: 'fn_areceber.pagamento_data',
       query: startDateStr,
       oper: '>=',
@@ -715,10 +723,10 @@ class IXCService {
     
     // Buscar faturas vencidas
     // Limitando a busca para não travar: buscar vencidas com valor > 100 por exemplo, ou ordenado
-    // Como a API do IXC tem limitações de "ORDER BY valor DESC" direto em alguns endpoints,
+    // Como a API do ISPFY tem limitações de "ORDER BY valor DESC" direto em alguns endpoints,
     // vamos buscar vencidas (limitado a 1000 ultimas) e ordenar em memória.
     
-    const overdue = await this.makeRequest<IXCApiResponse<IXCFaturaData>>('/fn_areceber', {
+    const overdue = await this.makeRequest<ISPFYApiResponse<ISPFYFaturaData>>('/fn_areceber', {
       qtype: 'fn_areceber.data_vencimento',
       query: today,
       oper: '<',
@@ -738,7 +746,7 @@ class IXCService {
         if (!fat.id_cliente) continue;
         
         // Precisamos do nome do cliente. 
-        // A fatura no IXC nem sempre traz o nome no list. (Pode precisar fetch extra se 'cliente' não vier)
+        // A fatura no ISPFY nem sempre traz o nome no list. (Pode precisar fetch extra se 'cliente' não vier)
         // Se vier `raz_social` ou `cliente_nome`, usamos. Caso contrário, placeholder.
         // Assumindo que pode não vir, agrupamos por ID primeiro
         
@@ -782,8 +790,8 @@ class IXCService {
   // ==================== MÉTODOS DE TICKETS ====================
 
   // Buscar tickets por cliente
-  async getTicketsByCliente(idCliente: string): Promise<IXCTicketData[]> {
-    const data: Partial<IXCParams> = {
+  async getTicketsByCliente(idCliente: string): Promise<ISPFYTicketData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'su_oss_chamado.id_cliente',
       query: idCliente,
       oper: '=',
@@ -793,13 +801,13 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCTicketData>>('/su_oss_chamado', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYTicketData>>('/su_oss_chamado', data);
     return response.registros || [];
   }
 
   // Buscar tickets abertos
-  async getTicketsAbertos(): Promise<IXCTicketData[]> {
-    const data: Partial<IXCParams> = {
+  async getTicketsAbertos(): Promise<ISPFYTicketData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'su_oss_chamado.status',
       query: 'Aberto',
       oper: 'L',
@@ -809,13 +817,13 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCTicketData>>('/su_oss_chamado', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYTicketData>>('/su_oss_chamado', data);
     return response.registros || [];
   }
 
   // Buscar ticket por ID
-  async getTicketById(id: string): Promise<IXCTicketData | null> {
-    const data: Partial<IXCParams> = {
+  async getTicketById(id: string): Promise<ISPFYTicketData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'su_oss_chamado.id',
       query: id,
       oper: '=',
@@ -825,7 +833,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCTicketData>>('/su_oss_chamado', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYTicketData>>('/su_oss_chamado', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -836,7 +844,7 @@ class IXCService {
 
   // Buscar assuntos de ticket
   async getTicketSubjects(): Promise<{ id: string; assunto: string }[]> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'su_oss_assunto.id',
       query: '0',
       oper: '>',
@@ -846,7 +854,7 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<{ id: string; assunto: string }>>('/su_oss_assunto', data);
+    const response = await this.makeRequest<ISPFYApiResponse<{ id: string; assunto: string }>>('/su_oss_assunto', data);
     return response.registros || [];
   }
 
@@ -860,7 +868,7 @@ class IXCService {
   }): Promise<{ success: boolean; message: string; id?: string }> {
     try {
       // Estrutura básica para abrir chamado
-      // AVISO: A criação de chamado exige campos obrigatórios que variam conforme config do IXC
+      // AVISO: A criação de chamado exige campos obrigatórios que variam conforme config do ISPFY
       const payload = {
         id_cliente: ticketData.id_cliente,
         id_assunto: ticketData.id_assunto,
@@ -905,14 +913,14 @@ class IXCService {
   // ==================== MÉTODOS DE PLANOS ====================
 
   // Buscar todos os planos de venda (Internet)
-  async getAllVdPlanos(onProgress?: (total: number) => void): Promise<IXCPlanoData[]> {
+  async getAllVdPlanos(onProgress?: (total: number) => void): Promise<ISPFYPlanoData[]> {
     const endpoints = ['/vd_plano', '/produto', '/plano'];
     
     for (const endpoint of endpoints) {
       try {
         console.log(`Tentando buscar planos em: ${endpoint}`);
         const qtype = endpoint === '/produto' ? 'produto.id' : `${endpoint.substring(1)}.id`;
-        const results = await this.fetchAllRecords<IXCPlanoData>(
+        const results = await this.fetchAllRecords<ISPFYPlanoData>(
           endpoint,
           { qtype, query: '0', oper: '>', sortname: qtype, sortorder: 'asc' },
           onProgress
@@ -931,8 +939,8 @@ class IXCService {
   }
 
   // Buscar todos os produtos
-  async getAllPlanos(onProgress?: (total: number) => void): Promise<IXCPlanoData[]> {
-    return await this.fetchAllRecords<IXCPlanoData>(
+  async getAllPlanos(onProgress?: (total: number) => void): Promise<ISPFYPlanoData[]> {
+    return await this.fetchAllRecords<ISPFYPlanoData>(
       '/produto',
       { qtype: 'produto.id', query: '0', oper: '>', sortname: 'produto.descricao', sortorder: 'asc' },
       onProgress
@@ -940,8 +948,8 @@ class IXCService {
   }
 
   // Buscar plano por ID
-  async getPlanoById(id: string): Promise<IXCPlanoData | null> {
-    const data: Partial<IXCParams> = {
+  async getPlanoById(id: string): Promise<ISPFYPlanoData | null> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'produto.id',
       query: id,
       oper: '=',
@@ -951,7 +959,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCPlanoData>>('/produto', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYPlanoData>>('/produto', data);
     
     if (!response.registros || response.registros.length === 0) {
       return null;
@@ -961,8 +969,8 @@ class IXCService {
   }
 
   // Buscar planos ativos
-  async getPlanosAtivos(): Promise<IXCPlanoData[]> {
-    const data: Partial<IXCParams> = {
+  async getPlanosAtivos(): Promise<ISPFYPlanoData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'produto.ativo',
       query: 'S',
       oper: '=',
@@ -972,15 +980,15 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCPlanoData>>('/produto', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYPlanoData>>('/produto', data);
     return response.registros || [];
   }
 
   // ==================== MÉTODOS DE EQUIPAMENTOS ====================
 
   // Buscar equipamentos por cliente
-  async getEquipamentosByCliente(idCliente: string): Promise<IXCEquipamentoData[]> {
-    const data: Partial<IXCParams> = {
+  async getEquipamentosByCliente(idCliente: string): Promise<ISPFYEquipamentoData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'equipamento.id_cliente',
       query: idCliente,
       oper: '=',
@@ -990,7 +998,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCEquipamentoData>>('/equipamento', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYEquipamentoData>>('/equipamento', data);
     return response.registros || [];
   }
 
@@ -1020,8 +1028,8 @@ class IXCService {
   /**
    * Busca logins (radusuarios) de um cliente
    */
-  async getLoginsByCliente(idCliente: string): Promise<IXCLoginData[]> {
-    const data: Partial<IXCParams> = {
+  async getLoginsByCliente(idCliente: string): Promise<ISPFYLoginData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'radusuarios.id_cliente',
       query: idCliente,
       oper: '=',
@@ -1031,15 +1039,15 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCLoginData>>('/radusuarios', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYLoginData>>('/radusuarios', data);
     return response.registros || [];
   }
 
   /**
    * Busca logins que possuem coordenadas geográficas
    */
-  async getLoginsComCoordenadas(): Promise<IXCLoginData[]> {
-    const data: Partial<IXCParams> = {
+  async getLoginsComCoordenadas(): Promise<ISPFYLoginData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'radusuarios.ativo',
       query: 'S',
       oper: '=',
@@ -1049,7 +1057,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCLoginData>>('/radusuarios', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYLoginData>>('/radusuarios', data);
     const logins = response.registros || [];
     
     return logins.filter(l => {
@@ -1062,8 +1070,8 @@ class IXCService {
   }
 
   // Buscar conexões ativas
-  async getConexoesAtivas(idCliente?: string): Promise<IXCConexaoData[]> {
-    const data: Partial<IXCParams> = idCliente ? {
+  async getConexoesAtivas(idCliente?: string): Promise<ISPFYConexaoData[]> {
+    const data: Partial<ISPFYParams> = idCliente ? {
       qtype: 'radpopconexao.id_cliente',
       query: idCliente,
       oper: '=',
@@ -1081,7 +1089,7 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCConexaoData>>('/radpopconexao', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYConexaoData>>('/radpopconexao', data);
     return response.registros || [];
   }
 
@@ -1090,8 +1098,8 @@ class IXCService {
   /**
    * Busca todas as caixas FTTH (CTOs)
    */
-  async getCaixasFTTH(): Promise<IXCCaixaData[]> {
-    const data: Partial<IXCParams> = {
+  async getCaixasFTTH(): Promise<ISPFYCaixaData[]> {
+    const data: Partial<ISPFYParams> = {
       qtype: 'rad_caixa_ftth.id',
       query: '0',
       oper: '>',
@@ -1101,14 +1109,14 @@ class IXCService {
       sortorder: 'desc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<IXCCaixaData>>('/rad_caixa_ftth', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYCaixaData>>('/rad_caixa_ftth', data);
     return response.registros || [];
   }
 
   /**
    * Busca caixas FTTH que possuem coordenadas geográficas
    */
-  async getCaixasComCoordenadas(): Promise<IXCCaixaData[]> {
+  async getCaixasComCoordenadas(): Promise<ISPFYCaixaData[]> {
     const caixas = await this.getCaixasFTTH();
     return caixas.filter(c => {
       const latStr = String(c.latitude || '').replace(',', '.');
@@ -1122,8 +1130,8 @@ class IXCService {
   /**
    * Busca TODAS as caixas FTTH que possuem coordenadas geográficas (recursivo)
    */
-  async fetchAllCaixasComCoordenadas(onProgress?: (total: number) => void): Promise<IXCCaixaData[]> {
-    const caixas = await this.fetchAllRecords<IXCCaixaData>(
+  async fetchAllCaixasComCoordenadas(onProgress?: (total: number) => void): Promise<ISPFYCaixaData[]> {
+    const caixas = await this.fetchAllRecords<ISPFYCaixaData>(
       '/rad_caixa_ftth',
       { qtype: 'rad_caixa_ftth.id', query: '0', oper: '>', sortname: 'rad_caixa_ftth.id', sortorder: 'desc' },
       onProgress
@@ -1138,8 +1146,8 @@ class IXCService {
   /**
    * Busca TODOS os logins que possuem coordenadas geográficas (recursivo)
    */
-  async fetchAllLoginsComCoordenadas(onProgress?: (total: number) => void): Promise<IXCLoginData[]> {
-    const logins = await this.fetchAllRecords<IXCLoginData>(
+  async fetchAllLoginsComCoordenadas(onProgress?: (total: number) => void): Promise<ISPFYLoginData[]> {
+    const logins = await this.fetchAllRecords<ISPFYLoginData>(
       '/radusuarios',
       { qtype: 'radusuarios.ativo', query: 'S', oper: '=', sortname: 'radusuarios.id', sortorder: 'desc' },
       onProgress
@@ -1152,11 +1160,11 @@ class IXCService {
   }
   /**
    * Busca postes com coordenadas geográficas.
-   * Tenta endpoints comuns do IXC; retorna [] silenciosamente se não existir.
+   * Tenta endpoints comuns do ISPFY; retorna [] silenciosamente se não existir.
    */
-  async getPostesComCoordenadas(): Promise<IXCPosteData[]> {
+  async getPostesComCoordenadas(): Promise<ISPFYPosteData[]> {
     try {
-      const response = await this.makeRequest<IXCApiResponse<IXCPosteData>>('/poste', {
+      const response = await this.makeRequest<ISPFYApiResponse<ISPFYPosteData>>('/poste', {
         qtype: 'poste.id', query: '0', oper: '>', page: '1', rp: '1000',
         sortname: 'poste.id', sortorder: 'desc',
       });
@@ -1173,11 +1181,11 @@ class IXCService {
 
   /**
    * Busca POPs (Pontos de Presença) com coordenadas.
-   * Tenta endpoints comuns do IXC; retorna [] silenciosamente se não existir.
+   * Tenta endpoints comuns do ISPFY; retorna [] silenciosamente se não existir.
    */
-  async getPopsComCoordenadas(): Promise<IXCPopData[]> {
+  async getPopsComCoordenadas(): Promise<ISPFYPopData[]> {
     try {
-      const response = await this.makeRequest<IXCApiResponse<IXCPopData>>('/pop_anel', {
+      const response = await this.makeRequest<ISPFYApiResponse<ISPFYPopData>>('/pop_anel', {
         qtype: 'pop_anel.id', query: '0', oper: '>', page: '1', rp: '1000',
         sortname: 'pop_anel.id', sortorder: 'desc',
       });
@@ -1199,23 +1207,23 @@ class IXCService {
    */
   private async fetchAllRecords<T>(
     endpoint: string,
-    params: Partial<IXCParams>,
+    params: Partial<ISPFYParams>,
     onProgress?: (total: number) => void
   ): Promise<T[]> {
     let allRecords: T[] = [];
     let page = 1;
     let hasMore = true;
-    const rp = 1000;
+    const rp = 300; // Reduzido para 300 registros por página para evitar gargalos e timeout na API ISPFY
 
     while (hasMore) {
-      const data: Partial<IXCParams> = {
+      const data: Partial<ISPFYParams> = {
         ...params,
         page: page.toString(),
         rp: rp.toString(),
       };
 
       try {
-        const response = await this.makeRequest<IXCApiResponse<T>>(endpoint, data);
+        const response = await this.makeRequest<ISPFYApiResponse<T>>(endpoint, data);
         const registros = (response.registros || response.rows || []) as T[];
         
         allRecords = [...allRecords, ...registros];
@@ -1245,8 +1253,8 @@ class IXCService {
    * Busca TODOS os clientes por status (Ativo/Inativo) recursivamente
    * @param status 'S' para Ativo, 'N' para Inativo
    */
-  async fetchAllClientesByStatus(status: 'S' | 'N', onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
-    return this.fetchAllRecords<IXCClienteData>(
+  async fetchAllClientesByStatus(status: 'S' | 'N', onProgress?: (total: number) => void): Promise<ISPFYClienteData[]> {
+    return this.fetchAllRecords<ISPFYClienteData>(
       '/cliente',
       {
         qtype: 'cliente.ativo',
@@ -1262,8 +1270,31 @@ class IXCService {
   /**
    * Busca TODOS os clientes ATIVOS recursivamente
    */
-  async fetchAllClientesAtivos(onProgress?: (total: number) => void): Promise<IXCClienteData[]> {
+  async fetchAllClientesAtivos(onProgress?: (total: number) => void): Promise<ISPFYClienteData[]> {
     return this.fetchAllClientesByStatus('S', onProgress);
+  }
+
+  /**
+   * Busca TODOS os clientes (Ativos, Inativos, Bloqueados) combinando consultas seguras
+   */
+  async fetchAllClientes(onProgress?: (total: number) => void): Promise<ISPFYClienteData[]> {
+    try {
+      // 1. Busca todos os clientes ATIVOS
+      const ativos = await this.fetchAllClientesByStatus('S', (total) => {
+        if (onProgress) onProgress(total);
+      });
+      // 2. Busca todos os clientes INATIVOS / BLOQUEADOS
+      const inativos = await this.fetchAllClientesByStatus('N', (total) => {
+        if (onProgress) onProgress(ativos.length + total);
+      });
+      
+      const todos = [...ativos, ...inativos];
+      // Ordenar decrescente por ID
+      return todos.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+    } catch (error) {
+      console.error('Erro em fetchAllClientes:', error);
+      throw error;
+    }
   }
 
   /**
@@ -1271,8 +1302,8 @@ class IXCService {
    */
   async fetchAllFaturasAbertas(
     onProgress?: (total: number) => void
-  ): Promise<IXCFaturaData[]> {
-    const faturas = await this.fetchAllRecords<IXCFaturaData>(
+  ): Promise<ISPFYFaturaData[]> {
+    const faturas = await this.fetchAllRecords<ISPFYFaturaData>(
       '/fn_areceber',
       {
         qtype: 'fn_areceber.status',
@@ -1292,8 +1323,8 @@ class IXCService {
    */
   async fetchAllContratosBloqueados(
     onProgress?: (total: number) => void
-  ): Promise<IXCContratoData[]> {
-    return this.fetchAllRecords<IXCContratoData>(
+  ): Promise<ISPFYContratoData[]> {
+    return this.fetchAllRecords<ISPFYContratoData>(
       '/cliente_contrato',
       {
         qtype: 'cliente_contrato.status_internet',
@@ -1309,8 +1340,8 @@ class IXCService {
   /**
    * Busca TODOS os contratos (ativos e inativos) para auditoria
    */
-  async fetchAllContratos(onProgress?: (total: number) => void): Promise<IXCContratoData[]> {
-    return this.fetchAllRecords<IXCContratoData>(
+  async fetchAllContratos(onProgress?: (total: number) => void): Promise<ISPFYContratoData[]> {
+    return this.fetchAllRecords<ISPFYContratoData>(
       '/cliente_contrato',
       {
         qtype: 'cliente_contrato.id',
@@ -1326,13 +1357,13 @@ class IXCService {
   /**
    * Busca faturas pagas recentemente (últimos X dias)
    */
-  async fetchRecentFaturasPagas(days: number = 180, onProgress?: (total: number) => void): Promise<IXCFaturaData[]> {
+  async fetchRecentFaturasPagas(days: number = 180, onProgress?: (total: number) => void): Promise<ISPFYFaturaData[]> {
     const date = new Date();
     date.setDate(date.getDate() - days);
     // Formato YYYY-MM-DD
     const dateStr = date.toISOString().split('T')[0];
 
-    return this.fetchAllRecords<IXCFaturaData>(
+    return this.fetchAllRecords<ISPFYFaturaData>(
       '/fn_areceber',
       {
         qtype: 'fn_areceber.pagamento_data',
@@ -1350,7 +1381,7 @@ class IXCService {
 
   /**
    * Tenta desconectar um login ativo.
-   * AVISO: Isso depende da implementação da API do IXC e pode variar.
+   * AVISO: Isso depende da implementação da API do ISPFY e pode variar.
    * Geralmente, a ação de desconectar é feita via comando específico na API ou
    * manipulando a tabela radpopconexao (sessões ativas).
    * 
@@ -1362,7 +1393,7 @@ class IXCService {
       console.log(`🔌 Tentando desconectar login ID: ${idLogin}...`);
       
       // 1. Buscar a conexão ativa na tabela radpopconexao
-      const data: Partial<IXCParams> = {
+      const data: Partial<ISPFYParams> = {
         qtype: 'radpopconexao.id_login',
         query: idLogin,
         oper: '=',
@@ -1370,7 +1401,7 @@ class IXCService {
         rp: '10',
       };
 
-      const response = await this.makeRequest<IXCApiResponse<IXCConexaoData>>('/radpopconexao', data);
+      const response = await this.makeRequest<ISPFYApiResponse<ISPFYConexaoData>>('/radpopconexao', data);
       const conexoes = response.registros || [];
 
       if (conexoes.length === 0) {
@@ -1378,7 +1409,7 @@ class IXCService {
       }
 
       // 2. Para cada conexão encontrada, enviar comando de exclusão (DELETE /radpopconexao/{id})
-      // No IXC, deletar o registro de conexão ativa dispara o CoA/Disconnect no Radius.
+      // No ISPFY, deletar o registro de conexão ativa dispara o CoA/Disconnect no Radius.
       let successCount = 0;
       for (const conexao of conexoes) {
         if (conexao.id) {
@@ -1420,7 +1451,7 @@ class IXCService {
    * Extrai todos os números de telefone válidos de um cliente
    * Remove duplicatas e números inválidos
    */
-  getClientPhones(cliente: IXCClienteData): string[] {
+  getClientPhones(cliente: ISPFYClienteData): string[] {
     const phones: string[] = [];
     const seen = new Set<string>();
     
@@ -1453,14 +1484,14 @@ class IXCService {
    * Busca consumo de banda dos últimos 7 dias para um login
    * Nota: Simulado via radusuarios se endpoint de monitoramento for restrito
    */
-  async getBandwidthUsage(idLogin: string): Promise<IXCUsageSeries[]> {
+  async getBandwidthUsage(idLogin: string): Promise<ISPFYUsageSeries[]> {
     try {
-      // No IXC, o histórico detalhado muitas vezes exige radusuarios_monitoramento
+      // No ISPFY, o histórico detalhado muitas vezes exige radusuarios_monitoramento
       // Como fallback, vamos gerar dados fictícios baseados no consumo total do login 
       // ou buscar na tabela de sessões fechadas se disponível.
       
       // Simulação para o dashboard "WOW"
-      const series: IXCUsageSeries[] = [];
+      const series: ISPFYUsageSeries[] = [];
       const today = new Date();
       
       for (let i = 6; i >= 0; i--) {
@@ -1483,15 +1514,15 @@ class IXCService {
   /**
    * Busca contratos pendentes de assinatura
    */
-  async getPendingContracts(idCliente: string): Promise<IXCContratoData[]> {
+  async getPendingContracts(idCliente: string): Promise<ISPFYContratoData[]> {
     try {
-      const data: Partial<IXCParams> = {
+      const data: Partial<ISPFYParams> = {
         qtype: 'cliente_contrato.id_cliente',
         query: idCliente,
         oper: '=',
         rp: '100',
       };
-      const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+      const response = await this.makeRequest<ISPFYApiResponse<ISPFYContratoData>>('/cliente_contrato', data);
       
       // Filtrar contratos que possuem link de assinatura ou status específico
       return (response.registros || []).filter(c => 
@@ -1527,12 +1558,12 @@ class IXCService {
   /**
    * Busca contas a pagar (fn_apagar)
    */
-  async getAccountsPayable(days: number = 30): Promise<IXCPayableData[]> {
+  async getAccountsPayable(days: number = 30): Promise<ISPFYPayableData[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString().split('T')[0];
 
-    return this.fetchAllRecords<IXCPayableData>('/fn_apagar', {
+    return this.fetchAllRecords<ISPFYPayableData>('/fn_apagar', {
       qtype: 'fn_apagar.data_vencimento',
       query: startDateStr,
       oper: '>=',
@@ -1544,7 +1575,7 @@ class IXCService {
   /**
    * Busca movimentações de caixa (fn_movim_caixa)
    */
-  async getCashMovements(days: number = 30, idCaixa?: string): Promise<IXCCashMovementData[]> {
+  async getCashMovements(days: number = 30, idCaixa?: string): Promise<ISPFYCashMovementData[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString().split('T')[0];
@@ -1563,14 +1594,14 @@ class IXCService {
       params.oper = '=';
     }
 
-    return this.fetchAllRecords<IXCCashMovementData>('/fn_movim_caixa', params);
+    return this.fetchAllRecords<ISPFYCashMovementData>('/fn_movim_caixa', params);
   }
 
   /**
    * Busca todos os caixas (fn_caixa)
    */
-  async getCashAccounts(): Promise<IXCFinancialCaixaData[]> {
-    return this.fetchAllRecords<IXCFinancialCaixaData>('/fn_caixa', {
+  async getCashAccounts(): Promise<ISPFYFinancialCaixaData[]> {
+    return this.fetchAllRecords<ISPFYFinancialCaixaData>('/fn_caixa', {
       qtype: 'fn_caixa.id',
       query: '0',
       oper: '>',
@@ -1670,7 +1701,7 @@ class IXCService {
     const startDateStr = startDate.toISOString().split('T')[0];
 
     // Buscar recebimentos (fn_areceber pagos)
-    const incomes = await this.fetchAllRecords<IXCFaturaData>('/fn_areceber', {
+    const incomes = await this.fetchAllRecords<ISPFYFaturaData>('/fn_areceber', {
         qtype: 'fn_areceber.pagamento_data',
         query: startDateStr,
         oper: '>=',
@@ -1682,7 +1713,7 @@ class IXCService {
         : incomes;
 
     // Buscar pagamentos (fn_apagar pagos)
-    const expenses = await this.fetchAllRecords<IXCPayableData>('/fn_apagar', {
+    const expenses = await this.fetchAllRecords<ISPFYPayableData>('/fn_apagar', {
         qtype: 'fn_apagar.pagamento_data',
         query: startDateStr,
         oper: '>=',
@@ -1744,10 +1775,10 @@ class IXCService {
   // ==================== MÉTODOS DE FILIAIS ====================
 
   /**
-   * Busca todas as filiais cadastradas no IXC
+   * Busca todas as filiais cadastradas no ISPFY
    */
   async getFiliais(): Promise<{ id: string; razao: string; nome_fantasia: string }[]> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'filial.id',
       query: '0',
       oper: '>',
@@ -1757,25 +1788,25 @@ class IXCService {
       sortorder: 'asc',
     };
 
-    const response = await this.makeRequest<IXCApiResponse<{ id: string; razao: string; nome_fantasia: string }>>('/filial', data);
+    const response = await this.makeRequest<ISPFYApiResponse<{ id: string; razao: string; nome_fantasia: string }>>('/filial', data);
     return response.registros || [];
   }
 
   /**
-   * Atualiza dados de um cliente no IXC
+   * Atualiza dados de um cliente no ISPFY
    */
-  async updateCliente(id: string, data: Partial<IXCClienteData>): Promise<{ success: boolean; message: string }> {
+  async updateCliente(id: string, data: Partial<ISPFYClienteData>): Promise<{ success: boolean; message: string }> {
     try {
       const response = await this.client.put<any>(`/cliente/${id}`, data, {
         headers: {
           'Authorization': `Basic ${this.encodedToken}`,
-          'ixcsoft': 'alterar',
+          'ISPFYsoft': 'alterar',
         },
       });
 
       if (response.data && response.data.type === 'error') {
-        const errorMsg = response.data.message?.replace(/<br \/>/g, ', ') || 'Erro de validação no IXC';
-        console.error(`Erro de validação IXC para cliente ${id}:`, errorMsg);
+        const errorMsg = response.data.message?.replace(/<br \/>/g, ', ') || 'Erro de validação no ISPFY';
+        console.error(`Erro de validação ISPFY para cliente ${id}:`, errorMsg);
         return { success: false, message: errorMsg };
       }
 
@@ -1789,8 +1820,8 @@ class IXCService {
   /**
    * Busca TODOS os contratos ATIVOS recursivamente
    */
-  async fetchAllContratosAtivos(onProgress?: (total: number) => void): Promise<IXCContratoData[]> {
-    return this.fetchAllRecords<IXCContratoData>(
+  async fetchAllContratosAtivos(onProgress?: (total: number) => void): Promise<ISPFYContratoData[]> {
+    return this.fetchAllRecords<ISPFYContratoData>(
       '/cliente_contrato',
       {
         qtype: 'cliente_contrato.status',
@@ -1806,8 +1837,8 @@ class IXCService {
   /**
    * Busca TODOS os logins/PPPoE recursivamente
    */
-  async fetchAllLogins(onProgress?: (total: number) => void): Promise<IXCLoginData[]> {
-    return this.fetchAllRecords<IXCLoginData>(
+  async fetchAllLogins(onProgress?: (total: number) => void): Promise<ISPFYLoginData[]> {
+    return this.fetchAllRecords<ISPFYLoginData>(
       '/radusuarios',
       {
         qtype: 'radusuarios.id',
@@ -1821,54 +1852,134 @@ class IXCService {
   }
 
   async getAllClientesCount(): Promise<number> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.id',
       query: '0',
       oper: '>',
       page: '1',
       rp: '1',
     };
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.total ? parseInt(String(response.total), 10) : 0;
   }
 
   async getClientesAtivosCount(): Promise<number> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente.ativo',
       query: 'S',
       oper: '=',
       page: '1',
       rp: '1',
     };
-    const response = await this.makeRequest<IXCApiResponse<IXCClienteData>>('/cliente', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYClienteData>>('/cliente', data);
     return response.total ? parseInt(String(response.total), 10) : 0;
   }
 
   async getContratosAtivosCount(): Promise<number> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'cliente_contrato.status',
       query: 'A',
       oper: '=',
       page: '1',
       rp: '1',
     };
-    const response = await this.makeRequest<IXCApiResponse<IXCContratoData>>('/cliente_contrato', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYContratoData>>('/cliente_contrato', data);
     return response.total ? parseInt(String(response.total), 10) : 0;
   }
 
   async getTicketsAbertosCount(): Promise<number> {
-    const data: Partial<IXCParams> = {
+    const data: Partial<ISPFYParams> = {
       qtype: 'su_oss_chamado.status',
       query: 'Aberto',
       oper: 'L',
       page: '1',
       rp: '1',
     };
-    const response = await this.makeRequest<IXCApiResponse<IXCTicketData>>('/su_oss_chamado', data);
+    const response = await this.makeRequest<ISPFYApiResponse<ISPFYTicketData>>('/su_oss_chamado', data);
     return response.total ? parseInt(String(response.total), 10) : 0;
+  }
+
+  /**
+   * Atualiza dados de um contrato no ISPFY
+   */
+  async updateContrato(id: string, data: Record<string, any>): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await this.client.put<any>(`/cliente_contrato/${id}`, data, {
+        headers: {
+          'Authorization': `Basic ${this.encodedToken}`,
+          'ISPFYsoft': 'alterar',
+        },
+      });
+
+      if (response.data && response.data.type === 'error') {
+        const errorMsg = response.data.message?.replace(/<br \/>/g, ', ') || 'Erro de validação no ISPFY';
+        console.error(`Erro de validação ISPFY para contrato ${id}:`, errorMsg);
+        return { success: false, message: errorMsg };
+      }
+
+      return { success: true, message: 'Contrato atualizado com sucesso!' };
+    } catch (error: any) {
+      console.error(`Erro ao atualizar contrato ${id}:`, error);
+      return { success: false, message: error.response?.data?.message || 'Erro ao atualizar contrato.' };
+    }
+  }
+
+  /**
+   * Atualiza o dia de vencimento de um cliente / contrato no ISPFY em massa
+   */
+  async updateDueDate(
+    idCliente: string,
+    idContrato: string | undefined,
+    newDay: string,
+    target: 'both' | 'contract' | 'client' = 'both'
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      let contractResult = { success: true, message: 'Nenhum contrato alterado' };
+      let clientResult = { success: true, message: 'Nenhum cliente alterado' };
+
+      const dayNumber = parseInt(newDay, 10);
+      const dayStr = !isNaN(dayNumber) ? String(dayNumber).padStart(2, '0') : newDay;
+
+      // Atualizar Contrato
+      if ((target === 'both' || target === 'contract') && idContrato) {
+        contractResult = await this.updateContrato(idContrato, {
+          vencimento: dayStr,
+          dia_vencimento: dayStr,
+          dia_pagto: dayStr,
+          vencimento_dia: dayStr,
+          id_vencimento: dayStr
+        });
+      }
+
+      // Atualizar Cliente
+      if (target === 'both' || target === 'client' || (!idContrato && target === 'both')) {
+        clientResult = await this.updateCliente(idCliente, {
+          vencimento: dayStr,
+          dia_vencimento: dayStr,
+          vencimento_dia: dayStr,
+          id_vencimento: dayStr
+        } as any);
+      }
+
+      if (!contractResult.success && !clientResult.success) {
+        return { success: false, message: `Falha: ${contractResult.message || clientResult.message}` };
+      }
+
+      if (!contractResult.success && idContrato) {
+        return { success: false, message: `Contrato: ${contractResult.message}` };
+      }
+      if (!clientResult.success) {
+        return { success: false, message: `Cliente: ${clientResult.message}` };
+      }
+
+      return { success: true, message: `Vencimento atualizado para o dia ${dayStr} com sucesso!` };
+    } catch (error: any) {
+      return { success: false, message: error.message || 'Erro ao atualizar vencimento' };
+    }
   }
 }
 
 // Exportar instância única do serviço
-export const ixcService = new IXCService();
-export default ixcService;
+export const ispfyService = new ISPFYService();
+export default ispfyService;
+

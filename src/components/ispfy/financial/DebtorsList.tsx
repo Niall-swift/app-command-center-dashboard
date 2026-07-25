@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageCircle, ExternalLink, AlertTriangle, Send, Phone, Sparkles, Wand2, RefreshCcw } from 'lucide-react';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { whapiService } from '@/services/whapi/whapiService';
 import { generateIndividualDebtMessage } from '@/services/gemini/geminiService';
 import { toast } from 'sonner';
@@ -36,10 +36,10 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
         
         try {
             // 1. Buscar dados completos do cliente para pegar telefones
-            const clientData = await ixcService.getClienteById(debtor.id_cliente);
+            const clientData = await ispfyService.getClienteById(debtor.id_cliente);
             
             if (clientData) {
-                const clientPhones = ixcService.getClientPhones(clientData);
+                const clientPhones = ispfyService.getClientPhones(clientData);
                 setPhones(clientPhones);
                 
                 // 2. Gerar mensagem de cobrança padrão
@@ -66,7 +66,7 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
             const msg = await generateIndividualDebtMessage({
                 nomeCliente: selectedDebtor.nome,
                 valorOriginal: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDebtor.valor),
-                diasAtraso: 30, // Padrão ou buscar do IXC
+                diasAtraso: 30, // Padrão ou buscar do ISPFY
                 dataVencimento: 'Verificar fatura' // Idem
             });
             

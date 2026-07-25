@@ -31,7 +31,7 @@ import {
   Signal,
   ArrowUpCircle
 } from 'lucide-react';
-import { useIXC } from '@/hooks/useIXC';
+import { useISPFY } from '@/hooks/useISPFY';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Dialog,
@@ -54,11 +54,11 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 
-interface IXCClientDashboardProps {
+interface ISPFYClientDashboardProps {
   clientId: string;
 }
 
-export const IXCClientDashboard: React.FC<IXCClientDashboardProps> = ({ clientId }) => {
+export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clientId }) => {
   const { toast } = useToast();
   const { 
     client, 
@@ -79,7 +79,7 @@ export const IXCClientDashboard: React.FC<IXCClientDashboardProps> = ({ clientId
     isEligibleForUnlock,
     refreshSignal,
     rebootOnu
-  } = useIXC({ clientId });
+  } = useISPFY({ clientId });
 
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
   const [pixData, setPixData] = useState<any>(null);

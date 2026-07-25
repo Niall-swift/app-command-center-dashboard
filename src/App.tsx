@@ -25,18 +25,19 @@ import TechnicalSupport from "./pages/TechnicalSupport";
 import NetworkMap from "./pages/NetworkMap";
 import Movies from "./pages/Movies";
 import Series from "./pages/Series";
-import IXCConsulta from "./pages/IXCConsulta";
-import IXCFinanceiro from "./pages/IXCFinanceiro";
-import IXCTickets from "./pages/IXCTickets";
+import ISPFYConsulta from "./pages/ISPFYConsulta";
+import ISPFYFinanceiro from "./pages/ISPFYFinanceiro";
+import ISPFYTickets from "./pages/ISPFYTickets";
 import WhatsAppBulkSender from "./pages/WhatsAppBulkSender";
 import RewardsManagement from "./pages/RewardsManagement";
 import RedemptionOrders from "./pages/RedemptionOrders";
 import Rewards from "./pages/Rewards";
 import Leaderboard from "./pages/Leaderboard";
 import MyReferrals from "./pages/MyReferrals";
-import IXCClientDetails from "./pages/IXCClientDetails";
-import IXCDici from "./pages/IXCDici";
-import IXCActiveClientsExport from "./pages/IXCActiveClientsExport";
+import ISPFYClientDetails from "./pages/ISPFYClientDetails";
+import ISPFYDici from "./pages/ISPFYDici";
+import ISPFYActiveClientsExport from "./pages/ISPFYActiveClientsExport";
+import ISPFYVencimentos from "./pages/ISPFYVencimentos";
 import Notifications from "./pages/Notifications";
 import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
 import NotFound from "./pages/NotFound";
@@ -62,12 +63,13 @@ function AnimatedRoutes() {
         <Route path="/avlplay-analytics" element={<AVLPlayAnalytics />} />
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
-        <Route path="/ixc/consulta" element={<IXCConsulta />} />
-        <Route path="/ixc/cliente/:id" element={<IXCClientDetails />} />
-        <Route path="/ixc/financeiro" element={<IXCFinanceiro />} />
-        <Route path="/ixc/tickets" element={<IXCTickets />} />
-        <Route path="/ixc/dici" element={<IXCDici />} />
-        <Route path="/ixc/exportar-ativos" element={<IXCActiveClientsExport />} />
+        <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
+        <Route path="/ispfy/cliente/:id" element={<ISPFYClientDetails />} />
+        <Route path="/ispfy/financeiro" element={<ISPFYFinanceiro />} />
+        <Route path="/ispfy/tickets" element={<ISPFYTickets />} />
+        <Route path="/ispfy/dici" element={<ISPFYDici />} />
+        <Route path="/ispfy/exportar-ativos" element={<ISPFYActiveClientsExport />} />
+        <Route path="/ispfy/vencimentos" element={<ISPFYVencimentos />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />

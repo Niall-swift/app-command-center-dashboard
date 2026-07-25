@@ -1,5 +1,5 @@
 
-export interface IXCParams {
+export interface ISPFYParams {
   qtype: string;
   query: string;
   oper: '==' | '=' | '>' | '<' | '>=' | '<=' | 'L';
@@ -9,7 +9,7 @@ export interface IXCParams {
   sortorder: 'asc' | 'desc';
 }
 
-export interface IXCClienteData {
+export interface ISPFYClienteData {
   id: string;
   razao?: string;
   nome?: string;
@@ -20,7 +20,7 @@ export interface IXCClienteData {
   ativo: 'S' | 'N';
 }
 
-export interface IXCFaturaData {
+export interface ISPFYFaturaData {
   id: string;
   id_cliente: string;
   valor: string;
@@ -35,7 +35,7 @@ export interface IXCFaturaData {
   b_link_getwere?: string;
 }
 
-export interface IXCApiResponse<T = any> {
+export interface ISPFYApiResponse<T = any> {
   registros?: T[];
   total?: string | number;
 }

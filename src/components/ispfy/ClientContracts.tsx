@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCContratoData } from '@/types/ixc';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYContratoData } from '@/types/ispfy';
 import { TrustUnlockButton } from './TrustUnlockButton';
 
 interface ClientContractsProps {
@@ -12,7 +12,7 @@ interface ClientContractsProps {
 }
 
 export const ClientContracts: React.FC<ClientContractsProps> = ({ idCliente }) => {
-  const [contracts, setContracts] = useState<IXCContratoData[]>([]);
+  const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +20,7 @@ export const ClientContracts: React.FC<ClientContractsProps> = ({ idCliente }) =
     setLoading(true);
     setError(null);
     try {
-      const data = await ixcService.getContratosByCliente(idCliente);
+      const data = await ispfyService.getContratosByCliente(idCliente);
       setContracts(data);
     } catch (err) {
       setError('Erro ao carregar contratos.');

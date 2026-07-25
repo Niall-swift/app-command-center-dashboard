@@ -32,7 +32,8 @@ import {
   deleteDoc,
   serverTimestamp, 
   where,
-  getDocs
+  getDocs,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { 
@@ -55,7 +56,9 @@ import {
   HelpCircle,
   Edit,
   Trash2,
-  Pause
+  Pause,
+  UserPlus,
+  Gift
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -88,11 +91,13 @@ interface Payment {
   clientName: string;
   clientCpf: string;
   clientPhone: string;
-  clientEmail: string;
+  clientEmail?: string;
   ticketQuantity: number;
   totalValue: number;
   paymentStatus: 'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'REFUNDED';
   createdAt: any;
+  isManual?: boolean;
+  observation?: string;
 }
 
 interface TicketDoc {
@@ -104,6 +109,7 @@ interface TicketDoc {
   clientCpf: string;
   ticketNumber: number;
   createdAt: any;
+  isManual?: boolean;
 }
 
 export default function PaidRaffles() {
@@ -140,6 +146,17 @@ export default function PaidRaffles() {
   // Edit Raffle State
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingRaffle, setEditingRaffle] = useState<any>(null);
+
+  // Manual Participant (Cortesia / Sem pagamento) State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    raffleId: '',
+    clientName: '',
+    clientPhone: '',
+    clientCpf: '',
+    ticketQuantity: 1,
+    observation: 'Cortesia / Adicionado por admin sem pagamento online'
+  });
 
   // Asaas Config State
   const [asaasConfig, setAsaasConfig] = useState({
@@ -347,10 +364,16 @@ export default function PaidRaffles() {
   // Save Asaas Config Handler
   const handleSaveAsaasConfig = async () => {
     try {
-      await setDoc(doc(db, 'settings', 'asaas_config'), asaasConfig, { merge: true });
+      const cleanedConfig = {
+        apiKey: (asaasConfig.apiKey || '').trim(),
+        environment: (asaasConfig.environment || 'sandbox').trim(),
+        webhookToken: (asaasConfig.webhookToken || '').trim()
+      };
+      await setDoc(doc(db, 'settings', 'asaas_config'), cleanedConfig, { merge: true });
+      setAsaasConfig(cleanedConfig);
       toast({
         title: "Configurações Salvas!",
-        description: "As chaves de integração do Asaas foram atualizadas."
+        description: "As chaves de integração do Asaas foram atualizadas e verificadas (sem espaços extras)."
       });
     } catch (error: any) {
       toast({
@@ -358,6 +381,102 @@ export default function PaidRaffles() {
         description: error.message || "Erro inesperado.",
         variant: "destructive"
       });
+    }
+  };
+
+  // Create Manual Participant (Cortesia / Sem Pagamento)
+  const handleCreateManualParticipant = async () => {
+    if (!manualForm.raffleId || !manualForm.clientName.trim()) {
+      toast({ title: 'Erro', description: 'Selecione a campanha e informe o nome do participante.', variant: 'destructive' });
+      return;
+    }
+    const qty = parseInt(String(manualForm.ticketQuantity), 10);
+    if (isNaN(qty) || qty <= 0) {
+      toast({ title: 'Erro', description: 'A quantidade de bilhetes deve ser maior que 0.', variant: 'destructive' });
+      return;
+    }
+
+    const selectedRaffle = raffles.find(r => r.id === manualForm.raffleId);
+    if (!selectedRaffle) {
+      toast({ title: 'Erro', description: 'Sorteio não encontrado.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      const paymentRef = doc(collection(db, 'paid_raffle_payments'));
+      const paymentId = paymentRef.id;
+      const raffleRef = doc(db, 'paid_raffles', manualForm.raffleId);
+      const ticketNumbers: number[] = [];
+
+      await runTransaction(db, async (transaction) => {
+        const raffleSnap = await transaction.get(raffleRef);
+        if (!raffleSnap.exists()) {
+          throw new Error('Sorteio não localizado.');
+        }
+        const raffleData = raffleSnap.data();
+        const currentSold = raffleData.totalTicketsSold || 0;
+        const startNumber = currentSold + 100001;
+
+        for (let i = 0; i < qty; i++) {
+          ticketNumbers.push(startNumber + i);
+        }
+
+        transaction.update(raffleRef, {
+          totalTicketsSold: currentSold + qty
+        });
+
+        const newPaymentData = {
+          id: paymentId,
+          raffleId: manualForm.raffleId,
+          raffleTitle: selectedRaffle.title,
+          clientName: manualForm.clientName.trim(),
+          clientCpf: manualForm.clientCpf.trim() || 'Cortesia/Manual',
+          clientPhone: manualForm.clientPhone.trim() || '',
+          ticketQuantity: qty,
+          totalValue: 0,
+          paymentStatus: 'CONFIRMED',
+          createdAt: serverTimestamp(),
+          confirmedAt: serverTimestamp(),
+          ticketsGenerated: true,
+          tickets: ticketNumbers,
+          isManual: true,
+          observation: manualForm.observation
+        };
+
+        transaction.set(paymentRef, newPaymentData);
+
+        for (const num of ticketNumbers) {
+          const ticketRef = doc(db, 'paid_raffle_tickets', `${manualForm.raffleId}_${num}`);
+          transaction.set(ticketRef, {
+            id: `${manualForm.raffleId}_${num}`,
+            raffleId: manualForm.raffleId,
+            paymentId: paymentId,
+            clientName: manualForm.clientName.trim(),
+            clientPhone: manualForm.clientPhone.trim() || '',
+            clientCpf: manualForm.clientCpf.trim() || 'Cortesia/Manual',
+            ticketNumber: num,
+            createdAt: serverTimestamp(),
+            isManual: true
+          });
+        }
+      });
+
+      toast({
+        title: 'Participante Adicionado!',
+        description: `O cliente ${manualForm.clientName} foi adicionado com sucesso (${qty} bilhete(s) gerados).`
+      });
+      setIsManualModalOpen(false);
+      setManualForm({
+        raffleId: raffles[0]?.id || '',
+        clientName: '',
+        clientPhone: '',
+        clientCpf: '',
+        ticketQuantity: 1,
+        observation: 'Cortesia / Adicionado por admin sem pagamento online'
+      });
+    } catch (error: any) {
+      console.error('Erro ao adicionar participante manual:', error);
+      toast({ title: 'Erro', description: error.message || 'Falha ao adicionar participante.', variant: 'destructive' });
     }
   };
 
@@ -685,12 +804,25 @@ export default function PaidRaffles() {
           <TabsContent value="sales" className="outline-none">
             <Card className="border border-border/40 bg-card rounded-2xl">
               <CardHeader className="p-6">
-                <CardTitle className="text-lg font-bold flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-indigo-500" /> Registro de Vendas
-                </CardTitle>
-                <CardDescription>
-                  Acompanhe todas as faturas e compras confirmadas de bilhetes.
-                </CardDescription>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <DollarSign className="w-5 h-5 text-indigo-500" /> Registro de Vendas & Participantes
+                    </CardTitle>
+                    <CardDescription>
+                      Acompanhe as compras de bilhetes ou adicione clientes manualmente (sem pagamento).
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setManualForm(prev => ({ ...prev, raffleId: raffles[0]?.id || '' }));
+                      setIsManualModalOpen(true);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl px-4 py-2 gap-2 shadow-sm transition-all text-xs flex items-center"
+                  >
+                    <UserPlus className="w-4 h-4" /> Adicionar Cortesia / Sem Pagto
+                  </Button>
+                </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <div className="relative flex-1">
@@ -746,8 +878,13 @@ export default function PaidRaffles() {
                                 {date ? date.toLocaleString('pt-BR') : "Processando..."}
                               </td>
                               <td className="px-6 py-4">
-                                <div className="font-semibold text-foreground">{pay.clientName}</div>
-                                <div className="text-[10px] text-muted-foreground">CPF: {pay.clientCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")}</div>
+                                <div className="font-semibold text-foreground flex items-center gap-1.5">
+                                  {pay.clientName}
+                                  {pay.isManual && <Badge className="bg-indigo-500/10 text-indigo-500 border-none text-[9px] px-1.5 py-0">Manual</Badge>}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  CPF/Info: {pay.clientCpf === 'Cortesia/Manual' || pay.clientCpf === 'Manual/Cortesia' ? 'Cortesia / Sem Pagamento' : (pay.clientCpf?.length === 11 ? pay.clientCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") : pay.clientCpf || 'N/A')}
+                                </div>
                               </td>
                               <td className="px-6 py-4 font-medium text-foreground max-w-[200px] truncate">
                                 {pay.raffleTitle}
@@ -756,7 +893,7 @@ export default function PaidRaffles() {
                                 {pay.ticketQuantity}
                               </td>
                               <td className="px-6 py-4 text-right font-black text-foreground">
-                                R$ {pay.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                {pay.totalValue === 0 ? <span className="text-emerald-500 font-semibold">Grátis / Cortesia</span> : `R$ ${pay.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                               </td>
                               <td className="px-6 py-4 text-center">
                                 <Badge className={`uppercase text-[9px] font-bold tracking-wider px-2 py-0.5 ${
@@ -1463,6 +1600,105 @@ export default function PaidRaffles() {
                 </Button>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* MODAL: ADICIONAR PARTICIPANTE MANUAL (CORTESIA / SEM PAGAMENTO) */}
+        <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
+          <DialogContent className="max-w-md border-border/60 bg-card/95 backdrop-blur-xl rounded-2xl p-6">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base font-bold">
+                <Gift className="w-5 h-5 text-emerald-500" /> Inserir Participante / Cortesia
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Gere bilhetes da sorte válidos para um cliente sem passar por pagamento do Asaas / Pix.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 mt-2 text-xs">
+              <div>
+                <Label className="text-xs font-semibold">Selecione o Sorteio *</Label>
+                <select
+                  value={manualForm.raffleId}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, raffleId: e.target.value }))}
+                  className="w-full mt-1 bg-background border border-border/50 rounded-xl px-3 py-2.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                >
+                  <option value="">Selecione a campanha...</option>
+                  {raffles.map(r => (
+                    <option key={r.id} value={r.id}>{r.title} (R$ {r.ticketPrice}/un)</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Nome Completo do Cliente *</Label>
+                <Input
+                  placeholder="Ex: João da Silva Santos"
+                  value={manualForm.clientName}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, clientName: e.target.value }))}
+                  className="mt-1 rounded-xl bg-background text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-semibold">WhatsApp / Telefone</Label>
+                  <Input
+                    placeholder="Ex: (11) 99999-9999"
+                    value={manualForm.clientPhone}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, clientPhone: e.target.value }))}
+                    className="mt-1 rounded-xl bg-background text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold">CPF (Opcional)</Label>
+                  <Input
+                    placeholder="Ex: 123.456.789-00"
+                    value={manualForm.clientCpf}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, clientCpf: e.target.value }))}
+                    className="mt-1 rounded-xl bg-background text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Quantidade de Bilhetes *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={manualForm.ticketQuantity}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, ticketQuantity: parseInt(e.target.value, 10) || 1 }))}
+                  className="mt-1 rounded-xl bg-background text-xs font-bold text-emerald-600 dark:text-emerald-400"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Motivo / Observação</Label>
+                <Input
+                  placeholder="Ex: Cortesia / Pagamento offline em dinheiro"
+                  value={manualForm.observation}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, observation: e.target.value }))}
+                  className="mt-1 rounded-xl bg-background text-xs"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="mt-6 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsManualModalOpen(false)}
+                className="rounded-xl text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleCreateManualParticipant}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl px-5 text-xs shadow-md shadow-emerald-600/20"
+              >
+                Gerar Bilhetes Agora
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

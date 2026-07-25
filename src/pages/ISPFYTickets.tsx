@@ -17,18 +17,18 @@ import {
   Database,
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { ixcService } from '@/services/ixc/ixcService';
-import { IXCTicketData } from '@/types/ixc';
-import TicketCard from '@/components/ixc/TicketCard';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { ISPFYTicketData } from '@/types/ispfy';
+import TicketCard from '@/components/ispfy/TicketCard';
 
-const IXCTickets: React.FC = () => {
+const ISPFYTickets: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [tickets, setTickets] = useState<IXCTicketData[]>([]);
-  const [ticketsAbertos, setTicketsAbertos] = useState<IXCTicketData[]>([]);
+  const [tickets, setTickets] = useState<ISPFYTicketData[]>([]);
+  const [ticketsAbertos, setTicketsAbertos] = useState<ISPFYTicketData[]>([]);
   const [searchClienteId, setSearchClienteId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('abertos');
-  const [selectedTicket, setSelectedTicket] = useState<IXCTicketData | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<ISPFYTicketData | null>(null);
 
   // Carregar tickets abertos ao montar o componente
   useEffect(() => {
@@ -39,7 +39,7 @@ const IXCTickets: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await ixcService.getTicketsAbertos();
+      const result = await ispfyService.getTicketsAbertos();
       setTicketsAbertos(result);
     } catch (err) {
       setError('Erro ao carregar tickets abertos');
@@ -58,7 +58,7 @@ const IXCTickets: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await ixcService.getTicketsByCliente(searchClienteId);
+      const result = await ispfyService.getTicketsByCliente(searchClienteId);
       setTickets(result);
       setActiveTab('todos');
     } catch (err) {
@@ -69,7 +69,7 @@ const IXCTickets: React.FC = () => {
     }
   };
 
-  const handleTicketClick = (ticket: IXCTicketData) => {
+  const handleTicketClick = (ticket: ISPFYTicketData) => {
     setSelectedTicket(ticket);
   };
 
@@ -105,7 +105,7 @@ const IXCTickets: React.FC = () => {
         >
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Database className="w-4 h-4" />
-            <span>Sistema IXC</span>
+            <span>Sistema ISPFY</span>
             <span>/</span>
             <span className="text-gray-900 font-medium">Tickets de Suporte</span>
           </div>
@@ -359,4 +359,4 @@ const IXCTickets: React.FC = () => {
   );
 };
 
-export default IXCTickets;
+export default ISPFYTickets;

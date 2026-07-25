@@ -1,34 +1,34 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService as ISPFYService } from '@/services/ispfy/ispfyService';
 import { smartOltService } from '@/services/smartolt/smartOltService';
 import type { 
-  IXCClienteData, 
-  IXCContratoData, 
-  IXCFaturaData, 
-  IXCLoginData,
-  IXCPixData,
-  IXCUsageSeries
-} from '@/types/ixc';
+  ISPFYClienteData, 
+  ISPFYContratoData, 
+  ISPFYFaturaData, 
+  ISPFYLoginData,
+  ISPFYPixData,
+  ISPFYUsageSeries
+} from '@/types/ispfy';
 import type { SmartOltOnu, SmartOltSignal } from '@/types/smartOlt';
 import { useToast } from '@/hooks/use-toast';
 
-export interface UseIXCOptions {
+export interface UseISPFYOptions {
   clientId?: string;
   autoLoad?: boolean;
 }
 
-export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
+export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [client, setClient] = useState<IXCClienteData | null>(null);
-  const [contracts, setContracts] = useState<IXCContratoData[]>([]);
-  const [invoices, setInvoices] = useState<IXCFaturaData[]>([]);
-  const [logins, setLogins] = useState<IXCLoginData[]>([]);
+  const [client, setClient] = useState<ISPFYClienteData | null>(null);
+  const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
+  const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
+  const [logins, setLogins] = useState<ISPFYLoginData[]>([]);
   const [onu, setOnu] = useState<SmartOltOnu | null>(null);
   const [signal, setSignal] = useState<SmartOltSignal | null>(null);
   const [loadingSignal, setLoadingSignal] = useState<boolean>(false);
-  const [bandwidthUsage, setBandwidthUsage] = useState<IXCUsageSeries[]>([]);
-  const [pendingContracts, setPendingContracts] = useState<IXCContratoData[]>([]);
+  const [bandwidthUsage, setBandwidthUsage] = useState<ISPFYUsageSeries[]>([]);
+  const [pendingContracts, setPendingContracts] = useState<ISPFYContratoData[]>([]);
   const [isEligibleForUnlock, setIsEligibleForUnlock] = useState<boolean>(false);
   const { toast } = useToast();
 
@@ -37,10 +37,10 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
     setError(null);
     try {
       const [clientData, contractsData, invoicesData, loginsData] = await Promise.all([
-        ixcService.getClienteById(id),
-        ixcService.getContratosByCliente(id),
-        ixcService.getFaturasByCliente(id),
-        ixcService.getLoginsByCliente(id)
+        ISPFYService.getClienteById(id),
+        ISPFYService.getContratosByCliente(id),
+        ISPFYService.getFaturasByCliente(id),
+        ISPFYService.getLoginsByCliente(id)
       ]);
 
       setClient(clientData);
@@ -48,11 +48,11 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
       setInvoices(invoicesData);
       setLogins(loginsData);
 
-      // Advanced IXC: Buscar contratos pendentes e elegibilidade
-      const pendingCont = await ixcService.getPendingContracts(id);
+      // Advanced ISPFY: Buscar contratos pendentes e elegibilidade
+      const pendingCont = await ISPFYService.getPendingContracts(id);
       setPendingContracts(pendingCont);
       
-      const eligibility = await ixcService.checkUnlockEligibility(id);
+      const eligibility = await ISPFYService.checkUnlockEligibility(id);
       setIsEligibleForUnlock(eligibility.eligible);
 
       // SmartOLT & Bandwidth
@@ -61,7 +61,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
         const loginStr = loginsData[0].login;
         
         if (loginId) {
-          const usage = await ixcService.getBandwidthUsage(loginId);
+          const usage = await ISPFYService.getBandwidthUsage(loginId);
           setBandwidthUsage(usage);
         }
 
@@ -75,10 +75,10 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
         }
       }
     } catch (err: any) {
-      const msg = err.message || 'Erro ao carregar dados do IXC';
+      const msg = err.message || 'Erro ao carregar dados do ISPFY';
       setError(msg);
       toast({
-        title: 'Erro no IXC',
+        title: 'Erro no ISPFY',
         description: msg,
         variant: 'destructive',
       });
@@ -89,7 +89,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
 
   const updateWifi = async (loginId: string, ssid: string, pass: string) => {
     try {
-      const result = await ixcService.updateWifi(loginId, ssid, pass);
+      const result = await ISPFYService.updateWifi(loginId, ssid, pass);
       if (result.success) {
         toast({
           title: 'Sucesso',
@@ -97,7 +97,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
         });
         // Refresh logins
         if (clientId) {
-          const freshLogins = await ixcService.getLoginsByCliente(clientId);
+          const freshLogins = await ISPFYService.getLoginsByCliente(clientId);
           setLogins(freshLogins);
         }
       } else {
@@ -118,9 +118,9 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
     }
   };
 
-  const getPix = async (invoiceId: string): Promise<IXCPixData | null> => {
+  const getPix = async (invoiceId: string): Promise<ISPFYPixData | null> => {
     try {
-      const pix = await ixcService.getPixQrCode(invoiceId);
+      const pix = await ISPFYService.getPixQrCode(invoiceId);
       if (!pix) {
         toast({
           title: 'Erro',
@@ -136,7 +136,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
 
   const unlock = async (contractId: string) => {
     try {
-      const result = await ixcService.unlockContract(contractId);
+      const result = await ISPFYService.unlockContract(contractId);
       if (result.success) {
         toast({
           title: 'Desbloqueio efetuado',
@@ -157,7 +157,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
 
   const disconnect = async (loginId: string) => {
     try {
-      const result = await ixcService.desconectarCliente(loginId);
+      const result = await ISPFYService.desconectarCliente(loginId);
       if (result.success) {
         toast({
           title: 'Conexão encerrada',
@@ -165,7 +165,7 @@ export function useIXC({ clientId, autoLoad = true }: UseIXCOptions = {}) {
         });
         // Refresh logins to show offline status
         if (clientId) {
-          const freshLogins = await ixcService.getLoginsByCliente(clientId);
+          const freshLogins = await ISPFYService.getLoginsByCliente(clientId);
           setLogins(freshLogins);
         }
       } else {

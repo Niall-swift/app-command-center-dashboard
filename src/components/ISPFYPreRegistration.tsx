@@ -10,7 +10,7 @@ import { Loader2, UserPlus, Wifi } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { UserDetails } from '@/types/dashboard';
 
-interface IXCSoftPreRegistrationProps {
+interface ISPFYSoftPreRegistrationProps {
   userDetails: UserDetails;
   requestId: string;
 }
@@ -22,7 +22,7 @@ const internetPlans = [
   { id: '4', name: 'Plano Premium 500MB', price: 'R$ 199,90' },
 ];
 
-export default function IXCSoftPreRegistration({ userDetails, requestId }: IXCSoftPreRegistrationProps) {
+export default function ISPFYSoftPreRegistration({ userDetails, requestId }: ISPFYSoftPreRegistrationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('');
@@ -42,12 +42,12 @@ export default function IXCSoftPreRegistration({ userDetails, requestId }: IXCSo
     setIsLoading(true);
 
     try {
-      // Aqui você faria a integração real com a API do IXCSoft
-      // const response = await fetch('/api/ixcsoft/pre-register', {
+      // Aqui você faria a integração real com a API do ISPFYSoft
+      // const response = await fetch('/api/ispfysoft/pre-register', {
       //   method: 'POST',
       //   headers: {
       //     'Content-Type': 'application/json',
-      //     'Authorization': `Bearer ${IXCSOFT_API_KEY}`
+      //     'Authorization': `Bearer ${ISPFYSOFT_API_KEY}`
       //   },
       //   body: JSON.stringify({
       //     name: userDetails.name,
@@ -71,7 +71,7 @@ export default function IXCSoftPreRegistration({ userDetails, requestId }: IXCSo
       
       toast({
         title: "Pré-cadastro realizado!",
-        description: `Cliente ${userDetails.name} foi pré-cadastrado no IXCSoft com o ${selectedPlanDetails?.name}`,
+        description: `Cliente ${userDetails.name} foi pré-cadastrado no ISPFYSoft com o ${selectedPlanDetails?.name}`,
       });
 
       console.log('Pré-cadastro realizado:', {
@@ -87,7 +87,7 @@ export default function IXCSoftPreRegistration({ userDetails, requestId }: IXCSo
     } catch (error) {
       toast({
         title: "Erro no pré-cadastro",
-        description: "Não foi possível realizar o pré-cadastro no IXCSoft. Tente novamente.",
+        description: "Não foi possível realizar o pré-cadastro no ISPFYSoft. Tente novamente.",
         variant: "destructive",
       });
       console.error('Erro no pré-cadastro:', error);
@@ -104,17 +104,17 @@ export default function IXCSoftPreRegistration({ userDetails, requestId }: IXCSo
           className="bg-purple-600 hover:bg-purple-700 text-white"
         >
           <UserPlus className="w-4 h-4 mr-1" />
-          Pré-cadastro IXC
+          Pré-cadastro ISPFY
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wifi className="w-5 h-5 text-purple-600" />
-            Pré-cadastro IXCSoft
+            Pré-cadastro ISPFYSoft
           </DialogTitle>
           <DialogDescription>
-            Realize o pré-cadastro do cliente {userDetails.name} no sistema IXCSoft
+            Realize o pré-cadastro do cliente {userDetails.name} no sistema ISPFYSoft
           </DialogDescription>
         </DialogHeader>
         

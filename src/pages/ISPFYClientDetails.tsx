@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, Database } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
-import { IXCClientDashboard } from '@/components/ixc/IXCClientDashboard';
+import { ISPFYClientDashboard } from '@/components/ispfy/ISPFYClientDashboard';
 
-const IXCClientDetails: React.FC = () => {
+const ISPFYClientDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -17,9 +17,9 @@ const IXCClientDetails: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Database className="w-4 h-4" />
-            <span>Sistema IXC</span>
+            <span>Sistema ISPFY</span>
             <span>/</span>
-            <span className="cursor-pointer hover:text-primary transition-colors" onClick={() => navigate('/ixc/consulta')}>Consulta</span>
+            <span className="cursor-pointer hover:text-primary transition-colors" onClick={() => navigate('/ispfy/consulta')}>Consulta</span>
             <span>/</span>
             <span className="text-gray-900 font-medium">Detalhes do Cliente</span>
           </div>
@@ -28,10 +28,10 @@ const IXCClientDetails: React.FC = () => {
           </Button>
         </div>
 
-        <IXCClientDashboard clientId={id} />
+        <ISPFYClientDashboard clientId={id} />
       </div>
     </PageTransition>
   );
 };
 
-export default IXCClientDetails;
+export default ISPFYClientDetails;

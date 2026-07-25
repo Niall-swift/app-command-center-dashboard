@@ -1651,9 +1651,9 @@ async function getAsaasConfig() {
     throw new Error("Chave de API do Asaas não configurada.");
   }
   return {
-    apiKey: data.apiKey,
-    environment: data.environment || "sandbox",
-    webhookToken: data.webhookToken || ""
+    apiKey: String(data.apiKey || "").trim(),
+    environment: String(data.environment || "sandbox").trim(),
+    webhookToken: String(data.webhookToken || "").trim()
   };
 }
 
@@ -1820,40 +1820,67 @@ export const createPaidRafflePayment = functions.https.onCall(async (data, conte
  * Webhook HTTP para receber confirmação de pagamentos do Asaas
  */
 export const asaasWebhook = functions.https.onRequest(async (req, res) => {
+  // Configurar cabeçalhos de CORS manualmente para testes e requisições do browser/frontend
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, asaas-access-token, access_token"
+  );
+
+  // Tratar requisição OPTIONS (Preflight do CORS)
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
   if (req.method === "GET") {
     res.status(200).send("Webhook Asaas ativo.");
     return;
   }
 
+  console.log(`🔔 [Webhook Asaas] Requisição recebida. Headers: ${JSON.stringify(req.headers)} | Body: ${JSON.stringify(req.body)}`);
+
   try {
     const asaasConfig = await getAsaasConfig();
-    const requestToken = req.headers["asaas-access-token"];
+    const requestToken = String(req.headers["asaas-access-token"] || req.headers["access_token"] || req.headers["authorization"] || "").trim();
+    const expectedToken = asaasConfig.webhookToken;
 
-    if (asaasConfig.webhookToken && requestToken !== asaasConfig.webhookToken) {
-      console.warn("⚠️ Token do Webhook inválido ou ausente no cabeçalho.");
+    if (expectedToken && requestToken !== expectedToken) {
+      console.warn(`⚠️ Token do Webhook inválido ou ausente! Esperado (tamanho ${expectedToken.length}): "${expectedToken}", Recebido (tamanho ${requestToken.length}): "${requestToken || 'NENHUM NO CABEÇALHO'}"`);
       res.status(401).send("Unauthorized: Invalid webhook token.");
       return;
     }
 
     const { event, payment } = req.body;
-    console.log(`🔔 [Webhook Asaas] Recebido evento: ${event} para o pagamento Asaas ID: ${payment?.id}`);
+    console.log(`🔔 [Webhook Asaas] Recebido evento: ${event} para o pagamento Asaas ID: ${payment?.id} (externalReference: ${payment?.externalReference})`);
 
-    if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED") {
-      const paymentId = payment.externalReference;
-      if (!paymentId) {
-        console.warn("⚠️ Evento de pagamento recebido, mas 'externalReference' está ausente.");
-        res.status(400).send("Bad Request: externalReference missing.");
-        return;
+    if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED" || event === "PAYMENT_CREDITED") {
+      let paymentId = payment.externalReference;
+      let paymentRef = paymentId ? db.collection("paid_raffle_payments").doc(paymentId) : null;
+      let paymentSnap = paymentRef ? await paymentRef.get() : null;
+
+      // Fallback: se não achar por externalReference ou se vier vazio, busca pelo asaasPaymentId
+      if (!paymentSnap || !paymentSnap.exists) {
+        console.warn(`ℹ️ Documento não encontrado por externalReference ("${paymentId}"). Buscando por asaasPaymentId: ${payment?.id}...`);
+        const querySnap = await db.collection("paid_raffle_payments").where("asaasPaymentId", "==", String(payment?.id || "")).limit(1).get();
+        if (!querySnap.empty) {
+          paymentSnap = querySnap.docs[0];
+          paymentRef = paymentSnap.ref;
+          paymentId = paymentSnap.id;
+        } else {
+          console.warn(`⚠️ Pagamento não encontrado no Firestore por externalReference nem por asaasPaymentId (${payment?.id}).`);
+          res.status(404).send("Not Found: Payment document not found.");
+          return;
+        }
       }
 
-      const paymentRef = db.collection("paid_raffle_payments").doc(paymentId);
-      const paymentSnap = await paymentRef.get();
-
-      if (!paymentSnap.exists) {
-        console.warn(`⚠️ Pagamento não encontrado no Firestore: ${paymentId}`);
-        res.status(404).send("Not Found: Payment document not found.");
+      if (!paymentRef) {
+        res.status(404).send("Not Found: Payment reference missing.");
         return;
       }
+      const validPaymentRef = paymentRef;
 
       const paymentData = paymentSnap.data() || {};
       if (paymentData.paymentStatus === "CONFIRMED") {
@@ -1888,7 +1915,7 @@ export const asaasWebhook = functions.https.onRequest(async (req, res) => {
           totalTicketsSold: currentSold + ticketQuantity
         });
 
-        transaction.update(paymentRef, {
+        transaction.update(validPaymentRef, {
           paymentStatus: "CONFIRMED",
           confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
           ticketsGenerated: true,

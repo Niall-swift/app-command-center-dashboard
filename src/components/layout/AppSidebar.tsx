@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
   Settings, Gift, Package, Wrench, Map, Film, Tv,
-  Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download,
+  Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download, Calendar,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -34,12 +34,13 @@ const menuItems = [
   { title: "Configurações",    url: "/settings",        icon: Settings },
 ];
 
-const ixcMenuItems = [
-  { title: "Consulta de Clientes", url: "/ixc/consulta",   icon: Users },
-  { title: "Financeiro",           url: "/ixc/financeiro",  icon: DollarSign },
-  { title: "Tickets de Suporte",   url: "/ixc/tickets",     icon: Ticket },
-  { title: "Relatório DICI",       url: "/ixc/dici",        icon: FileSpreadsheet },
-  { title: "Exportar Clientes",    url: "/ixc/exportar-ativos", icon: Download },
+const ispfyMenuItems = [
+  { title: "Consulta de Clientes", url: "/ispfy/consulta",   icon: Users },
+  { title: "Financeiro",           url: "/ispfy/financeiro",  icon: DollarSign },
+  { title: "Tickets de Suporte",   url: "/ispfy/tickets",     icon: Ticket },
+  { title: "Relatório DICI",       url: "/ispfy/dici",        icon: FileSpreadsheet },
+  { title: "Exportar Clientes",    url: "/ispfy/exportar-ativos", icon: Download },
+  { title: "Vencimentos em Massa", url: "/ispfy/vencimentos",     icon: Calendar },
 ];
 
 const containerVariants = {
@@ -219,14 +220,14 @@ export function AppSidebar() {
           style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)' }}
         />
 
-        {/* IXC section */}
+        {/* ISPFY section */}
         <SidebarGroup>
           <SidebarGroupLabel
             className="text-xs font-semibold mb-2 px-2 tracking-widest uppercase flex items-center gap-2"
             style={{ color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.6)' }}
           >
             <Database style={{ width: 10, height: 10 }} />
-            Sistema IXC
+            Sistema ISPFY
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <motion.div
@@ -235,7 +236,7 @@ export function AppSidebar() {
               animate="visible"
             >
               <SidebarMenu className="space-y-0.5">
-                {ixcMenuItems.map((item) => {
+                {ispfyMenuItems.map((item) => {
                   const isActive = location.pathname === item.url;
                   return (
                     <motion.div key={item.title} variants={itemVariants}>

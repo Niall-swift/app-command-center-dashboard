@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import { toast } from 'sonner';
 import { Loader2, PlusCircle } from 'lucide-react';
 
@@ -53,7 +53,7 @@ export const NewTicketForm: React.FC<NewTicketFormProps> = ({
   const loadSubjects = async () => {
     setLoadingSubjects(true);
     try {
-      const data = await ixcService.getTicketSubjects();
+      const data = await ispfyService.getTicketSubjects();
       setSubjects(data);
     } catch (error) {
       toast.error('Erro ao carregar assuntos de tickets.');
@@ -72,7 +72,7 @@ export const NewTicketForm: React.FC<NewTicketFormProps> = ({
 
     setLoading(true);
     try {
-      const result = await ixcService.createTicket({
+      const result = await ispfyService.createTicket({
         id_cliente: idCliente,
         id_assunto: selectedSubject,
         prioridade: priority,

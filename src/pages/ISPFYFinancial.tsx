@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ixcService } from '@/services/ixc/ixcService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import PageTransition from '@/components/PageTransition';
-import { FinancialKPIs } from '@/components/ixc/financial/FinancialKPIs';
-import { RevenueChart } from '@/components/ixc/financial/RevenueChart';
-import { DebtorsList } from '@/components/ixc/financial/DebtorsList';
+import { FinancialKPIs } from '@/components/ispfy/financial/FinancialKPIs';
+import { RevenueChart } from '@/components/ispfy/financial/RevenueChart';
+import { DebtorsList } from '@/components/ispfy/financial/DebtorsList';
 import { Database, TrendingUp, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-const IXCFinancial: React.FC = () => {
+const ISPFYFinancial: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<any>(null);
     const [revenueData, setRevenueData] = useState<any[]>([]);
@@ -20,9 +20,9 @@ const IXCFinancial: React.FC = () => {
         try {
             // Executar em paralelo para ser mais rápido
             const [summaryData, dailyData, debtorsData] = await Promise.all([
-                ixcService.getFinancialSummary(),
-                ixcService.getDailyRevenue(30),
-                ixcService.getTopDebtors(10)
+                ispfyService.getFinancialSummary(),
+                ispfyService.getDailyRevenue(30),
+                ispfyService.getTopDebtors(10)
             ]);
 
             setSummary(summaryData);
@@ -50,7 +50,7 @@ const IXCFinancial: React.FC = () => {
                 >
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                         <Database className="w-4 h-4" />
-                        <span>Sistema IXC</span>
+                        <span>Sistema ISPFY</span>
                         <span>/</span>
                         <span className="text-gray-900 font-medium">Financeiro</span>
                     </div>
@@ -97,4 +97,4 @@ const IXCFinancial: React.FC = () => {
     );
 };
 
-export default IXCFinancial;
+export default ISPFYFinancial;

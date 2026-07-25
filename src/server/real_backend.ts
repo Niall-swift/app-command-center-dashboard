@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import admin from 'firebase-admin';
 import { WhatsAppService } from './services/whatsappService';
-import { IXCBackendService } from './services/ixcService';
+import { ISPFYBackendService } from './services/ispfyService';
 import { AiService } from './services/aiService';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
@@ -62,16 +62,16 @@ if (fs.existsSync(distPath)) {
 }
 
 // Proxies para APIs Externas (Replicando vite.config.ts para produção)
-app.use('/api/ixc', createProxyMiddleware({
+app.use('/api/ispfy', createProxyMiddleware({
     target: 'https://coopertecisp.com.br/webservice/v1',
     changeOrigin: true,
     pathRewrite: {
-        '^/api/ixc': '',
+        '^/api/ispfy': '',
     },
     followRedirects: true,
     on: {
         proxyReq: (proxyReq, req, res) => {
-            console.log(`🌐 [Proxy IXC] Request: ${req.method} ${proxyReq.path}`);
+            console.log(`🌐 [Proxy ISPFY] Request: ${req.method} ${proxyReq.path}`);
             // Garantir que o body do POST seja repassado corretamente em proxies de Node.js
             if ((req.method === 'POST' || req.method === 'PUT') && (req as any).body) {
                 const bodyData = JSON.stringify((req as any).body);
@@ -82,10 +82,10 @@ app.use('/api/ixc', createProxyMiddleware({
             proxyReq.setHeader('Origin', 'https://coopertecisp.com.br');
         },
         proxyRes: (proxyRes, req, res) => {
-            console.log(`📡 [Proxy IXC] Response: ${proxyRes.statusCode} from ${req.url}`);
+            console.log(`📡 [Proxy ISPFY] Response: ${proxyRes.statusCode} from ${req.url}`);
         },
         error: (err, req, res) => {
-            console.error('❌ [Proxy IXC] Error:', err.message);
+            console.error('❌ [Proxy ISPFY] Error:', err.message);
         }
     },
     secure: false 
@@ -136,7 +136,7 @@ app.use('/api/whatsapp-cdn', createProxyMiddleware({
 }));
 
 // --- Instanciar Serviços ---
-const ixcService = new IXCBackendService(process.env.IXC_HOST || process.env.VITE_IXC_HOST || '', process.env.IXC_TOKEN || process.env.VITE_IXC_TOKEN || '');
+const ispfyService = new ISPFYBackendService(process.env.ISPFY_HOST || process.env.VITE_ISPFY_HOST || '', process.env.ISPFY_TOKEN || process.env.VITE_ISPFY_TOKEN || '');
 const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || process.env.VITE_WHAPI_BASE_URL || 'https://gate.whapi.cloud', process.env.WHAPI_API_KEY || process.env.VITE_WHAPI_API_KEY || '');
 const aiService = process.env.GEMINI_API_KEY ? new AiService(process.env.GEMINI_API_KEY) : null;
 
@@ -172,8 +172,8 @@ app.post('/webhook/whatsapp', async (req, res) => {
       return res.status(200).send("Disabled");
     }
 
-    // Identificar Cliente no IXC
-    let cliente = await ixcService.getClienteByPhone(cleanPhone);
+    // Identificar Cliente no ISPFY
+    let cliente = await ispfyService.getClienteByPhone(cleanPhone);
     const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : undefined;
 
     // Logar no Dashboard
@@ -189,7 +189,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
       const pureNumbers = (text || "").replace(/\D/g, "");
       if (pureNumbers.length >= 11) {
         await waService.sendTextMessage(from, "🔍 Localizando seu cadastro...");
-        const clienteByDoc = await ixcService.getClienteByCpfCnpj(pureNumbers);
+        const clienteByDoc = await ispfyService.getClienteByCpfCnpj(pureNumbers);
         if (clienteByDoc) {
           await sessionRef.set({ state: "IDLE" }, { merge: true });
           await handleInvoiceRequest(clienteByDoc, from);
@@ -270,7 +270,7 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
     update.unreadCount = admin.firestore.FieldValue.increment(1);
     update.name = firstName || cliente?.razao || "Cliente WhatsApp";
     update.phone = cleanPhone;
-    if (cliente?.id) update.ixc_id = cliente.id;
+    if (cliente?.id) update.ispfy_id = cliente.id;
   }
   await chatRef.set(update, { merge: true });
   await chatRef.collection("mensagens").add({
@@ -300,14 +300,14 @@ async function sendWelcomeMenu(from: string, firstName?: string) {
 
 async function handleInvoiceRequest(cliente: any, from: string) {
   try {
-    const faturas = await ixcService.getFaturasAbertas(cliente.id);
+    const faturas = await ispfyService.getFaturasAbertas(cliente.id);
     if (faturas.length === 0) {
       await waService.sendTextMessage(from, `✅ ${cliente.razao}, seu cadastro não possuí faturas em aberto no momento.`);
       return;
     }
     await waService.sendTextMessage(from, `Localizei ${faturas.length} fatura(s) pendente(s) para você, *${cliente.razao}*:`);
     for (const fat of faturas) {
-      const pix = fat.pix_copia_e_cola || await ixcService.getPix(fat.id);
+      const pix = fat.pix_copia_e_cola || await ispfyService.getPix(fat.id);
       const link = fat.gateway_link || fat.url_boleto;
       let msg = `📅 *Vencimento: ${fat.data_vencimento}*\n💰 *Valor: R$ ${fat.valor}*`;
       if (pix) msg += `\n\n💎 *Copia e Cola PIX:*\n\`${pix}\``;

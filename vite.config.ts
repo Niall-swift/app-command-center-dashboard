@@ -14,11 +14,11 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     proxy: {
-      '/api/ixc': {
-        target: 'https://coopertecisp.com.br',
+      '/api/ispfy': {
+        target: 'https://coopertecisp.com.br:8043',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path.replace(/^\/api\/ixc/, '/webservice/v1'),
+        rewrite: (path) => path.replace(/^\/api\/ispfy/, '/api'),
       },
       '/api/smartolt': {
         target: 'https://ncbrasil.smartolt.com',
