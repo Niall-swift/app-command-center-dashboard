@@ -189,9 +189,22 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
       );
     }
     const userPreMixDocRef = userPreMixQuery.docs[0].ref;
+    const userPreMixDocData = userPreMixQuery.docs[0].data();
 
     // Usar transação do Firestore para garantir segurança contra acessos simultâneos
     const result = await db.runTransaction(async (transaction) => {
+      // 0. Verificar se a roleta está ativa para este usuário
+      const configRef = db.collection("configs").doc("pre_mix_roulette");
+      const configDoc = await transaction.get(configRef);
+
+      const isGlobalActive = configDoc.exists && configDoc.data()?.active === true;
+      const onlySpecific = configDoc.exists && configDoc.data()?.onlySpecificClients === true;
+      const isUserEnabled = userPreMixDocData.rouletteEnabled === true;
+
+      if (!isUserEnabled && (!isGlobalActive || onlySpecific)) {
+        throw new Error("ROULETTE_INACTIVE");
+      }
+
       // 1. Verificar se o usuário já girou a roleta
       const winsRef = db.collection("pre_mix_roulette_wins").doc(cleanCpf);
       const winDoc = await transaction.get(winsRef);
@@ -254,6 +267,7 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         wonPrizeId: chosenItem.id,
         wonPrizeName: chosenItem.name,
         wonPrizeRescueCode: rescueCode,
+        wonPrizeIsDefeat: !!chosenItem.isDefeat,
         spunAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -262,7 +276,8 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         name: chosenItem.name,
         color: chosenItem.color || "#4338FF",
         icon: chosenItem.icon || "gift-outline",
-        rescueCode: rescueCode
+        rescueCode: rescueCode,
+        isDefeat: !!chosenItem.isDefeat
       };
     });
 
@@ -278,6 +293,9 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
     }
     if (error.message === "ALREADY_SPUN") {
       throw new functions.https.HttpsError("already-exists", "Você já girou a roleta e garantiu seu prêmio.");
+    }
+    if (error.message === "ROULETTE_INACTIVE") {
+      throw new functions.https.HttpsError("failed-precondition", "A Roleta da Sorte não está ativa para o seu usuário no momento.");
     }
     if (error.message === "NO_AVAILABLE_ITEMS") {
       throw new functions.https.HttpsError("failed-precondition", "Não há prêmios disponíveis no momento.");
