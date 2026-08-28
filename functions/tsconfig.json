@@ -6,10 +6,19 @@
         "outDir": "lib",
         "sourceMap": true,
         "strict": true,
+<<<<<<< HEAD
         "target": "es2017",
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "skipLibCheck": true
+=======
+        "noImplicitAny": false,
+        "target": "es2017",
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "skipLibCheck": true,
+        "moduleResolution": "node16"
+>>>>>>> 5260ee9 (Commit inicial)
     },
     "compileOnSave": true,
     "include": [

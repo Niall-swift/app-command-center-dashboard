@@ -853,10 +853,17 @@ export const whatsappWebhook = functions.runWith({
     // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
     const type = messageData.type;
     let mediaUrl = messageData.link || messageData.url || null;
+<<<<<<< HEAD
     let mediaType = null;
     let mediaIdToDownload = null;
     let mimeType = null;
     let fileNameToSave = null;
+=======
+    let mediaType: string | null = null;
+    let mediaIdToDownload: string | null = null;
+    let mimeType: string = '';
+    let fileNameToSave: string | null = null;
+>>>>>>> 5260ee9 (Commit inicial)
 
     if (type === 'image' || messageData.image) {
       mediaUrl = messageData.image?.link || messageData.link || messageData.url;
@@ -902,11 +909,18 @@ export const whatsappWebhook = functions.runWith({
         const filePath = `chat_media/${finalFileName}`;
         const file = bucket.file(filePath);
         
+<<<<<<< HEAD
         await file.save(mediaBuffer, {
           metadata: {
             contentType: mimeType,
             metadata: { firebaseStorageDownloadTokens: token }
           }
+=======
+        await file.save(mediaBuffer);
+        await file.setMetadata({
+          contentType: mimeType,
+          metadata: { firebaseStorageDownloadTokens: token }
+>>>>>>> 5260ee9 (Commit inicial)
         });
         
         mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${token}`;
@@ -925,7 +939,11 @@ export const whatsappWebhook = functions.runWith({
     const session = sessionSnap.data() as UserSession | undefined;
 
     // --- BUSCA CLIENTE ANTES DO DASHBOARD COM OTIMIZAÇÃO E CACHE ---
+<<<<<<< HEAD
     let cliente = null;
+=======
+    let cliente: any = null;
+>>>>>>> 5260ee9 (Commit inicial)
     if (session?.ixcCliente && session?.ixcClienteUpdatedAt) {
       const lastUpdate = session.ixcClienteUpdatedAt.toDate ? session.ixcClienteUpdatedAt.toDate() : new Date(session.ixcClienteUpdatedAt);
       // Se o cache for mais recente que 24 horas, reutiliza!
@@ -1980,6 +1998,66 @@ _AVL Telecom_`;
   }
 });
 
+<<<<<<< HEAD
+=======
+// --- 4.5. ISPFY PROXY FOR DASHBOARD ---
+export const ispfyProxy = functions.https.onRequest(async (req, res) => {
+  // Configurar cabeçalhos de CORS manualmente
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, Token"
+  );
+
+  // Tratar requisição OPTIONS (Preflight do CORS)
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
+  // A URL base e o Token devem vir do Environment do Firebase Functions
+  // Fallbacks úteis apenas se não configurado
+  const ISPFY_HOST = process.env.ISPFY_URL || "http://avltelecom.ispfycloud.com.br:8020";
+  const ISPFY_TOKEN = req.headers.token || req.headers.Token || process.env.ISPFY_TOKEN || "815e74b02bc6faa371f29274e3d317e0";
+
+  // O req.path geralmente virá como `/api/object/cliente` ou similar.
+  // Como a cloud function fica em /ispfyProxy, a url final será ISPFY_HOST + req.path
+  let path = req.path;
+  if (path === '/') path = ''; // caso a raiz seja chamada
+
+  const url = `${ISPFY_HOST}${path}`;
+
+  try {
+    console.log(`[ISPFY Proxy] Encaminhando ${req.method} para ${url}`, { query: req.query });
+    const response = await axios({
+      method: req.method,
+      url: url,
+      params: req.query,
+      data: req.body,
+      headers: {
+        "Content-Type": "application/json",
+        "Token": ISPFY_TOKEN,
+      },
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: false
+      }),
+      timeout: 120000,
+    });
+
+    res.status(response.status).send(response.data);
+  } catch (error: any) {
+    console.error(`[ISPFY Proxy] Erro na requisição para ${url}:`, error.message);
+    if (error.response) {
+      res.status(error.response.status).send(error.response.data);
+    } else {
+      res.status(500).send({ error: "Erro interno no proxy do ISPFY", details: error.message });
+    }
+  }
+});
+
+>>>>>>> 5260ee9 (Commit inicial)
 // --- 5. SECURE API PROXY FOR MOBILE APP ---
 export {
   smartOltRebootOnu,

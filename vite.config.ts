@@ -15,10 +15,18 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     proxy: {
       '/api/ispfy': {
+<<<<<<< HEAD
         target: 'https://coopertecisp.com.br:8043',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ispfy/, '/api'),
+=======
+        // Apontando para o proxy seguro no Firebase para burlar bloqueios de IP (Firewall)
+        target: 'https://us-central1-avl-telecom.cloudfunctions.net/ispfyProxy',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ispfy/, ''),
+>>>>>>> 5260ee9 (Commit inicial)
       },
       '/api/smartolt': {
         target: 'https://ncbrasil.smartolt.com',

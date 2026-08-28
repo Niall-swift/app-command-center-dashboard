@@ -1,0 +1,44 @@
+Privada > Object > pops: GET http://{{host}}:8020/api/object/pop
+Privada > Object > dispositivos: GET http://{{host}}:8020/api/object/pop/device
+Privada > Object > interfaces: GET http://{{host}}:8020/api/object/pop/device/interface
+Privada > Object > ctos: GET http://{{host}}:8020/api/object/geofiber/cto
+Privada > Object > spliters: GET http://{{host}}:8020/api/object/geofiber/spliter
+Privada > Object > posições spliter: GET http://{{host}}:8020/api/object/geofiber/spliter/via
+Privada > Object > cidades: GET http://{{host}}:8020/api/object/cidade
+Privada > Object > clientes: GET http://{{host}}:8020/api/object/cliente
+Privada > Object > contatos: GET http://{{host}}:8020/api/object/cliente/contato
+Privada > Object > contratos: GET http://{{host}}:8020/api/object/cliente/contrato
+Privada > Object > cobranças: GET http://{{host}}:8020/api/object/cliente/contrato/cobranca
+Privada > Object > pontos: GET http://{{host}}:8020/api/object/cliente/contrato/ponto
+Privada > Object > pontos - detalhes da estação: GET http://{{host}}:8020/api/object/cliente/contrato/ponto/station
+Privada > Object > pontos - historico da estação: GET http://{{host}}:8020/api/object/cliente/contrato/ponto/station-history
+Privada > Object > planos do ponto: GET http://{{host}}:8020/api/object/cliente/contrato/ponto/planos
+Privada > Object > sessões radius: GET http://{{host}}:8020/api/object/cliente/contrato/ponto/sessoes
+Privada > Object > tickets: GET http://{{host}}:8020/api/object/suporte/ticket
+Privada > Object > tópicos para ticket: GET http://{{host}}:8020/api/object/suporte/topico
+Privada > Object > carteiras de cobrança: GET http://{{host}}:8020/api/object/carteira
+Privada > Object > planos: GET http://{{host}}:8020/api/object/plano
+Privada > Tools > Renderiza boleto: GET http://{{host}}:8020/api/tool/assinante/boleto/imprimir/:id_fatura?retorno=html
+Privada > Tools > Consulta cobranças: GET http://{{host}}:8020/api/tool/assinante/boleto?doc=594.868.420-27&status=vencido&tipo=fatura&retorno=html
+Privada > Tools > Consulta assinante: GET http://{{host}}:8020/api/tool/assinante/info?doc=289.328.100-10
+Privada > Tools > Consulta status do ponto: GET http://{{host}}:8020/api/tool/assinante/ponto/status?id_cliente=9733
+Privada > Tools > Consulta consumo: GET http://{{host}}:8020/api/tool/assinante/ponto/consumo?id_ponto=9732&data_inicial=2022-08-29&data_final=2022-09-01
+Privada > Tools > Login via assinante: POST http://{{host}}:8020/api/tool/assinante/login
+Privada > Tools > Libera internet: POST http://{{host}}:8020/api/tool/assinante/liberar
+Privada > Tools > Novo cliente: POST http://{{host}}:8020/api/tool/cliente/novo
+Privada > Tools > Novo ticket: POST http://{{host}}:8020/api/tool/assinante/ticket
+Privada > Tools > Finaliza ticket: DELETE http://{{host}}:8020/api/tool/assinante/ticket/:id_ticket
+Privada > Tools > Lista planos testaveis: GET http://{{host}}:8020/api/tool/assinante/plano/teste?id_ponto=7700&mostrar_preco_menor=0&mostrar_banda_menor=0
+Privada > Tools > Testa novo plano: POST http://{{host}}:8020/api/tool/assinante/plano/teste
+Privada > Tools > Remove teste do plano: DELETE http://{{host}}:8020/api/tool/assinante/plano/teste/7700
+Privada > Tools > Recebe script pppoe mikrotik: GET http://{{host}}:8020/api/tool/mikrotik/script/secrets?key=192.0.0.2
+Privada > Tools > Recebe script ip binding mikrotik: GET http://{{host}}:8020/api/tool/mikrotik/script/binding?key=192.0.0.3&time=1699627416&iface=saida
+Privada > Parceiros > AppProvedor > Lista clientes ativos: GET http://{{host}}:8020/api/tool/custom-party/appprovedor/clientes/ativos?data_insercao_apos=2020-05-10
+Privada > Parceiros > AppProvedor > Login via senha: POST http://{{host}}:8020/api/tool/custom-party/appprovedor/login-by-password
+Privada > Parceiros > AppProvedor > Login via data de nascimento: POST http://{{host}}:8020/api/tool/custom-party/appprovedor/login-by-birthday
+Privada > Parceiros > AppProvedor > Login via CPF/CNPJ: POST http://{{host}}:8020/api/tool/custom-party/appprovedor/login-by-document
+Privada > Parceiros > Academia do Provedor > Consultar cliente: GET http://{{host}}:8020/api/tool/custom-party/academia-do-provedor/customer/:doc_cliente
+Pública > Parceiros > CDN-TV > Autenticação: POST http://{{host}}:8008/api/sva/cdntv/auth
+Pública > Parceiros > CDN-TV > Autorização: GET http://{{host}}:8008/api/sva/cdntv/auth?username={{pacote_cdn_tv}}
+Pública > Parceiros > Genérico > Autenticação: POST http://{{host}}:8008/api/sva/generic/auth
+Pública > Parceiros > Genérico > Autenticação: GET http://{{host}}:8008/api/sva/generic/auth?username={{sva_cdntv_username}}&password={{sva_cdntv_password}}

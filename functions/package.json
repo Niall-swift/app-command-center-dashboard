@@ -19,7 +19,11 @@
         "@google/generative-ai": "^0.24.1",
         "axios": "^1.13.6",
         "firebase-admin": "^12.0.0",
+<<<<<<< HEAD
         "firebase-functions": "^5.0.0"
+=======
+        "firebase-functions": "^7.3.2"
+>>>>>>> 5260ee9 (Commit inicial)
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^5.12.0",

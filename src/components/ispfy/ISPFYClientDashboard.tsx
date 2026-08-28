@@ -33,6 +33,10 @@ import {
 } from 'lucide-react';
 import { useISPFY } from '@/hooks/useISPFY';
 import { useToast } from '@/hooks/use-toast';
+<<<<<<< HEAD
+=======
+import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
+>>>>>>> 5260ee9 (Commit inicial)
 import { 
   Dialog,
   DialogContent,
@@ -535,7 +539,22 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                   <p className="font-semibold">Precisa de ajuda?</p>
                   <p className="text-sm text-muted-foreground max-w-[300px]">Nossa equipe está pronta para te atender. Abra uma O.S. agora mesmo.</p>
                </div>
+<<<<<<< HEAD
                <Button>Abrir Novo Chamado</Button>
+=======
+               <QuickOSModal
+                 preselectedClient={client ?? undefined}
+                 trigger={
+                   <button
+                     className="inline-flex items-center gap-2 py-2 px-5 rounded-xl font-semibold text-white text-sm shadow-lg transition-all"
+                     style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 4px 16px rgba(16,185,129,0.25)' }}
+                   >
+                     <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current stroke-2" xmlns="http://www.w3.org/2000/svg"><path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                     Abrir Nova O.S.
+                   </button>
+                 }
+               />
+>>>>>>> 5260ee9 (Commit inicial)
             </CardContent>
           </Card>
         </TabsContent>

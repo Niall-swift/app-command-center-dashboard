@@ -72,7 +72,11 @@ export class IXCBackendService {
     const searchTerms = [formattedCel, formattedFix, `%${cleanPhone.slice(-8).split('').join('%')}%`].filter(t => t !== "");
     const fields = ['cliente.telefone_celular', 'cliente.fone_whatsapp', 'cliente.telefone', 'cliente.telefone_comercial'];
 
+<<<<<<< HEAD
     const promises = [];
+=======
+    const promises: Promise<IXCClienteData | null>[] = [];
+>>>>>>> 5260ee9 (Commit inicial)
     for (const term of searchTerms) {
       for (const field of fields) {
         const data: Partial<IXCParams> = {

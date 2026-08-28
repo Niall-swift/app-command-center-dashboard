@@ -5,6 +5,10 @@ import {
   MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
   Settings, Gift, Package, Wrench, Map, Film, Tv,
   Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download, Calendar,
+<<<<<<< HEAD
+=======
+  ClipboardList,
+>>>>>>> 5260ee9 (Commit inicial)
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -35,6 +39,10 @@ const menuItems = [
 ];
 
 const ispfyMenuItems = [
+<<<<<<< HEAD
+=======
+  { title: "🆕 Nova O.S.",           url: "/ispfy/nova-os",        icon: ClipboardList },
+>>>>>>> 5260ee9 (Commit inicial)
   { title: "Consulta de Clientes", url: "/ispfy/consulta",   icon: Users },
   { title: "Financeiro",           url: "/ispfy/financeiro",  icon: DollarSign },
   { title: "Tickets de Suporte",   url: "/ispfy/tickets",     icon: Ticket },

@@ -64,6 +64,24 @@ export default function Settings() {
 
 
 
+<<<<<<< HEAD
+=======
+  // Estado de Manutenção
+  const [maintenanceGlobal, setMaintenanceGlobal] = useState<boolean>(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState<string>('Estamos em manutenção. Voltaremos em breve!');
+  const [disabledScreens, setDisabledScreens] = useState<string[]>([]);
+  const [loadingMaintenance, setLoadingMaintenance] = useState(true);
+
+  const availableScreens = [
+    { id: 'Jogos', name: 'Jogos e Sorteios' },
+    { id: 'SpeedTest', name: 'Teste de Velocidade' },
+    { id: 'RewardsStore', name: 'Loja de Recompensas' },
+    { id: 'AVLPlay', name: 'AVL Play (Streaming)' },
+    { id: 'Boletos', name: '2ª Via de Boletos' },
+    { id: 'SupportTickets', name: 'Chamados (Suporte)' }
+  ];
+
+>>>>>>> 5260ee9 (Commit inicial)
   // Estado do Robô WhatsApp
   const [botActive, setBotActive] = useState<boolean | null>(null);
 
@@ -302,6 +320,59 @@ export default function Settings() {
   };
 
   React.useEffect(() => {
+<<<<<<< HEAD
+=======
+    const unsubMaintenance = onSnapshot(doc(db, "settings", "maintenance"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setMaintenanceGlobal(data.global || false);
+        setMaintenanceMessage(data.message || 'Estamos em manutenção. Voltaremos em breve!');
+        setDisabledScreens(data.disabledScreens || []);
+      }
+      setLoadingMaintenance(false);
+    });
+    return () => unsubMaintenance();
+  }, []);
+
+  const handleToggleMaintenanceGlobal = async (checked: boolean) => {
+    try {
+      await setDoc(doc(db, "settings", "maintenance"), {
+        global: checked
+      }, { merge: true });
+      toast.success(checked ? 'Modo de manutenção ATIVADO' : 'Modo de manutenção DESATIVADO');
+    } catch (error) {
+      toast.error("Erro ao atualizar modo de manutenção");
+    }
+  };
+
+  const handleSaveMaintenanceMessage = async () => {
+    try {
+      await setDoc(doc(db, "settings", "maintenance"), {
+        message: maintenanceMessage
+      }, { merge: true });
+      toast.success("Mensagem de manutenção atualizada");
+    } catch (error) {
+      toast.error("Erro ao atualizar mensagem");
+    }
+  };
+
+  const handleToggleDisabledScreen = async (screenId: string, isChecked: boolean) => {
+    try {
+      const newScreens = isChecked 
+        ? [...disabledScreens, screenId] 
+        : disabledScreens.filter(s => s !== screenId);
+      
+      await setDoc(doc(db, "settings", "maintenance"), {
+        disabledScreens: newScreens
+      }, { merge: true });
+      toast.success("Telas atualizadas");
+    } catch (error) {
+      toast.error("Erro ao atualizar telas");
+    }
+  };
+
+  React.useEffect(() => {
+>>>>>>> 5260ee9 (Commit inicial)
     const unsub = onSnapshot(doc(db, "bot_config", "global"), (snap) => {
       if (snap.exists()) {
         setBotActive(snap.data().active);
@@ -808,6 +879,77 @@ export default function Settings() {
           </Card>
         </motion.div>
 
+<<<<<<< HEAD
+=======
+        {/* Seção do Modo de Manutenção */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Card className={`border-2 transition-all duration-300 ${maintenanceGlobal ? 'border-red-500/50 shadow-lg shadow-red-500/5' : 'border-gray-200 shadow-sm'}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`p-2 rounded-lg ${maintenanceGlobal ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Modo de Manutenção</h3>
+                    <p className="text-sm font-normal text-muted-foreground">Bloqueia o acesso ao app AVL durante atualizações</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-secondary/20 p-2 rounded-full px-4 border">
+                  <span className={`text-xs font-bold uppercase ${maintenanceGlobal ? 'text-red-600' : 'text-gray-500'}`}>
+                    {loadingMaintenance ? 'Carregando...' : maintenanceGlobal ? 'Ativado (Bloqueado)' : 'Desativado'}
+                  </span>
+                  <Switch 
+                    checked={maintenanceGlobal} 
+                    onCheckedChange={handleToggleMaintenanceGlobal}
+                    disabled={loadingMaintenance}
+                  />
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-gray-700 mb-2 block">Mensagem para os usuários</label>
+                  <div className="flex gap-2">
+                    <Input 
+                      value={maintenanceMessage}
+                      onChange={(e) => setMaintenanceMessage(e.target.value)}
+                      placeholder="Ex: Estamos em manutenção..."
+                      className="flex-1"
+                    />
+                    <Button onClick={handleSaveMaintenanceMessage} variant="secondary">
+                      Salvar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Essa mensagem aparecerá na tela de bloqueio do app.</p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold text-gray-700 mb-3 block">Desativar Telas Específicas (Bloqueio Parcial)</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {availableScreens.map(screen => (
+                      <div key={screen.id} className="flex items-center justify-between p-3 rounded-xl border bg-gray-50">
+                        <span className="text-sm font-medium text-gray-700">{screen.name}</span>
+                        <Switch 
+                          checked={disabledScreens.includes(screen.id)}
+                          onCheckedChange={(checked) => handleToggleDisabledScreen(screen.id, checked)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">Mesmo com a manutenção global desligada, você pode desativar telas específicas. Elas não poderão ser acessadas no app.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+>>>>>>> 5260ee9 (Commit inicial)
         {/* Seção de Gerenciamento de Usuários */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
