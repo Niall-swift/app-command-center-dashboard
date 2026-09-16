@@ -12,10 +12,7 @@ import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
-<<<<<<< HEAD
-=======
 import QuickOSFab from "./components/ispfy/QuickOSFab";
->>>>>>> 5260ee9 (Commit inicial)
 import Dashboard from "./pages/Dashboard";
 import Chat from "./pages/Chat";
 import Requests from "./pages/Requests";
@@ -42,10 +39,7 @@ import ISPFYClientDetails from "./pages/ISPFYClientDetails";
 import ISPFYDici from "./pages/ISPFYDici";
 import ISPFYActiveClientsExport from "./pages/ISPFYActiveClientsExport";
 import ISPFYVencimentos from "./pages/ISPFYVencimentos";
-<<<<<<< HEAD
-=======
 import ISPFYNovaOS from "./pages/ISPFYNovaOS";
->>>>>>> 5260ee9 (Commit inicial)
 import Notifications from "./pages/Notifications";
 import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
 import NotFound from "./pages/NotFound";
@@ -78,10 +72,7 @@ function AnimatedRoutes() {
         <Route path="/ispfy/dici" element={<ISPFYDici />} />
         <Route path="/ispfy/exportar-ativos" element={<ISPFYActiveClientsExport />} />
         <Route path="/ispfy/vencimentos" element={<ISPFYVencimentos />} />
-<<<<<<< HEAD
-=======
         <Route path="/ispfy/nova-os" element={<ISPFYNovaOS />} />
->>>>>>> 5260ee9 (Commit inicial)
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />
@@ -113,10 +104,7 @@ function AppContent() {
           <AppContentWithRouterFix />
         </ErrorBoundary>
       </DashboardLayout>
-<<<<<<< HEAD
-=======
       <QuickOSFab />
->>>>>>> 5260ee9 (Commit inicial)
     </ProtectedRoute>
   );
 }

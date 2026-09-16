@@ -1,13 +1,5 @@
 
 export interface ISPFYContactData {
-<<<<<<< HEAD
-  id?: string; // ID do cliente
-  principal?: 'S' | 'N'; // S = Sim, N = Não
-  nome: string; // OBRIGATÓRIO
-  razao?: string; // Razão social (para pessoa jurídica)
-  tipo_pessoa: 'F' | 'J'; // F = Física, J = Jurídica
-  cnpj_cpf?: string;
-=======
   id?: string;
   // Campos reais da API ISPFY
   nome_razao?: string;         // Nome ou Razão Social
@@ -27,14 +19,11 @@ export interface ISPFYContactData {
   endereco_cobranca_latitude?: string | null;
   endereco_cobranca_longitude?: string | null;
   // Contatos
->>>>>>> 5260ee9 (Commit inicial)
   fone_residencial?: string;
   fone_celular?: string;
   telefone_celular?: string;
   fone_whatsapp?: string;
   email?: string;
-<<<<<<< HEAD
-=======
   // Outros
   lead?: 'S' | 'N';
   ativo?: 'S' | 'N';
@@ -46,22 +35,14 @@ export interface ISPFYContactData {
   nome?: string;
   razao?: string;
   cnpj_cpf?: string;
->>>>>>> 5260ee9 (Commit inicial)
   endereco?: string;
   bairro?: string;
   cep?: string;
   cidade?: string;
   latitude?: string;
   longitude?: string;
-<<<<<<< HEAD
-  obs?: string;
-  lead: 'S' | 'N'; // S = Sim, N = Não
-  ativo: 'S' | 'N'; // S = Ativo, N = Inativo
-  [key: string]: any; // Permite campos adicionais da API
-=======
   principal?: 'S' | 'N';
   [key: string]: any;
->>>>>>> 5260ee9 (Commit inicial)
 }
 
 export type ISPFYClienteData = ISPFYContactData;
@@ -250,17 +231,6 @@ export interface ISPFYLoginData {
   [key: string]: any;
 }
 
-<<<<<<< HEAD
-// Tipos para respostas da API
-export interface ISPFYApiResponse<T = unknown> {
-  registros: T[];
-  total: number;
-  page: number;
-  rp: number;
-  total_pages: number;
-  query?: string;
-  rows?: unknown[];
-=======
 // Tipos para respostas da API ISPFY (GET /api/object/* com pagination=TRUE)
 export interface ISPFYApiResponse<T = unknown> {
   data: T[];           // Lista de registros retornados (chave real da API)
@@ -275,7 +245,6 @@ export interface ISPFYApiResponse<T = unknown> {
   rp?: number;
   total_pages?: number;
   query?: string;
->>>>>>> 5260ee9 (Commit inicial)
 }
 
 // Tipos para busca
