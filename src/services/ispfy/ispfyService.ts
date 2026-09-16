@@ -613,8 +613,8 @@ class ISPFYService {
     // ISPFY não suporta LIKE — usa ?search= para busca textual
     const response = await this.makeRequest<ISPFYClienteData>('/cliente', {
       search: nome,
-      limit: 200,
-      sort: 'nome_razao:ASC',
+      limit: 1000,
+      sort: 'id:DESC',
     });
     return this.getRows(response);
   }
@@ -744,16 +744,15 @@ class ISPFYService {
     const response = await this.makeRequest<ISPFYClienteData>('/cliente', {
       search: cidade,
       limit: 1000,
-      sort: 'nome_razao:ASC',
+      sort: 'id:DESC',
     });
     return this.getRows(response);
   }
 
   async getClientesAtivos(): Promise<ISPFYClienteData[]> {
     const response = await this.makeRequest<ISPFYClienteData>('/cliente', {
-      filter: buildFilter('ativo', 'EQ', 'S'),
-      limit: 1000,
-      sort: 'nome:ASC',
+      limit: 10000,
+      sort: 'id:DESC',
     });
     return this.getRows(response);
   }
@@ -2980,10 +2979,14 @@ class ISPFYService {
   }
 
   async getTicketSubjects(): Promise<{ id: string; assunto: string }[]> {
-    const response = await this.makeRequest<{ id: string; assunto: string }>('/suporte/topico', {
+    const response = await this.makeRequest<any>('/suporte/topico', {
       limit: 1000,
     });
-    return this.getRows(response);
+    const rows = this.getRows(response);
+    return rows.map(r => ({
+      id: r.id,
+      assunto: r.titulo || r.assunto || r.nome || 'Sem título',
+    }));
   }
 
   async createTicket(ticketData: {

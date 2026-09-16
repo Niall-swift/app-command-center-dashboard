@@ -76,6 +76,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
   // ── Etapa 1: busca ─────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
+  const [allClients, setAllClients] = useState<ISPFYClienteData[]>([]);
   const [searchResults, setSearchResults] = useState<ISPFYClienteData[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(
@@ -127,26 +128,90 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     }
   }, [step]);
 
-  // ─── Debounce de busca ────────────────────────────────────────────────────
+  // ─── Carregar todos os clientes ativos ────────────────────────────────────
+  const fetchAllClients = useCallback(async () => {
+    setSearchLoading(true);
+    try {
+      const results = await ispfyService.getClientesAtivos();
+      setAllClients(results);
+      setSearchResults(results);
+    } catch {
+      setAllClients([]);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && step === 1 && allClients.length === 0) {
+      fetchAllClients();
+    }
+  }, [open, step, allClients.length, fetchAllClients]);
+
+  // ─── Busca Híbrida ────────────────────────────────────────────────────
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     if (searchRef.current) clearTimeout(searchRef.current);
+    
     if (!value.trim()) {
-      setSearchResults([]);
+      setSearchResults(allClients);
       return;
     }
+    
+    const lowerVal = value.toLowerCase();
+    
     searchRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const results = await ispfyService.getClienteByNome(value);
-        setSearchResults(results.slice(0, 8));
+        let results: ISPFYClienteData[] = [];
+        const digits = value.replace(/\D/g, '');
+        
+        // 1. Busca Local em Memória
+        const localMatches = allClients.filter(c => 
+          (c.nome_razao || c.nome || c.razao || '').toLowerCase().includes(lowerVal) || 
+          (c.id && c.id.toString().includes(lowerVal)) ||
+          (c.fone_whatsapp || c.fone_celular || c.fone_residencial || '').includes(lowerVal)
+        );
+        
+        if (localMatches.length > 0) {
+          results = localMatches;
+        }
+
+        // 2. Fallback Documento/Telefone API
+        if (results.length === 0 && /^\d+$/.test(value.replace(/[-.() ]/g, ''))) {
+          if (digits.length >= 10 && digits.length <= 11) {
+            const client = await ispfyService.getClienteByPhone(digits);
+            if (client) results = [client];
+          } else if (digits.length === 11 || digits.length === 14) {
+            const client = await ispfyService.getClienteByCnpjCpf(digits);
+            if (client) results = [client];
+          }
+        }
+
+        // 3. Fallback Nome API
+        if (results.length === 0) {
+          const apiResults = await ispfyService.getClienteByNome(value);
+          if (apiResults.length > 0) {
+            results = apiResults;
+          }
+        }
+        
+        setSearchResults(results);
       } catch {
         setSearchResults([]);
       } finally {
         setSearchLoading(false);
       }
-    }, 400);
-  }, []);
+    }, 300);
+  }, [allClients]);
+
+  // Buscar clientes ao abrir
+  useEffect(() => {
+    if (open && step === 1 && !searchQuery) {
+      handleSearchChange('');
+    }
+  }, [open, step, searchQuery, handleSearchChange]);
 
   // ─── Selecionar cliente ───────────────────────────────────────────────────
   const handleSelectClient = (c: ISPFYClienteData) => {

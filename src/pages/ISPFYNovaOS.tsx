@@ -101,6 +101,7 @@ const mapsEmbedUrl = (c: ISPFYClienteData): string => {
 const ISPFYNovaOS: React.FC = () => {
   // Busca de clientes
   const [searchQuery, setSearchQuery] = useState('');
+  const [allClients, setAllClients] = useState<ISPFYClienteData[]>([]);
   const [searchResults, setSearchResults] = useState<ISPFYClienteData[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(null);
@@ -131,20 +132,80 @@ const ISPFYNovaOS: React.FC = () => {
       .finally(() => setLoadingSubjects(false));
   }, []);
 
-  // ─── Busca debounce ─────────────────────────────────────────────────────────
+  const fetchInitialClients = async () => {
+    setSearchLoading(true);
+    try {
+      const response = await ispfyService.getClientesAtivos();
+      setAllClients(response);
+      setSearchResults(response);
+    } catch {
+      setAllClients([]);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchInitialClients();
+  }, []);
+
+  // ─── Busca híbrida (Memória + Servidor) ─────────────────────────────────────────────────────────
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     if (searchRef.current) clearTimeout(searchRef.current);
-    if (!value.trim()) { setSearchResults([]); return; }
+    
+    if (!value.trim()) {
+      setSearchResults(allClients);
+      return;
+    }
+
+    const lowerVal = value.toLowerCase();
+    
     searchRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const results = await ispfyService.getClienteByNome(value);
-        setSearchResults(results.slice(0, 50));
-      } catch { setSearchResults([]); }
-      finally { setSearchLoading(false); }
-    }, 400);
-  }, []);
+        let results: ISPFYClienteData[] = [];
+        const digits = value.replace(/\D/g, '');
+        
+        // 1. Busca Local em Memória (Rápida, case-insensitive, ignora falhas da API)
+        const localMatches = allClients.filter(c => 
+          (c.nome_razao || c.nome || c.razao || '').toLowerCase().includes(lowerVal) || 
+          (c.id && c.id.toString().includes(lowerVal)) ||
+          (c.fone_whatsapp || c.fone_celular || c.fone_residencial || '').includes(lowerVal)
+        );
+        
+        if (localMatches.length > 0) {
+          results = localMatches;
+        }
+
+        // 2. Se não achou localmente e é um número (CPF/Telefone), busca direto na API
+        if (results.length === 0 && /^\d+$/.test(value.replace(/[-.() ]/g, ''))) {
+          if (digits.length >= 10 && digits.length <= 11) {
+            const client = await ispfyService.getClienteByPhone(digits);
+            if (client) results = [client];
+          } else if (digits.length === 11 || digits.length === 14) {
+            const client = await ispfyService.getClienteByCnpjCpf(digits);
+            if (client) results = [client];
+          }
+        }
+
+        // 3. Se ainda não achou nada, faz a busca textual no servidor (fallback)
+        if (results.length === 0) {
+          const apiResults = await ispfyService.getClienteByNome(value);
+          if (apiResults.length > 0) {
+            results = apiResults;
+          }
+        }
+        
+        setSearchResults(results);
+      } catch { 
+        setSearchResults([]); 
+      } finally { 
+        setSearchLoading(false); 
+      }
+    }, 300);
+  }, [allClients]);
 
   const handleSelectClient = (c: ISPFYClienteData) => {
     setSelectedClient(c);
