@@ -64,8 +64,6 @@ export default function Settings() {
 
 
 
-<<<<<<< HEAD
-=======
   // Estado de Manutenção
   const [maintenanceGlobal, setMaintenanceGlobal] = useState<boolean>(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState<string>('Estamos em manutenção. Voltaremos em breve!');
@@ -81,7 +79,6 @@ export default function Settings() {
     { id: 'SupportTickets', name: 'Chamados (Suporte)' }
   ];
 
->>>>>>> 5260ee9 (Commit inicial)
   // Estado do Robô WhatsApp
   const [botActive, setBotActive] = useState<boolean | null>(null);
 
@@ -320,8 +317,6 @@ export default function Settings() {
   };
 
   React.useEffect(() => {
-<<<<<<< HEAD
-=======
     const unsubMaintenance = onSnapshot(doc(db, "settings", "maintenance"), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -372,7 +367,6 @@ export default function Settings() {
   };
 
   React.useEffect(() => {
->>>>>>> 5260ee9 (Commit inicial)
     const unsub = onSnapshot(doc(db, "bot_config", "global"), (snap) => {
       if (snap.exists()) {
         setBotActive(snap.data().active);
@@ -879,8 +873,6 @@ export default function Settings() {
           </Card>
         </motion.div>
 
-<<<<<<< HEAD
-=======
         {/* Seção do Modo de Manutenção */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -949,7 +941,6 @@ export default function Settings() {
           </Card>
         </motion.div>
 
->>>>>>> 5260ee9 (Commit inicial)
         {/* Seção de Gerenciamento de Usuários */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

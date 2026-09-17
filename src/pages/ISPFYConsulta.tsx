@@ -35,11 +35,7 @@ import {
 } from '@/types/ispfy';
 import { TechnicalDiagnostics } from '@/components/ispfy/TechnicalDiagnostics';
 import { ClientContracts } from '@/components/ispfy/ClientContracts';
-<<<<<<< HEAD
-import { NewTicketForm } from '@/components/ispfy/NewTicketForm';
-=======
 import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
->>>>>>> 5260ee9 (Commit inicial)
 import { ClientTickets } from '@/components/ispfy/ClientTickets';
 
 const ISPFYConsulta: React.FC = () => {
@@ -415,16 +411,6 @@ const ISPFYConsulta: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium text-gray-900">
-<<<<<<< HEAD
-                            {cliente.nome || cliente.razao || 'Nome não informado'}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {cliente.cnpj_cpf ? formatCnpjCpf(cliente.cnpj_cpf) : 'CPF/CNPJ não informado'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {cliente.ativo === 'S' && (
-=======
                             {cliente.nome_razao || cliente.nome || cliente.razao || 'Nome não informado'}
                           </p>
                           <p className="text-sm text-gray-600">
@@ -433,7 +419,6 @@ const ISPFYConsulta: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           {(cliente.ativo === 'S' || cliente.contrato_ativo === 'S') && (
->>>>>>> 5260ee9 (Commit inicial)
                             <Badge variant="default" className="bg-green-100 text-green-800">
                               Ativo
                             </Badge>
@@ -475,21 +460,12 @@ const ISPFYConsulta: React.FC = () => {
                     <div className="space-y-2">
                       <Label className="text-sm font-medium text-gray-600">Nome</Label>
                       <div className="flex items-center gap-2">
-<<<<<<< HEAD
-                        <p className="text-gray-900">{selectedClient.nome || selectedClient.razao || 'Não informado'}</p>
-                        {(selectedClient.nome || selectedClient.razao) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.nome || selectedClient.razao || '', 'Nome')}
-=======
                         <p className="text-gray-900">{selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || 'Não informado'}</p>
                         {(selectedClient.nome_razao || selectedClient.nome || selectedClient.razao) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => copyToClipboard(selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || '', 'Nome')}
->>>>>>> 5260ee9 (Commit inicial)
                           >
                             <Copy className="w-3 h-3" />
                           </Button>
@@ -508,21 +484,12 @@ const ISPFYConsulta: React.FC = () => {
                     <div className="space-y-2">
                       <Label className="text-sm font-medium text-gray-600">CNPJ/CPF</Label>
                       <div className="flex items-center gap-2">
-<<<<<<< HEAD
-                        <p className="text-gray-900">{formatCnpjCpf(selectedClient.cnpj_cpf)}</p>
-                        {selectedClient.cnpj_cpf && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.cnpj_cpf || '', 'CNPJ/CPF')}
-=======
                         <p className="text-gray-900">{formatCnpjCpf(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf)}</p>
                         {(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => copyToClipboard(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf || '', 'CNPJ/CPF')}
->>>>>>> 5260ee9 (Commit inicial)
                           >
                             <Copy className="w-3 h-3" />
                           </Button>
@@ -533,11 +500,7 @@ const ISPFYConsulta: React.FC = () => {
                     <div className="space-y-2">
                       <Label className="text-sm font-medium text-gray-600">Status</Label>
                       <div className="flex items-center gap-2">
-<<<<<<< HEAD
-                        {selectedClient.ativo === 'S' ? (
-=======
                         {(selectedClient.ativo === 'S' || selectedClient.contrato_ativo === 'S') ? (
->>>>>>> 5260ee9 (Commit inicial)
                           <Badge variant="default" className="bg-green-100 text-green-800">
                             <CheckCircle className="w-3 h-3 mr-1" />
                             Ativo
@@ -616,11 +579,7 @@ const ISPFYConsulta: React.FC = () => {
                         <MapPin className="w-3 h-3" />
                         Cidade
                       </Label>
-<<<<<<< HEAD
-                      <p className="text-gray-900">{selectedClient.cidade || 'Não informado'}</p>
-=======
                       <p className="text-gray-900">{selectedClient.endereco_cobranca_bairro ? `${selectedClient.endereco_cobranca_bairro}` : selectedClient.cidade || 'Não informado'}</p>
->>>>>>> 5260ee9 (Commit inicial)
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
@@ -629,13 +588,9 @@ const ISPFYConsulta: React.FC = () => {
                         Endereço
                       </Label>
                       <p className="text-gray-900">
-<<<<<<< HEAD
-                        {selectedClient.endereco ? `${selectedClient.endereco}, ${selectedClient.bairro || ''}` : 'Não informado'}
-=======
                         {(selectedClient.endereco_cobranca_rua || selectedClient.endereco) 
                           ? `${selectedClient.endereco_cobranca_rua || selectedClient.endereco}, ${selectedClient.endereco_cobranca_numero || ''} ${selectedClient.endereco_cobranca_bairro || selectedClient.bairro || ''}`.trim()
                           : 'Não informado'}
->>>>>>> 5260ee9 (Commit inicial)
                       </p>
                     </div>
 
@@ -661,9 +616,6 @@ const ISPFYConsulta: React.FC = () => {
                       <ExternalLink className="w-3 h-3 mr-2" />
                       Abrir no ISPFY
                     </Button>
-<<<<<<< HEAD
-                    <NewTicketForm idCliente={selectedClient.id || ''} />
-=======
                     <QuickOSModal
                         preselectedClient={selectedClient}
                         trigger={
@@ -673,7 +625,6 @@ const ISPFYConsulta: React.FC = () => {
                           </button>
                         }
                       />
->>>>>>> 5260ee9 (Commit inicial)
                   </div>
                 </motion.div>
               ) : (

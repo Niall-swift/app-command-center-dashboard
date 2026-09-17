@@ -33,10 +33,7 @@ import {
 } from 'lucide-react';
 import { useISPFY } from '@/hooks/useISPFY';
 import { useToast } from '@/hooks/use-toast';
-<<<<<<< HEAD
-=======
 import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
->>>>>>> 5260ee9 (Commit inicial)
 import { 
   Dialog,
   DialogContent,
@@ -539,9 +536,6 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                   <p className="font-semibold">Precisa de ajuda?</p>
                   <p className="text-sm text-muted-foreground max-w-[300px]">Nossa equipe está pronta para te atender. Abra uma O.S. agora mesmo.</p>
                </div>
-<<<<<<< HEAD
-               <Button>Abrir Novo Chamado</Button>
-=======
                <QuickOSModal
                  preselectedClient={client ?? undefined}
                  trigger={
@@ -554,7 +548,6 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                    </button>
                  }
                />
->>>>>>> 5260ee9 (Commit inicial)
             </CardContent>
           </Card>
         </TabsContent>
