@@ -5,6 +5,10 @@
             "destination": "https://us-central1-avl-telecom.cloudfunctions.net/ixcProxy/:path*"
         },
         {
+            "source": "/api/ispfy/:path*",
+            "destination": "https://us-central1-avl-telecom.cloudfunctions.net/ispfyProxy/:path*"
+        },
+        {
             "source": "/api/smartolt/:path*",
             "destination": "/api/smartolt"
         },

@@ -60,7 +60,7 @@ const clientName = (c: ISPFYClienteData) =>
   c.nome_razao || c.nome || c.razao || 'Sem nome';
 
 const clientPhone = (c: ISPFYClienteData) =>
-  c.fone_whatsapp || c.fone_celular || c.telefone_celular || c.fone_residencial || '';
+  c.fone_whatsapp || c.fone_celular || c.telefone_celular || c.telefone || c.fone || c.fone_residencial || 'Não informado';
 
 const buildAddress = (c: ISPFYClienteData): string => {
   const parts: string[] = [];
@@ -207,7 +207,24 @@ const ISPFYNovaOS: React.FC = () => {
     }, 300);
   }, [allClients]);
 
-  const handleSelectClient = (c: ISPFYClienteData) => {
+  const handleSelectClient = async (c: ISPFYClienteData) => {
+    console.log('--- DADOS BRUTOS DO CLIENTE (Nova O.S.) ---', c);
+    
+    // Busca os contatos do cliente na tabela separada da API ISPFY
+    if (c.id) {
+      try {
+        const contatos = await ispfyService.getClienteContatos(c.id);
+        console.log('--- CONTATOS ENCONTRADOS ---', contatos);
+        // Anexa o primeiro celular/telefone encontrado aos campos nativos para compatibilidade
+        if (contatos && contatos.length > 0) {
+          c.fone_celular = contatos.find((ct: any) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
+          c.fone_whatsapp = contatos.find((ct: any) => ct.pode_enviar_mensagem === 's')?.contato;
+        }
+      } catch (err) {
+        console.error('Erro ao buscar contatos:', err);
+      }
+    }
+
     setSelectedClient(c);
     setSearchResults([]);
     setSearchQuery(clientName(c));
@@ -280,32 +297,21 @@ const ISPFYNovaOS: React.FC = () => {
     }
   };
 
-  const handleWhatsApp = () => {
-    const rawPhone = clientPhone(selectedClient!);
-    const digits = rawPhone.replace(/\D/g, '');
-    if (!digits) { toast.warning('Cliente sem WhatsApp.'); return; }
-    const phone = digits.startsWith('55') ? digits : `55${digits}`;
-    const problemLabels = selectedProblems.map(pid =>
-      PROBLEMS.find(p => p.id === pid)?.label || pid
-    );
-    const text = 
-      `🛠 *O.S. #${createdTicketId} – Ordem de Serviço*\n` +
-      `Olá, *${clientName(selectedClient!)}*!\n` +
-      `Seu chamado foi registrado com sucesso.\n\n` +
-      (problemLabels.length ? `📋 *Problemas:* ${problemLabels.join(', ')}\n` : '') +
-      `📌 *Assunto:* ${subjectLabel}\n` +
-      `⚡ *Prioridade:* ${PRIORITY_LABELS[priority]?.label}\n` +
-      (referencePoint ? `📍 *Ref:* ${referencePoint}\n` : '') +
-      (observation ? `📝 *Obs:* ${observation}\n` : '') +
-      `\nNossa equipe entrará em contato em breve. Obrigado! 🙏`;
-    
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
-  };
-
   const handleCopyInfo = () => {
     const problemLabels = selectedProblems.map(pid =>
       PROBLEMS.find(p => p.id === pid)?.label || pid
     );
+
+    const lat = selectedClient?.endereco_cobranca_latitude || selectedClient?.latitude;
+    const lng = selectedClient?.endereco_cobranca_longitude || selectedClient?.longitude;
+    
+    let mapLink = '';
+    if (lat && lng && lat !== '0' && lat !== '0.0000000' && lng !== '0' && lng !== '0.0000000') {
+      mapLink = `🗺️ *Mapa:* https://maps.google.com/?q=${lat},${lng}\n`;
+    } else if (addr) {
+      mapLink = `🗺️ *Mapa:* https://maps.google.com/?q=${encodeURIComponent(addr)}\n`;
+    }
+
     const text = 
       `🛠 *O.S. #${createdTicketId} – Ordem de Serviço*\n` +
       `Cliente: *${clientName(selectedClient!)}*\n` +
@@ -315,7 +321,8 @@ const ISPFYNovaOS: React.FC = () => {
       `⚡ *Prioridade:* ${PRIORITY_LABELS[priority]?.label}\n` +
       (addr ? `📍 *Endereço:* ${addr}\n` : '') +
       (referencePoint ? `📍 *Ref:* ${referencePoint}\n` : '') +
-      (observation ? `📝 *Obs:* ${observation}\n` : '');
+      (observation ? `📝 *Obs:* ${observation}\n` : '') +
+      mapLink;
       
     navigator.clipboard.writeText(text).then(() => {
       toast.success('Informações copiadas para a área de transferência!');
@@ -347,11 +354,6 @@ const ISPFYNovaOS: React.FC = () => {
   const addr = selectedClient ? buildAddress(selectedClient) : '';
   const mapUrl = selectedClient ? mapsEmbedUrl(selectedClient) : '';
   const mapsLink = selectedClient ? mapsUrl(selectedClient) : '';
-  const hasWhatsApp = !!(
-    selectedClient?.fone_whatsapp ||
-    selectedClient?.fone_celular ||
-    selectedClient?.telefone_celular
-  );
 
   return (
     <PageTransition>
@@ -448,21 +450,7 @@ const ISPFYNovaOS: React.FC = () => {
 
                 {/* Ações */}
                 <div className="w-full flex flex-col gap-3">
-                  {hasWhatsApp && (
-                    <motion.button
-                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                      onClick={handleWhatsApp}
-                      className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-white"
-                      style={{
-                        background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                        boxShadow: '0 4px 20px rgba(37,211,102,0.35)',
-                      }}
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      Notificar pelo WhatsApp
-                      <Send className="w-4 h-4" />
-                    </motion.button>
-                  )}
+
                   <Button
                     variant="outline"
                     onClick={handleCopyInfo}

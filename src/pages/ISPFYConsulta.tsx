@@ -97,18 +97,18 @@ const ISPFYConsulta: React.FC = () => {
         }
         case 'email': {
           const emailResults = await ispfyService.searchClientes(
-            'cliente.email',
+            'email',
             searchState.searchValue,
-            'L'
+            'EQ'
           );
           results = emailResults.registros as ISPFYClienteData[];
           break;
         }
         case 'whatsapp': {
           const whatsappResults = await ispfyService.searchClientes(
-            'cliente.fone_whatsapp',
+            'fone_whatsapp',
             searchState.searchValue,
-            'L'
+            'EQ'
           );
           results = whatsappResults.registros as ISPFYClienteData[];
           break;
@@ -406,7 +406,22 @@ const ISPFYConsulta: React.FC = () => {
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
-                      onClick={() => setSelectedClient(cliente)}
+                      onClick={async () => {
+                        console.log('--- DADOS BRUTOS DO CLIENTE (Consulta) ---', cliente);
+                        if (cliente.id) {
+                          try {
+                            const contatos = await ispfyService.getClienteContatos(cliente.id);
+                            console.log('--- CONTATOS ENCONTRADOS ---', contatos);
+                            if (contatos && contatos.length > 0) {
+                              cliente.fone_celular = contatos.find((ct: any) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
+                              cliente.fone_whatsapp = contatos.find((ct: any) => ct.pode_enviar_mensagem === 's')?.contato;
+                            }
+                          } catch (err) {
+                            console.error('Erro ao buscar contatos:', err);
+                          }
+                        }
+                        setSelectedClient(cliente);
+                      }}
                     >
                       <div className="flex items-center justify-between">
                         <div>

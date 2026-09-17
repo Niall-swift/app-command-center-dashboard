@@ -45,6 +45,15 @@ export interface ISPFYContactData {
   [key: string]: any;
 }
 
+export interface ISPFYClienteContato {
+  id: string;
+  id_cliente: string;
+  id_ponto?: string;
+  contato: string;
+  tipo_contato?: string;
+  pode_enviar_mensagem?: string;
+}
+
 export type ISPFYClienteData = ISPFYContactData;
 
 export interface ISPFYPreRegistrationFormData {

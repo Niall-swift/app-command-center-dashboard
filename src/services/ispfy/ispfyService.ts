@@ -454,6 +454,14 @@ class ISPFYService {
     return this.getRows(response);
   }
 
+  async getClienteContatos(idCliente: string): Promise<any[]> {
+    const response = await this.makeRequest<any>('/cliente/contato', {
+      filter: buildFilter('id_cliente', 'EQ', idCliente),
+      limit: 100,
+    });
+    return this.getRows(response);
+  }
+
   async searchClientes(
     field: string,
     value: string,

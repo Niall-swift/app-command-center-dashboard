@@ -294,7 +294,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     c.nome_razao || c.nome || c.razao || 'Sem nome';
 
   const clientPhone = (c: ISPFYClienteData) =>
-    c.fone_whatsapp || c.fone_celular || c.fone_residencial || '';
+    c.fone_whatsapp || c.fone_celular || c.telefone_celular || c.telefone || c.fone || c.fone_residencial || 'Não informado';
 
   const clientCity = (c: ISPFYClienteData) =>
     c.endereco_cobranca_bairro || c.cidade || '';
