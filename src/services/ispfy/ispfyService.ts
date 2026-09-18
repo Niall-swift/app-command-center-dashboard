@@ -239,7 +239,8 @@ class ISPFYService {
    * Extrai os registros de uma resposta, suportando tanto `rows` (API nova)
    * quanto `registros` (fallback legado).
    */
-  private getRows<T>(response: ISPFYApiResponse<T>): T[] {
+  private getRows<T>(response: ISPFYApiResponse<T> | T[]): T[] {
+    if (Array.isArray(response)) return response;
     // A API real retorna 'data', mas mantemos compat com 'rows'/'registros'
     return (response.data ?? response.rows ?? response.registros ?? []) as T[];
   }
@@ -1237,12 +1238,32 @@ class ISPFYService {
   // =====================================================================
 
   async getLoginsByCliente(idCliente: string): Promise<ISPFYLoginData[]> {
-    const response = await this.makeRequest<ISPFYLoginData>('/cliente/contrato/ponto/sessoes', {
-      filter: buildFilter('id_cliente', 'EQ', idCliente),
-      limit: 100,
-      sort: 'id:DESC',
-    });
-    return this.getRows(response);
+    try {
+      const contratosResponse = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: buildFilter('id_cliente', 'EQ', idCliente),
+        limit: 50,
+      });
+      const contratos = this.getRows(contratosResponse);
+      if (!contratos || contratos.length === 0) return [];
+
+      const logins: ISPFYLoginData[] = [];
+      for (const contrato of contratos) {
+        if (!contrato.id) continue;
+        try {
+          const pontoResponse = await this.makeRequest<ISPFYLoginData>('/cliente/contrato/ponto', {
+            filter: buildFilter('id_contrato', 'EQ', contrato.id),
+            limit: 50,
+          });
+          logins.push(...this.getRows(pontoResponse));
+        } catch (err) {
+          console.error(`Erro ao buscar ponto do contrato ${contrato.id}:`, err);
+        }
+      }
+      return logins;
+    } catch (err) {
+      console.error('Erro ao buscar contratos do cliente para logins:', err);
+      return [];
+    }
   }
 
   async getLoginsComCoordenadas(): Promise<ISPFYLoginData[]> {

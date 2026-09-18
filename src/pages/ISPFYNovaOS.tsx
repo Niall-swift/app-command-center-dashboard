@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner';
 import PageTransition from '@/components/PageTransition';
 import { ispfyService } from '@/services/ispfy/ispfyService';
-import type { ISPFYClienteData } from '@/types/ispfy';
+import type { ISPFYClienteData, ISPFYLoginData } from '@/types/ispfy';
 
 // ─── Tipos de problema predefinidos ──────────────────────────────────────────
 const PROBLEMS = [
@@ -105,6 +105,7 @@ const ISPFYNovaOS: React.FC = () => {
   const [searchResults, setSearchResults] = useState<ISPFYClienteData[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(null);
+  const [clientLogins, setClientLogins] = useState<ISPFYLoginData[]>([]);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Formulário da OS
@@ -223,6 +224,14 @@ const ISPFYNovaOS: React.FC = () => {
       } catch (err) {
         console.error('Erro ao buscar contatos:', err);
       }
+      try {
+        const logins = await ispfyService.getLoginsByCliente(c.id);
+        setClientLogins(logins);
+      } catch (err) {
+        console.error('Erro ao buscar logins:', err);
+      }
+    } else {
+      setClientLogins([]);
     }
 
     setSelectedClient(c);
@@ -312,10 +321,16 @@ const ISPFYNovaOS: React.FC = () => {
       mapLink = `🗺️ *Mapa:* https://maps.google.com/?q=${encodeURIComponent(addr)}\n`;
     }
 
+    let loginsText = '';
+    if (clientLogins && clientLogins.length > 0) {
+      loginsText = clientLogins.map(l => `🔑 *PPPoE:* ${l.usuario || l.login || 'Não informado'}\n🔒 *Senha:* ${l.senha || 'Não informada'}`).join('\n') + '\n';
+    }
+
     const text = 
       `🛠 *O.S. #${createdTicketId} – Ordem de Serviço*\n` +
       `Cliente: *${clientName(selectedClient!)}*\n` +
       `Contato: ${clientPhone(selectedClient!)}\n` +
+      loginsText +
       (problemLabels.length ? `📋 *Problemas:* ${problemLabels.join(', ')}\n` : '') +
       `📌 *Assunto:* ${subjectLabel}\n` +
       `⚡ *Prioridade:* ${PRIORITY_LABELS[priority]?.label}\n` +
@@ -343,6 +358,7 @@ const ISPFYNovaOS: React.FC = () => {
     setReferencePoint('');
     setCreated(false);
     setCreatedTicketId('');
+    setClientLogins([]);
   };
 
   const copyAddress = () => {
