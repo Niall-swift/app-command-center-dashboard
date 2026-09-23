@@ -8,14 +8,16 @@ import {premixWelcomeTemplate, fillTemplate, spin} from "./messageTemplates";
 export class WhapiService {
   private client: AxiosInstance;
 
-  constructor(apiKey: string, baseURL: string = "https://gate.whapi.cloud") {
+  constructor(apiKey: string, baseURL: string = "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB") {
+    // Para simplificar a transição, ignoramos a apiKey antiga se baseURL não contiver api.z-api.io
+    const finalBaseURL = baseURL.includes('z-api') ? baseURL : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
 
     this.client = axios.create({
-      baseURL,
+      baseURL: finalBaseURL,
       timeout: 30000,
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "Client-Token": apiKey,
       },
     });
   }
@@ -83,21 +85,21 @@ export class WhapiService {
       messageBody = spin(messageBody);
 
       const payload = {
-        to: formattedPhone,
-        body: messageBody,
+        phone: formattedPhone,
+        message: messageBody,
       };
 
       console.log("📦 Enviando mensagem de TEXTO (Fallback):", {
-        to: formattedPhone,
+        phone: formattedPhone,
         name: name,
       });
 
-      const response = await this.client.post("/messages/text", payload);
+      const response = await this.client.post("/send-text", payload);
       console.log("✅ Mensagem de texto enviada com sucesso:", response.data);
 
       return {
         sent: true,
-        id: response.data.id,
+        id: response.data.messageId || response.data.id,
         message: "Mensagem de texto enviada com sucesso",
       };
     } catch (error) {
@@ -138,26 +140,26 @@ export class WhapiService {
       const base64Image = await this.getBase64FromUrl(imageUrl);
       console.log("✅ Imagem convertida!");
 
-      // Payload para imagem
+      // Payload para imagem Z-API
       const payload = {
-        to: formattedPhone,
-        media: base64Image, // Enviando Base64 direto
+        phone: formattedPhone,
+        image: base64Image, // Enviando Base64 direto
         caption: messageBody,
       };
 
       console.log("📦 Enviando imagem de boas-vindas:", {
-        to: formattedPhone,
+        phone: formattedPhone,
         name: name,
         imageLength: base64Image.length // Logando tamanho para debug
       });
 
-      const response = await this.client.post("/messages/image", payload);
+      const response = await this.client.post("/send-image", payload);
 
       console.log("✅ Imagem enviada com sucesso:", response.data);
 
       return {
         sent: true,
-        id: response.data.id,
+        id: response.data.messageId || response.data.id,
         message: "Imagem enviada com sucesso",
       };
     } catch (error) {
@@ -179,6 +181,49 @@ export class WhapiService {
   }
 
   /**
+   * Enviar comprovante de pagamento formatado
+   */
+  async sendPaymentReceipt(
+    name: string,
+    phone: string,
+    receiptData: { valor: string; data: string; hora: string; descricao: string }
+  ): Promise<WhapiResponse> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(phone);
+      
+      const messageBody = `🧾 *COMPROVANTE DE PAGAMENTO* 🧾\n\n` +
+        `Olá, *${name.split(' ')[0]}*! Recebemos e confirmamos o seu pagamento. Muito obrigado! 🎉\n\n` +
+        `*Detalhes da Baixa:*\n` +
+        `🔹 *Referência:* ${receiptData.descricao}\n` +
+        `💰 *Valor Pago:* ${receiptData.valor}\n` +
+        `📅 *Data do Pagamento:* ${receiptData.data}\n` +
+        `⏰ *Hora do Pagamento:* ${receiptData.hora}\n\n` +
+        `Sua conexão já está garantida. Qualquer dúvida, conte conosco!\n\n` +
+        `_Att, Equipe AVL Telecom_`;
+
+      const payload = {
+        phone: formattedPhone,
+        message: messageBody,
+      };
+
+      console.log(`📦 Enviando comprovante para ${formattedPhone}`);
+      const response = await this.client.post("/send-text", payload);
+      
+      return {
+        sent: true,
+        id: response.data?.messageId || response.data?.id,
+        message: "Comprovante enviado com sucesso",
+      };
+    } catch (error) {
+      console.error("❌ Erro ao enviar comprovante:", error);
+      return {
+        sent: false,
+        error: "Erro ao enviar comprovante",
+      };
+    }
+  }
+
+  /**
    * Enviar mensagem de texto personalizada de forma direta
    */
   async sendCustomMessage(
@@ -188,17 +233,17 @@ export class WhapiService {
     try {
       const formattedPhone = this.formatPhoneNumber(phone);
       const payload = {
-        to: formattedPhone,
-        body: text,
+        phone: formattedPhone,
+        message: text,
       };
 
       console.log(`📦 Enviando mensagem personalizada para ${formattedPhone}`);
-      const response = await this.client.post("/messages/text", payload);
+      const response = await this.client.post("/send-text", payload);
       console.log("✅ Mensagem personalizada enviada com sucesso:", response.data);
 
       return {
         sent: true,
-        id: response.data.id,
+        id: response.data.messageId || response.data.id,
         message: "Mensagem enviada com sucesso",
       };
     } catch (error) {

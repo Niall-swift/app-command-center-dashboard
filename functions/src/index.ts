@@ -162,12 +162,12 @@ async function handleAppUninstall(userId: string, token: string, userData: any) 
         let formattedPhone = phone.replace(/\D/g, "");
         if (!formattedPhone.startsWith("55")) formattedPhone = "55" + formattedPhone;
         
-        await axios.post(`${whapiBaseUrl}/messages/text`, {
-          to: formattedPhone,
-          body: message
+        const finalBaseUrl = whapiBaseUrl.includes('z-api') ? whapiBaseUrl : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+        await axios.post(`${finalBaseUrl}/send-text`, {
+          phone: formattedPhone,
+          message: message
         }, {
           headers: {
-            "Authorization": `Bearer ${whapiApiKey}`,
             "Content-Type": "application/json"
           }
         });
@@ -853,17 +853,10 @@ export const whatsappWebhook = functions.runWith({
     // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
     const type = messageData.type;
     let mediaUrl = messageData.link || messageData.url || null;
-<<<<<<< HEAD
-    let mediaType = null;
-    let mediaIdToDownload = null;
-    let mimeType = null;
-    let fileNameToSave = null;
-=======
     let mediaType: string | null = null;
     let mediaIdToDownload: string | null = null;
     let mimeType: string = '';
     let fileNameToSave: string | null = null;
->>>>>>> 5260ee9 (Commit inicial)
 
     if (type === 'image' || messageData.image) {
       mediaUrl = messageData.image?.link || messageData.link || messageData.url;
@@ -909,18 +902,10 @@ export const whatsappWebhook = functions.runWith({
         const filePath = `chat_media/${finalFileName}`;
         const file = bucket.file(filePath);
         
-<<<<<<< HEAD
-        await file.save(mediaBuffer, {
-          metadata: {
-            contentType: mimeType,
-            metadata: { firebaseStorageDownloadTokens: token }
-          }
-=======
         await file.save(mediaBuffer);
         await file.setMetadata({
           contentType: mimeType,
           metadata: { firebaseStorageDownloadTokens: token }
->>>>>>> 5260ee9 (Commit inicial)
         });
         
         mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${token}`;
@@ -939,11 +924,7 @@ export const whatsappWebhook = functions.runWith({
     const session = sessionSnap.data() as UserSession | undefined;
 
     // --- BUSCA CLIENTE ANTES DO DASHBOARD COM OTIMIZAÇÃO E CACHE ---
-<<<<<<< HEAD
-    let cliente = null;
-=======
     let cliente: any = null;
->>>>>>> 5260ee9 (Commit inicial)
     if (session?.ixcCliente && session?.ixcClienteUpdatedAt) {
       const lastUpdate = session.ixcClienteUpdatedAt.toDate ? session.ixcClienteUpdatedAt.toDate() : new Date(session.ixcClienteUpdatedAt);
       // Se o cache for mais recente que 24 horas, reutiliza!
@@ -1998,8 +1979,6 @@ _AVL Telecom_`;
   }
 });
 
-<<<<<<< HEAD
-=======
 // --- 4.5. ISPFY PROXY FOR DASHBOARD ---
 export const ispfyProxy = functions.https.onRequest(async (req, res) => {
   // Configurar cabeçalhos de CORS manualmente
@@ -2056,8 +2035,6 @@ export const ispfyProxy = functions.https.onRequest(async (req, res) => {
     }
   }
 });
-
->>>>>>> 5260ee9 (Commit inicial)
 // --- 5. SECURE API PROXY FOR MOBILE APP ---
 export {
   smartOltRebootOnu,
@@ -2067,3 +2044,5 @@ export {
   spinPreMixRoulette,
   createCustomToken
 } from "./apiProxy";
+
+export * from "./ispfyPaymentMonitor";

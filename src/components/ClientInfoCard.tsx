@@ -116,8 +116,8 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
             ispfyService.getFaturasByCliente(client.id)
           ]);
           setContracts(clientContracts);
-          // Filtrar apenas faturas abertas (status 'A') e sem data de pagamento
-          const openInvoices = clientInvoices.filter(f => f.status === 'A' && !f.pagamento_data);
+          // Filtrar apenas faturas abertas (status 'aberto') e sem data de pagamento
+          const openInvoices = clientInvoices.filter(f => f.status === 'aberto' && !f.pagamento_data);
           setInvoices(openInvoices.slice(0, 3)); 
         }
       } catch (error) {
@@ -279,8 +279,8 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
                     <div key={c.id} className="p-2 bg-blue-50/50 rounded-lg border border-blue-100/50">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] font-bold text-blue-900 truncate flex-1">{c.contrato || 'Plano de Internet'}</span>
-                        <Badge className={`text-[9px] h-4 ${c.status === 'A' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {c.status === 'A' ? 'Ativo' : 'Bloqueado'}
+                        <Badge className={`text-[9px] h-4 ${c.status_contrato === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {c.status_contrato === 'ativo' ? 'Ativo' : 'Bloqueado'}
                         </Badge>
                       </div>
                       <p className="text-[10px] text-blue-600 font-medium mb-2">Logon: {c.login || 'N/A'}</p>

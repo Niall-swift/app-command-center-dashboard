@@ -11,11 +11,11 @@ export class WhatsAppService {
   private client: AxiosInstance;
 
   constructor(baseURL: string, apiKey: string) {
+    const finalBaseURL = baseURL.includes('z-api') ? baseURL : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
     this.client = axios.create({
-      baseURL,
+      baseURL: finalBaseURL,
       timeout: 30000,
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
     });
@@ -23,9 +23,9 @@ export class WhatsAppService {
 
   async sendTextMessage(to: string, body: string): Promise<any> {
     try {
-      const response = await this.client.post('/messages/text', {
-        to: this.formatPhone(to),
-        body,
+      const response = await this.client.post('/send-text', {
+        phone: this.formatPhone(to),
+        message: body,
       });
       return response.data;
     } catch (error: any) {
@@ -36,12 +36,12 @@ export class WhatsAppService {
 
   async sendListMessage(to: string, body: string, buttonText: string, sections: any[]): Promise<any> {
     try {
-      const response = await this.client.post('/messages/list', {
-        to: this.formatPhone(to),
-        body,
-        list: {
-          button: buttonText,
-          sections
+      const response = await this.client.post('/send-option-list', {
+        phone: this.formatPhone(to),
+        message: body,
+        optionList: {
+          title: buttonText,
+          options: sections
         }
       });
       return response.data;
@@ -55,15 +55,21 @@ export class WhatsAppService {
     try {
       const isPdf = mediaUrl.toLowerCase().includes('.pdf');
       const isVideo = mediaUrl.toLowerCase().includes('.mp4');
-      let endpoint = '/messages/image';
+      let endpoint = '/send-image';
+      let mediaKey = 'image';
       
-      if (isPdf) endpoint = '/messages/document';
-      else if (isVideo) endpoint = '/messages/video';
+      if (isPdf) {
+        endpoint = '/send-document';
+        mediaKey = 'document';
+      } else if (isVideo) {
+        endpoint = '/send-video';
+        mediaKey = 'video';
+      }
 
       const response = await this.client.post(endpoint, {
-        to: this.formatPhone(to),
-        media: mediaUrl,
-        caption,
+        phone: this.formatPhone(to),
+        [mediaKey]: mediaUrl,
+        caption: caption || "",
       });
       return response.data;
     } catch (error: any) {

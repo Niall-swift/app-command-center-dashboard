@@ -105,6 +105,7 @@ export interface ISPFYFaturaData {
   tipo?: string;
   link_getwere?: string;
   gateway_link?: string;
+  pix_copia_cola?: string;
   url_boleto?: string;
   pix_qrcode?: string; // QR Code em base64 ou link
   pix_copia_e_cola?: string;
@@ -303,3 +304,13 @@ export interface ISPFYPopData {
   longitude?: string;
   [key: string]: any;
 }
+
+export interface ISPFYClienteContato {
+  id: string;
+  id_cliente: string;
+  id_ponto?: string;
+  contato: string;
+  tipo_contato?: string;
+  pode_enviar_mensagem?: string;
+}
+

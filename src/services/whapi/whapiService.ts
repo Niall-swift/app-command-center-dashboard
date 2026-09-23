@@ -18,24 +18,27 @@ export class WhapiService {
   private rateLimit: number; // mensagens por segundo
 
   constructor() {
-    const apiKey = import.meta.env.VITE_WHAPI_API_KEY;
-    const baseURL = import.meta.env.VITE_WHAPI_BASE_URL || 'https://gate.whapi.cloud';
+    const instanceId = import.meta.env.VITE_ZAPI_INSTANCE_ID || '3F95A6BAE5232173E9473AA12C97C203';
+    const token = import.meta.env.VITE_ZAPI_TOKEN || 'FC515FBAF1E892D0F1E3FFAB';
+    const baseURL = `https://api.z-api.io/instances/${instanceId}/token/${token}`;
     const rateLimit = parseInt(import.meta.env.VITE_WHAPI_RATE_LIMIT || '10');
 
-    if (!apiKey) {
-      throw new Error('VITE_WHAPI_API_KEY não configurado');
-    }
-
-    this.apiKey = apiKey;
     this.rateLimit = rateLimit;
+
+    const clientToken = import.meta.env.VITE_ZAPI_CLIENT_TOKEN || 'Fa64a52f41c274de0847cf445392dbeedS'; 
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (clientToken) {
+      headers['Client-Token'] = clientToken;
+    }
 
     this.client = axios.create({
       baseURL,
       timeout: 30000,
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
   }
 
@@ -106,18 +109,29 @@ export class WhapiService {
     try {
       const formattedPhone = this.formatPhoneNumber(message.to);
       
+      // Simular digitação usando a rota /presence da Z-API, se solicitado
+      if (message.typing_time && message.typing_time > 0) {
+        try {
+           await this.client.post('/presence', { phone: formattedPhone, presence: 'composing' });
+           // Aguarda o tempo de digitação estipulado
+           await new Promise(resolve => setTimeout(resolve, message.typing_time));
+           // (A Z-API pode limpar o status de "escrevendo..." automaticamente após o envio da mensagem)
+        } catch (presenceError) {
+           console.warn('⚠️ Não foi possível definir o status de "escrevendo":', presenceError);
+        }
+      }
+
       const payload = {
-        to: formattedPhone,
-        body: message.body
+        phone: formattedPhone,
+        message: message.body
       };
       
-      console.log('📦 Enviando para Whapi:', JSON.stringify(payload, null, 2));
-
-      const response = await this.client.post('/messages/text', payload);
+      console.log(`📦 Enviando texto para Z-API:`, JSON.stringify(payload, null, 2));
+      const response = await this.client.post('/send-text', payload);
 
       return {
         sent: true,
-        id: response.data.id,
+        id: response.data?.messageId || response.data?.id,
         message: 'Mensagem enviada com sucesso'
       };
     } catch (error) {
@@ -145,30 +159,30 @@ export class WhapiService {
     try {
       const formattedPhone = this.formatPhoneNumber(params.to);
       
-      // Converter data URL para Blob
+      // Converter data URL para Base64
       const response = await fetch(params.imageDataUrl);
       const blob = await response.blob();
       
-      // Criar FormData
-      const formData = new FormData();
-      formData.append('to', formattedPhone);
-      formData.append('media', blob, 'winner_card.png');
-      
-      if (params.caption) {
-        formData.append('caption', params.caption);
-      }
-      
-      console.log('📸 Enviando imagem para Whapi:', formattedPhone);
-
-      const apiResponse = await this.client.post('/messages/image', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
+      
+      const payload = {
+        phone: formattedPhone,
+        image: base64,
+        caption: params.caption || ""
+      };
+      
+      console.log('📸 Enviando imagem para Z-API:', formattedPhone);
+
+      const apiResponse = await this.client.post('/send-image', payload);
 
       return {
         sent: true,
-        id: apiResponse.data.id,
+        id: apiResponse.data.messageId || apiResponse.data.id,
         message: 'Imagem enviada com sucesso'
       };
     } catch (error) {
@@ -365,44 +379,22 @@ export class WhapiService {
   }
 
   /**
-   * Garantir que init_avatars está ativo no canal Whapi
-   */
-  private async ensureAvatarsEnabled(): Promise<void> {
-    try {
-      const settings = await this.client.get('/settings');
-      if (!settings.data?.media?.init_avatars) {
-        console.log('🔧 Ativando init_avatars no canal Whapi...');
-        await this.client.patch('/settings', { media: { init_avatars: true } });
-        console.log('✅ init_avatars ativado!');
-      }
-    } catch (error) {
-      console.warn('⚠️ Não foi possível verificar/ativar init_avatars:', error);
-    }
-  }
-
-  /**
    * Buscar foto de perfil do WhatsApp de um contato
-   * Endpoint: GET /contacts/{phoneNumber}/profile
-   * Resposta: { about: string|null, icon: string, icon_full: string }
    */
   async getContactProfilePicture(phone: string): Promise<string | null> {
     try {
-      // Garantir que init_avatars está ativo
-      await this.ensureAvatarsEnabled();
-
-      // O contactId deve ser apenas o número formatado (ex: 5511999999999)
       const contactId = this.formatPhoneNumber(phone);
       console.log('📸 Buscando foto de perfil de:', contactId);
 
-      // Tentar até 3 vezes com delay de 2s (Whapi pode precisar sincronizar)
+      // Tentar até 3 vezes
       for (let attempt = 1; attempt <= 3; attempt++) {
-        const response = await this.client.get(`/contacts/${contactId}/profile`);
+        const response = await this.client.get(`/profile-picture?phone=${contactId}`);
         const data = response.data;
 
         console.log(`📸 Resposta perfil (tentativa ${attempt}):`, JSON.stringify(data));
 
-        // A API Whapi retorna: { about, icon (thumbnail), icon_full (foto completa) }
-        const imageUrl = data?.icon_full || data?.icon || null;
+        // Z-API retorna pictureUrl
+        const imageUrl = data?.pictureUrl || data?.link || null;
 
         if (imageUrl && imageUrl.trim() !== '') {
           console.log('✅ Foto de perfil encontrada:', imageUrl);
@@ -428,14 +420,14 @@ export class WhapiService {
   }
 
   /**
-   * Verificar status da conexão com Whapi
+   * Verificar status da conexão com Z-API
    */
   async checkConnection(): Promise<boolean> {
     try {
-      const response = await this.client.get('/settings');
-      return response.status === 200;
+      const response = await this.client.get('/status');
+      return response.data?.connected === true || response.status === 200;
     } catch (error) {
-      console.error('Erro ao verificar conexão Whapi:', error);
+      console.error('Erro ao verificar conexão Z-API:', error);
       return false;
     }
   }
@@ -445,7 +437,7 @@ export class WhapiService {
    */
   async getAccountInfo(): Promise<any> {
     try {
-      const response = await this.client.get('/settings');
+      const response = await this.client.get('/status');
       return response.data;
     } catch (error) {
       console.error('Erro ao obter informações da conta:', error);

@@ -30,22 +30,37 @@ function buildPrompt(params: GeminiMessageParams): string {
     situacao = `A fatura vence em ${diasRestantes} dia${diasRestantes > 1 ? 's' : ''}`;
   }
 
-  return `Escreva UMA única mensagem humanizada de WhatsApp cobrando o cliente ${nomeCliente}.
+  let tom = 'amigável e leve';
+  if (diasAtraso > 5) {
+    tom = 'sério, formal, mas educado e profissional';
+  } else if (diasAtraso > 0) {
+    tom = 'educado, gentil, focado em resolver um possível esquecimento';
+  } else if (diasAtraso === 0) {
+    tom = 'animado e prestativo, como um lembrete amigável do dia';
+  } else {
+    tom = 'agradecido e atencioso, valorizando a antecipação';
+  }
+
+  return `Você é um(a) Assistente de Sucesso do Cliente da "AVL Telecom", focado(a) em garantir a melhor experiência para os assinantes de internet.
+Sua missão é escrever UMA única mensagem de WhatsApp cobrando o cliente ${nomeCliente}.
+
+CONTEXTO:
+- Nome: ${primeiroNome}
+- Valor: *${valor}*
+- Vencimento: *${dataVencimento}*
+- Situação: ${situacao}
+- Tom exigido: ${tom}
 
 REGRAS ESTRITAS:
-- Diga: Olá, ${primeiroNome} (ou E aí/Tudo bem).
-- Você DEVE escrever o valor: *${valor}*
-- Você DEVE escrever a data: *${dataVencimento}*
-- O motivo: ${situacao}.
-- Peça o pagamento com educação. 
-- Use um toque de humor leve e moderado na mensagem (ex: "sua internet está com saudades de você"), sem perder o profissionalismo.
-- Varie bem o texto para que não pareça repetitivo.
-- NUNCA encurte ou altere o link de pagamento. Ele deve ser escrito OBRIGATORIAMENTE por extenso exatamente como fornecido.
-- A PENÚLTIMA linha da sua mensagem OBRIGATORIAMENTE DEVE SER EXATAMENTE O TEXTO ABAIXO, SEM CORTAR NADA:
-  👉 Segue o link para pagamento: ${linkBoleto}
-- A ÚLTIMA linha da sua mensagem DEVE SER EXATAMENTE: "_Mensagem automática gerada por IA (Gemini). Equipe AVL Telecom! (Caso já tenha pago, por favor desconsidere)_"
+1. Comece com uma saudação calorosa e chame pelo nome (${primeiroNome}).
+2. Escreva o valor e a data de vencimento obrigatoriamente.
+3. Adapte a mensagem para a situação e o tom exigido. Use gatilhos mentais de reciprocidade (mostrar que valorizamos o cliente) e escassez/urgência (para evitar cortes, se estiver muito atrasado).
+4. Varie a mensagem para que cada cliente sinta que foi escrita exclusivamente para ele.
+5. A PENÚLTIMA linha da sua mensagem OBRIGATORIAMENTE DEVE SER EXATAMENTE O TEXTO ABAIXO:
+${linkBoleto}
 
-NUNCA PARE DE ESCREVER antes de incluir a assinatura acima. Se necessário, escreva uma mensagem mais curta para garantir que o link e a assinatura caibam.`;
+6. A ÚLTIMA linha da sua mensagem DEVE SER EXATAMENTE:
+_Mensagem automática gerada por IA. Equipe AVL Telecom_`;
 }
 
 /**

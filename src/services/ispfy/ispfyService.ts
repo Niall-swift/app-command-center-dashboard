@@ -512,9 +512,11 @@ class ISPFYService {
     status: 'S' | 'N',
     onProgress?: (total: number) => void
   ): Promise<ISPFYClienteData[]> {
+    // O endpoint /cliente no ISPFY não aceita o campo 'ativo'.
+    // Removemos o filtro para evitar o erro 500.
     return this.fetchAllRecords<ISPFYClienteData>(
       '/cliente',
-      { filter: buildFilter('ativo', 'EQ', status), sort: 'id:DESC' },
+      { sort: 'id:DESC' },
       onProgress
     );
   }
@@ -529,11 +531,9 @@ class ISPFYService {
     onProgress?: (total: number) => void
   ): Promise<ISPFYClienteData[]> {
     try {
-      const ativos = await this.fetchAllClientesByStatus('S', (t) => onProgress?.(t));
-      const inativos = await this.fetchAllClientesByStatus('N', (t) =>
-        onProgress?.(ativos.length + t)
-      );
-      return [...ativos, ...inativos].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+      // Como não existe mais filtro 'ativo', uma chamada já traz todos os clientes
+      const todos = await this.fetchAllClientesByStatus('S', onProgress);
+      return todos.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
     } catch (error) {
       console.error('Erro em fetchAllClientes:', error);
       throw error;
@@ -594,7 +594,7 @@ class ISPFYService {
   ): Promise<ISPFYContratoData[]> {
     return this.fetchAllRecords<ISPFYContratoData>(
       '/cliente/contrato',
-      { filter: buildFilter('status_contrato', 'EQ', 'CA'), sort: 'id:DESC' },
+      { filter: buildFilter('status_contrato', 'EQ', 'bloqueado'), sort: 'id:DESC' },
       onProgress
     );
   }
@@ -604,6 +604,16 @@ class ISPFYService {
   ): Promise<ISPFYContratoData[]> {
     return this.fetchAllRecords<ISPFYContratoData>(
       '/cliente/contrato',
+      { sort: 'id:DESC' },
+      onProgress
+    );
+  }
+
+  async fetchAllContatos(
+    onProgress?: (total: number) => void
+  ): Promise<any[]> {
+    return this.fetchAllRecords<any>(
+      '/cliente/contato',
       { sort: 'id:DESC' },
       onProgress
     );
@@ -726,7 +736,7 @@ class ISPFYService {
   }
 
   async getFaturasAbertas(idCliente?: string): Promise<ISPFYFaturaData[]> {
-    const filter = buildFilter('status', 'EQ', 'A');
+    const filter = buildFilter('status', 'EQ', 'aberto');
     const response = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
       filter,
       limit: 1000,
@@ -749,7 +759,7 @@ class ISPFYService {
     const response = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
       filter: andFilters(
         buildFilter('data_vencimento', 'LT', hoje),
-        buildFilter('status', 'EQ', 'A')
+        buildFilter('status', 'EQ', 'aberto')
       ),
       limit: 1000,
       sort: 'data_vencimento:DESC',
@@ -763,7 +773,7 @@ class ISPFYService {
     const faturas = await this.fetchAllRecords<ISPFYFaturaData>(
       '/cliente/contrato/cobranca',
       {
-        filter: buildFilter('status', 'EQ', 'A'),
+        filter: buildFilter('status', 'EQ', 'aberto'),
         sort: 'data_vencimento:ASC',
       },
       onProgress
@@ -784,7 +794,7 @@ class ISPFYService {
       {
         filter: andFilters(
           buildFilter('pagamento_data', 'GTE', dateStr),
-          buildFilter('status', 'EQ', 'R')
+          buildFilter('status', 'EQ', 'pago')
         ),
         sort: 'pagamento_data:DESC',
       },
@@ -794,8 +804,8 @@ class ISPFYService {
 
   async sendEmailFatura(idFatura: string): Promise<boolean> {
     try {
-      console.log(`📧 Enviando e-mail para fatura ${idFatura}...`);
-      await this.writeRequest('post', `/cliente/contrato/cobranca/${idFatura}/email`, { id: idFatura });
+      console.log(`📧 Tentativa de envio de e-mail para fatura ${idFatura} ignorada (ISPFY não suporta esta rota diretamente)`);
+      // O ISPFY não tem uma rota direta parecida com a do IXC para enviar e-mail da fatura avulsa
       return true;
     } catch (error) {
       console.error(`Erro ao enviar e-mail da fatura ${idFatura}:`, error);
@@ -848,7 +858,7 @@ class ISPFYService {
 
     // 3. A Receber (aberto)
     const openInvoices = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('status', 'EQ', 'A'),
+      filter: buildFilter('status', 'EQ', 'aberto'),
     });
     const trulyOpen = openInvoices.filter((f) => !f.pagamento_data);
     const totalOpen = trulyOpen.reduce((acc, curr) => acc + parseFloat(curr.valor || '0'), 0);
@@ -907,7 +917,7 @@ class ISPFYService {
     });
 
     const faturas = this.getRows(response);
-    const openFaturas = faturas.filter((f) => f.status === 'A' && !f.pagamento_data);
+    const openFaturas = faturas.filter((f) => f.status === 'aberto' && !f.pagamento_data);
 
     const clientDebt = new Map<string, { nome: string; valor: number; id_cliente: string }>();
     for (const fat of openFaturas) {

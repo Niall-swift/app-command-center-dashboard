@@ -32,11 +32,21 @@ export default async function handler(req, res) {
     const payload = req.body;
     let messageData = payload.data || (payload.messages && payload.messages[0]) || payload;
 
-    const from = messageData.from || messageData.chatId || messageData.chat_id || messageData.sender || messageData.key?.remoteJid;
-    const text = (messageData.body || messageData.text?.body || messageData.message?.conversation || (typeof messageData.text === "string" ? messageData.text : ""))?.trim();
-    const selectionId = messageData.list_reply?.id || messageData.button_reply?.id;
-    const isGroup = from?.includes("@g.us") || from?.includes("@group");
-    const fromMe = messageData.from_me === true || messageData.fromMe === true || messageData.key?.fromMe === true;
+    // Adaptação para suportar tanto o formato antigo (Whapi) quanto o novo (Z-API)
+    const from = messageData.phone || messageData.from || messageData.chatId || messageData.chat_id || messageData.sender || messageData.key?.remoteJid;
+    
+    // Texto Z-API geralmente vem em text.message, mas suportamos outros para fallback
+    const textZapi = messageData.text?.message || messageData.image?.caption || messageData.document?.caption || messageData.video?.caption;
+    const textWhapi = messageData.body || messageData.text?.body || messageData.message?.conversation || (typeof messageData.text === "string" ? messageData.text : "");
+    const text = (textZapi || textWhapi || "")?.trim();
+    
+    // Identificador de botão/lista
+    const selectionIdZapi = messageData.list?.payload || messageData.button?.payload || messageData.listResponseMessage?.title;
+    const selectionIdWhapi = messageData.list_reply?.id || messageData.button_reply?.id;
+    const selectionId = selectionIdZapi || selectionIdWhapi;
+
+    const isGroup = messageData.isGroup === true || from?.includes("@g.us") || from?.includes("@group");
+    const fromMe = messageData.fromMe === true || messageData.from_me === true || messageData.key?.fromMe === true;
 
     if (!from || (!text && !selectionId) || isGroup || fromMe) {
         return res.status(200).send("Ignored");

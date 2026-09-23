@@ -4,6 +4,7 @@ export interface WhapiMessage {
   to: string; // Número no formato internacional (5511999999999)
   body: string; // Texto da mensagem
   typing_time?: number; // Tempo de digitação simulado (ms)
+  pixCode?: string; // Código Pix Copia e Cola para botão nativo
 }
 
 export interface WhapiImageMessage {
@@ -29,6 +30,7 @@ export interface WhapiBulkRecipient {
     dataVencimento: string;
     diasAtraso: number;
     linkBoleto: string;
+    pixCopiaCola?: string;
   };
   allPhones?: string[]; // All phone numbers for this client (for multi-contact sending)
 }

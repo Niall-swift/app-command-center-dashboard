@@ -157,14 +157,14 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
             <CardContent>
               <div className="text-2xl font-bold">{contract.plano || 'Internet'}</div>
               <div className="flex items-center mt-1">
-                <Badge variant={contract.status === 'A' ? 'default' : 'destructive'} className="mr-2">
-                  {contract.status === 'A' ? 'Ativo' : 'Inativo'}
+                <Badge variant={contract.status_contrato === 'ativo' ? 'default' : 'destructive'} className="mr-2">
+                  {contract.status_contrato === 'ativo' ? 'Ativo' : 'Bloqueado'}
                 </Badge>
-                <span className="text-xs text-muted-foreground">{contract.status_internet}</span>
+                <span className="text-xs text-muted-foreground uppercase">{contract.status_contrato}</span>
               </div>
               
               <div className="flex flex-col gap-2 mt-4">
-                {(contract.status_internet === 'FA' || contract.status_internet === 'CA') && isEligibleForUnlock && (
+                {contract.status_contrato === 'bloqueado' && isEligibleForUnlock && (
                   <Button 
                     size="sm" 
                     variant="default" 
@@ -175,7 +175,7 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                   </Button>
                 )}
 
-                {contract.status === 'A' && (
+                {contract.status_contrato === 'ativo' && (
                   <Button 
                     size="sm" 
                     variant="outline" 

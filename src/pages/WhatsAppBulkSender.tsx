@@ -23,15 +23,40 @@ import type { ISPFYClienteData } from '@/types/ispfy';
 import { whapiService } from '@/services/whapi/whapiService';
 import { calculateDaysOverdue, fillTemplate, getTemplateForGroup, formatCurrency, formatDate } from '@/services/whapi/messageTemplates';
 import { spin } from '@/utils/spintax';
-import type { ISPFYFaturaData, ISPFYContratoData } from '@/types/ispfy';
+import type { ISPFYFaturaData, ISPFYContratoData, ISPFYClienteContato } from '@/types/ispfy';
 import type { WhapiBulkRecipient, GroupedClients, VencimentoGroup, WhapiSendProgress, WhapiSendLog } from '@/types/whapi';
 import PageTransition from '@/components/PageTransition';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+// Função auxiliar para detectar Pix Copia e Cola (sempre começa com 000201)
+const extractPixCode = (fatura: any): string | undefined => {
+  if (fatura.pix_copia_cola) return fatura.pix_copia_cola;
+  if (fatura.pix_copia_e_cola) return fatura.pix_copia_e_cola;
+  
+  const possibleFields = [fatura.gateway_link, fatura.link_getwere, fatura.url_boleto, fatura.b_link_getwere];
+  for (const field of possibleFields) {
+    if (field && typeof field === 'string' && field.startsWith('000201')) {
+      return field;
+    }
+  }
+  return undefined;
+};
+
+// Função auxiliar para extrair um link real (começa com http)
+const extractBoletoLink = (fatura: any): string => {
+  const possibleFields = [fatura.gateway_link, fatura.link_getwere, fatura.url_boleto, fatura.b_link_getwere];
+  for (const field of possibleFields) {
+    if (field && typeof field === 'string' && field.startsWith('http')) {
+      return field;
+    }
+  }
+  return '';
+};
 export default function WhatsAppBulkSender() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<{ clientes: ISPFYClienteData[], faturas: ISPFYFaturaData[], blockedContracts: ISPFYContratoData[] }>({ clientes: [], faturas: [], blockedContracts: [] });
+  const [data, setData] = useState<{ clientes: ISPFYClienteData[], faturas: ISPFYFaturaData[], blockedContracts: ISPFYContratoData[], allContracts: ISPFYContratoData[], allContatos: ISPFYClienteContato[] }>({ clientes: [], faturas: [], blockedContracts: [], allContracts: [], allContatos: [] });
   const [groupedClients, setGroupedClients] = useState<GroupedClients[]>([]);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<WhapiSendProgress | null>(null);
@@ -86,13 +111,25 @@ export default function WhatsAppBulkSender() {
         setLoadingMessage(`Buscando faturas em aberto... (${total})`);
       });
       
-      // 3. Buscar contratos BLOQUEADOS (status_internet = 'BA')
+      // 3. Buscar contratos BLOQUEADOS (status_contrato = 'bloqueado')
       setLoadingMessage('Buscando clientes bloqueados... (BA)');
       const blockedContracts = await ispfyService.fetchAllContratosBloqueados((total) => {
         setLoadingMessage(`Buscando bloqueados... (${total})`);
       });
+
+      // 4. Buscar TODOS os contratos para mapear faturas -> cliente
+      setLoadingMessage('Buscando base de contratos...');
+      const allContracts = await ispfyService.fetchAllContratos((total) => {
+        setLoadingMessage(`Buscando contratos... (${total})`);
+      });
+
+      // 5. Buscar TODOS os contatos para pegar os números de telefone
+      setLoadingMessage('Buscando base de contatos (telefones)...');
+      const allContatos = await ispfyService.fetchAllContatos((total) => {
+        setLoadingMessage(`Buscando contatos... (${total})`);
+      });
       
-      setData({ clientes, faturas, blockedContracts });
+      setData({ clientes, faturas, blockedContracts, allContracts, allContatos });
       
       toast({
         title: 'Dados carregados com sucesso',
@@ -131,11 +168,26 @@ export default function WhatsAppBulkSender() {
       // DEBUG: Verificar dados da fatura
       console.log(`🧾 Fatura ID: ${fatura.id} | Gateway Link: ${fatura.gateway_link} | Link GetWere: ${fatura.link_getwere} | URL Boleto: ${fatura.url_boleto}`, fatura);
 
+      let idCliente = fatura.id_cliente || fatura.cliente_id;
+      if (!idCliente && fatura.id_contrato) {
+        const contrato = data.allContracts.find(c => String(c.id) === String(fatura.id_contrato));
+        if (contrato) idCliente = contrato.id_cliente;
+      }
+      const cliente = clientes.find((c) => String(c.id) === String(idCliente));
       
-      const cliente = clientes.find((c) => String(c.id) === String(fatura.id_cliente || fatura.cliente_id));
+      // 1. Filtro de Cliente
+      if (!cliente) return;
       
-      // 1. Filtro de Cliente (apenas ativos e com telefone)
-      if (!cliente || !cliente.telefone_celular || cliente.ativo !== 'S') return;
+      // Injetar telefone do contato se o cliente não tiver
+      if (!cliente.telefone_celular && data.allContatos) {
+        const contatosCliente = data.allContatos.filter(c => String(c.id_cliente) === String(cliente.id));
+        const contatoCelular = contatosCliente.find(c => c.tipo_contato === 'c') || contatosCliente[0];
+        if (contatoCelular && contatoCelular.contato) {
+           cliente.telefone_celular = contatoCelular.contato;
+        }
+      }
+
+      if (!cliente.telefone_celular) return;
 
       // 2. Filtro de Mês Atual (apenas faturas deste mês)
       const dataVencimento = fatura.data_vencimento as string;
@@ -147,14 +199,15 @@ export default function WhatsAppBulkSender() {
 
       const recipient: WhapiBulkRecipient = {
         clienteId: cliente.id || '',
-        nome: cliente.razao || cliente.nome || 'Cliente',
+        nome: cliente.nome_razao || cliente.razao || cliente.nome || 'Cliente',
         telefone: cliente.telefone_celular,
         fatura: {
           id: fatura.id || '',
           valor: valor,
           dataVencimento: dataVencimento,
           diasAtraso: calculateDaysOverdue(dataVencimento),
-          linkBoleto: (fatura.gateway_link || fatura.link_getwere || fatura.url_boleto || fatura.b_link_getwere || '') as string,
+          linkBoleto: extractPixCode(fatura) ? `👇 O seu código Pix Copia e Cola é esse abaixo:\n\n${extractPixCode(fatura)}` : (extractBoletoLink(fatura) || '') as string,
+          pixCopiaCola: extractPixCode(fatura),
         },
       };
 
@@ -217,10 +270,24 @@ export default function WhatsAppBulkSender() {
     
     data.faturas.forEach((fatura) => {
       const valor = parseFloat(fatura.valor || '0');
-      const cliente = data.clientes.find((c) => String(c.id) === String(fatura.id_cliente || fatura.cliente_id));
+      let idCliente = fatura.id_cliente || fatura.cliente_id;
+      if (!idCliente && fatura.id_contrato) {
+        const contrato = data.allContracts.find(c => String(c.id) === String(fatura.id_contrato));
+        if (contrato) idCliente = contrato.id_cliente;
+      }
+      const cliente = data.clientes.find((c) => String(c.id) === String(idCliente));
       
       // Filter: only active clients
-      if (!cliente || cliente.ativo !== 'S') return;
+      if (!cliente) return;
+      
+      // Injetar telefone do contato se o cliente não tiver
+      if (!cliente.telefone_celular && data.allContatos) {
+        const contatosCliente = data.allContatos.filter(cc => String(cc.id_cliente) === String(cliente.id));
+        const contatoCelular = contatosCliente.find(cc => cc.tipo_contato === 'c') || contatosCliente[0];
+        if (contatoCelular && contatoCelular.contato) {
+           cliente.telefone_celular = contatoCelular.contato;
+        }
+      }
       
       const dataVencimento = fatura.data_vencimento as string;
       if (!dataVencimento) return;
@@ -252,7 +319,8 @@ export default function WhatsAppBulkSender() {
           valor: valor,
           dataVencimento: dataVencimento,
           diasAtraso: calculateDaysOverdue(dataVencimento),
-          linkBoleto: (fatura.gateway_link || fatura.link_getwere || fatura.url_boleto || fatura.b_link_getwere || '') as string,
+          linkBoleto: extractPixCode(fatura) ? `👇 O seu código Pix Copia e Cola é esse abaixo:\n\n${extractPixCode(fatura)}` : (extractBoletoLink(fatura) || '') as string,
+          pixCopiaCola: extractPixCode(fatura),
         }
       });
     });
@@ -262,7 +330,7 @@ export default function WhatsAppBulkSender() {
     allClientsMap.forEach((data, clienteId) => {
       allClients.push({
         clienteId,
-        nome: data.cliente.razao || data.cliente.nome || 'Cliente',
+        nome: data.cliente.nome_razao || data.cliente.razao || data.cliente.nome || 'Cliente',
         telefone: data.phones[0], // Primary phone for display
         fatura: data.fatura,
         // Store all phones in a custom property (will use in send function)
@@ -373,6 +441,7 @@ export default function WhatsAppBulkSender() {
           to: phone,
           body: messageBody,
           typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 10000),
+          pixCode: client.fatura.pixCopiaCola,
         });
 
         // Log
@@ -474,10 +543,12 @@ export default function WhatsAppBulkSender() {
         description: `Enviando para ${testPhoneNumber}`,
       });
 
+      console.log('🕵️ DEBUG FATURA TESTE:', client.fatura);
       const result = await whapiService.sendMessage({
         to: testPhoneNumber,
         body: messageBody,
         typing_time: 3000,
+        pixCode: client.fatura.pixCopiaCola,
       });
 
       if (result.sent) {
@@ -625,13 +696,29 @@ export default function WhatsAppBulkSender() {
     // Mapear contratos para o formato WhapiBulkRecipient
     for (const contract of pendingContracts) {
       const cliente = data.clientes.find(c => String(c.id) === String(contract.id_cliente));
-      if (!cliente || !cliente.telefone_celular || cliente.ativo !== 'S') continue;
+      if (!cliente) continue;
+      
+      // Injetar telefone
+      if (!cliente.telefone_celular && data.allContatos) {
+        const contatosCliente = data.allContatos.filter(cc => String(cc.id_cliente) === String(cliente.id));
+        const contatoCelular = contatosCliente.find(cc => cc.tipo_contato === 'c') || contatosCliente[0];
+        if (contatoCelular && contatoCelular.contato) {
+           cliente.telefone_celular = contatoCelular.contato;
+        }
+      }
+      
+      if (!cliente.telefone_celular) continue;
 
-      const faturasAtrasadas = data.faturas.filter(f =>
-        String(f.id_cliente) === String(cliente.id) && 
-        !f.data_pagamento &&
-        f.data_vencimento < today
-      );
+      const faturasAtrasadas = data.faturas.filter(f => {
+        let fIdCliente = f.id_cliente || f.cliente_id;
+        if (!fIdCliente && f.id_contrato) {
+           const fContrato = data.allContracts.find(ac => String(ac.id) === String(f.id_contrato));
+           if (fContrato) fIdCliente = fContrato.id_cliente;
+        }
+        return String(fIdCliente) === String(cliente.id) && 
+               !f.data_pagamento &&
+               f.data_vencimento < today;
+      });
       
       if (faturasAtrasadas.length === 0) continue;
 
@@ -641,13 +728,13 @@ export default function WhatsAppBulkSender() {
       );
 
       const faturaVencida = faturasAtrasadas[0];
-      const linkBoleto = ((faturaVencida.gateway_link || faturaVencida.link_getwere || faturaVencida.url_boleto || faturaVencida.b_link_getwere || '') as string);
+      const linkBoleto = extractPixCode(faturaVencida) ? `👇 O seu código Pix Copia e Cola é esse abaixo:\n\n${extractPixCode(faturaVencida)}` : (extractBoletoLink(faturaVencida) || '') as string;
       const totalValor = faturasAtrasadas.reduce((acc, f) => acc + parseFloat(f.valor || '0'), 0);
       const diasAtraso = calculateDaysOverdue(faturaVencida.data_vencimento as string);
 
       recipients.push({
         clienteId: cliente.id || '',
-        nome: cliente.razao || cliente.nome || 'Cliente',
+        nome: cliente.nome_razao || cliente.razao || cliente.nome || 'Cliente',
         telefone: cliente.telefone_celular,
         fatura: {
           id: faturaVencida.id || '',
@@ -655,6 +742,7 @@ export default function WhatsAppBulkSender() {
           dataVencimento: faturaVencida.data_vencimento as string,
           diasAtraso,
           linkBoleto,
+          pixCopiaCola: faturaVencida.pix_copia_cola as string,
           // Guardar a quantidade real para usar na geração de texto (usando um campo extra)
           totalFaturasAtrasadas: faturasAtrasadas.length
         } as any // Forçando any para aceitar a propriedade extra (totalFaturasAtrasadas) sem quebrar tipagem global
@@ -816,10 +904,10 @@ export default function WhatsAppBulkSender() {
       ? formatDate(faturaVencida.data_vencimento as string)
       : 'data não identificada';
     const linkBoleto = faturaVencida
-      ? ((faturaVencida.gateway_link || faturaVencida.link_getwere || faturaVencida.url_boleto || faturaVencida.b_link_getwere || '') as string)
+      ? (extractPixCode(faturaVencida) ? `👇 O seu código Pix Copia e Cola é esse abaixo:\n\n${extractPixCode(faturaVencida)}` : extractBoletoLink(faturaVencida) || '') as string
       : '';
 
-    const nomeCliente = cliente.razao || cliente.nome || 'Cliente';
+    const nomeCliente = cliente.nome_razao || cliente.razao || cliente.nome || 'Cliente';
 
     setResolvingId(contract.id || null);
 
@@ -845,6 +933,7 @@ export default function WhatsAppBulkSender() {
         to: cliente.telefone_celular,
         body: messageBody,
         typing_time: Math.min(Math.floor(messageBody.length / 5) * 1000, 8000),
+        pixCode: extractPixCode(faturaVencida),
       });
 
       if (result.sent) {
@@ -1078,7 +1167,7 @@ export default function WhatsAppBulkSender() {
                      return (
                        <div key={contract.id} className="flex items-center justify-between p-3 bg-white rounded shadow-sm border border-red-100">
                           <div>
-                            <p className="font-semibold text-gray-800">{cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
+                            <p className="font-semibold text-gray-800">{cliente?.nome_razao || cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
                             <p className="text-sm text-gray-500">Contrato: {contract.id} | Status: {contract.status_internet}</p>
                             {cliente?.telefone_celular && <p className="text-xs text-gray-400">{cliente.telefone_celular}</p>}
                             {faturasAtrasadas.length > 0 && (
