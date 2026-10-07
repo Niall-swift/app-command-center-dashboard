@@ -18,7 +18,7 @@ import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData } from '@/types/is
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from 'sonner';
 import { formatDate } from '@/utils/date';
-import { Loader2, Building2, User, RefreshCcw, ArrowRightLeft, AlertTriangle, CheckCircle2, ShieldCheck, Users, FileText } from 'lucide-react';
+import { Loader2, Building2, User, RefreshCcw, ArrowRightLeft, AlertTriangle, CheckCircle2, ShieldCheck, Users, FileText, Youtube } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -62,9 +62,44 @@ export default function Settings() {
   const [newContent, setNewContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
+  // Estados da Live Pre-Mix
+  const [liveConfig, setLiveConfig] = useState({ isLive: false, youtubeVideoId: '', title: 'Live Pre-mix' });
 
+  React.useEffect(() => {
+    const unsubLive = onSnapshot(doc(db, "configs", "live_premix"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setLiveConfig({
+          isLive: data.isLive || false,
+          youtubeVideoId: data.youtubeVideoId || '',
+          title: data.title || 'Live Pre-mix',
+        });
+      }
+    });
+    return () => unsubLive();
+  }, []);
 
-  // Estado de Manutenção
+  const handleToggleLive = async (checked: boolean) => {
+    try {
+      await setDoc(doc(db, "configs", "live_premix"), { isLive: checked }, { merge: true });
+      toast.success(checked ? 'Live ativada!' : 'Live desativada!');
+    } catch (e) {
+      toast.error('Erro ao atualizar status da live');
+    }
+  };
+
+  const handleSaveLiveConfig = async () => {
+    try {
+      await setDoc(doc(db, "configs", "live_premix"), { 
+        youtubeVideoId: liveConfig.youtubeVideoId || '',
+        title: liveConfig.title || 'Live Pre-mix'
+      }, { merge: true });
+      toast.success('Configurações da Live salvas!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao salvar Live: verifique o console');
+    }
+  };  // Estado de Manutenção
   const [maintenanceGlobal, setMaintenanceGlobal] = useState<boolean>(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState<string>('Estamos em manutenção. Voltaremos em breve!');
   const [disabledScreens, setDisabledScreens] = useState<string[]>([]);
@@ -535,6 +570,65 @@ export default function Settings() {
             Sincronizar ISPFY
           </Button>
         </div>
+
+        {/* Controle da Live Pre-Mix */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Card className="bg-white shadow-sm border-2 border-red-100">
+            <CardHeader className="bg-red-50/50">
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Youtube className="w-5 h-5 text-red-600" />
+                  Controle da Live Pré-Mix
+                </div>
+                <div className="flex items-center gap-3">
+                  <LabelUI htmlFor="live-toggle" className="text-sm font-medium text-gray-700">
+                    {liveConfig.isLive ? 'Live no Ar (Ao Vivo)' : 'Live Desativada'}
+                  </LabelUI>
+                  <Switch 
+                    id="live-toggle" 
+                    checked={liveConfig.isLive}
+                    onCheckedChange={handleToggleLive}
+                    className="data-[state=checked]:bg-red-600"
+                  />
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    ID do Vídeo do YouTube
+                  </label>
+                  <Input 
+                    value={liveConfig.youtubeVideoId}
+                    onChange={(e) => setLiveConfig({ ...liveConfig, youtubeVideoId: e.target.value })}
+                    placeholder="Ex: jfKfPfyJRdk"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    O ID do vídeo é o código após "v=" no link do YouTube.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Título da Live
+                  </label>
+                  <Input 
+                    value={liveConfig.title}
+                    onChange={(e) => setLiveConfig({ ...liveConfig, title: e.target.value })}
+                    placeholder="Ex: Sorteio Semanal"
+                  />
+                </div>
+              </div>
+              <Button onClick={handleSaveLiveConfig} className="bg-red-600 hover:bg-red-700 text-white">
+                Salvar Configurações da Live
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
 
         <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
           <div className="flex items-center gap-2">
