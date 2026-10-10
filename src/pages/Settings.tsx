@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,7 @@ import { Settings2, Plus, Trash2, MessageSquare, UserPlus, Bot, Power } from 'lu
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
 import { db } from '@/config/firebase';
-import { doc, onSnapshot, setDoc, collection, query, orderBy, addDoc, deleteDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, orderBy, limit, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from '@/components/ui/switch';
 import { Label as LabelUI } from '@/components/ui/label';
@@ -18,7 +19,7 @@ import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData } from '@/types/is
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from 'sonner';
 import { formatDate } from '@/utils/date';
-import { Loader2, Building2, User, RefreshCcw, ArrowRightLeft, AlertTriangle, CheckCircle2, ShieldCheck, Users, FileText, Youtube } from 'lucide-react';
+import { Loader2, Building2, User, RefreshCcw, ArrowRightLeft, AlertTriangle, CheckCircle2, ShieldCheck, Users, FileText, Youtube, Pin, Send, Maximize2, Minimize2, Radio } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -43,6 +44,305 @@ interface TeamUser {
   createdAt: string;
 }
 
+function LiveChatMonitor({
+  youtubeVideoId,
+  onPinMessage,
+}: {
+  youtubeVideoId: string;
+  onPinMessage: (text: string) => void;
+}) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [adminText, setAdminText] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const chatEndRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const q = query(collection(db, "live_premix_chat"), orderBy("createdAt", "asc"), limit(100));
+    const unsub = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((m: any) => !m.deleted);
+      setMessages(msgs);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 200);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminText.trim()) return;
+    const text = adminText.trim();
+    setAdminText('');
+    try {
+      await addDoc(collection(db, "live_premix_chat"), {
+        text,
+        userId: 'admin_dashboard',
+        userName: 'Apresentador (Host)',
+        role: 'host',
+        type: 'msg',
+        createdAt: serverTimestamp(),
+      });
+      toast.success('Mensagem enviada no chat da live!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao enviar mensagem');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await setDoc(doc(db, "live_premix_chat", id), { deleted: true }, { merge: true });
+      toast.success('Mensagem apagada!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao apagar mensagem');
+    }
+  };
+
+  const handleSendReaction = async (emoji: string) => {
+    try {
+      await addDoc(collection(db, "live_premix_reactions"), {
+        emoji,
+        userId: 'admin_dashboard',
+        createdAt: serverTimestamp(),
+      });
+      toast.success(`Reação ${emoji} enviada!`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const cleanVideoId = youtubeVideoId?.match(/(?:v=|\/live\/|\/v\/|youtu\.be\/|^)([a-zA-Z0-9_-]{11})/)?.[1] || youtubeVideoId;
+
+  // MODO TELA CHEIA (STUDIO)
+  if (isFullscreen) {
+    return createPortal(
+      <div className="fixed inset-0 z-[99999] bg-gray-950 text-white flex flex-col p-4 md:p-6 space-y-4 overflow-hidden w-screen h-screen">
+        {/* Cabeçalho da Tela Cheia */}
+        <div className="flex-none flex items-center justify-between bg-gray-900 p-4 rounded-xl border border-gray-800 shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center">
+              <Radio className="w-5 h-5 text-red-500 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="font-black text-base tracking-wide flex items-center gap-2">
+                STUDIO LIVE PRE-MIX · MONITOR & MODERAÇÃO
+              </h2>
+              <p className="text-xs text-gray-400">Acompanhe as mensagens, responda e modere em tempo real</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30 bg-emerald-500/10 font-black px-3 py-1">
+              {messages.length} mensagens
+            </Badge>
+            <Button
+              onClick={() => setIsFullscreen(false)}
+              variant="outline"
+              size="sm"
+              className="bg-gray-800 hover:bg-gray-700 text-white border-gray-700 flex items-center gap-1.5 font-bold"
+            >
+              <Minimize2 className="w-4 h-4" />
+              Sair do Modo Tela Cheia
+            </Button>
+          </div>
+        </div>
+
+        {/* Conteúdo Grid: Player Preview (Esquerda) + Chat Stream Gigante (Direita) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 flex-1 min-h-0 overflow-hidden">
+          {/* Esquerda: Player Preview */}
+          <div className="lg:col-span-5 flex flex-col gap-4 overflow-y-auto lg:overflow-visible">
+            <div className="bg-black rounded-2xl overflow-hidden border border-gray-800 shadow-xl aspect-video flex items-center justify-center flex-none">
+              {cleanVideoId ? (
+                <iframe
+                  className="w-full h-full border-0"
+                  src={`https://www.youtube.com/embed/${cleanVideoId}?autoplay=1&mute=1`}
+                  title="Live Preview"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="text-center p-6 text-gray-500">
+                  <Youtube className="w-12 h-12 mx-auto mb-2 opacity-30 text-red-500" />
+                  <p className="text-xs font-semibold">Sem vídeo no momento</p>
+                </div>
+              )}
+            </div>
+
+            {/* Painel de Reações Rápidas */}
+            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 flex-none">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Lançar Reações no App:</span>
+              <div className="flex items-center justify-around">
+                {['❤️', '🔥', '👏', '🎉', '🚀', '😍'].map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => handleSendReaction(emoji)}
+                    className="p-2 hover:bg-gray-800 rounded-xl text-xl transition-transform active:scale-95"
+                    title={`Enviar ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Direita: Feed do Chat Gigante */}
+          <div className="lg:col-span-7 flex flex-col bg-gray-900/90 rounded-2xl border border-gray-800 shadow-xl overflow-hidden min-h-0 h-full">
+            <div className="flex-none p-3 bg-gray-900 border-b border-gray-800 flex items-center justify-between text-xs font-bold text-gray-300">
+              <span>STREAM DE MENSAGENS EM TEMPO REAL</span>
+              <span>Host / Moderador Ativo</span>
+            </div>
+
+            <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-2">
+              {messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-gray-500 text-xs">
+                  Nenhuma mensagem no chat no momento.
+                </div>
+              ) : (
+                messages.map((m) => (
+                  <div key={m.id} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-gray-950/80 border border-gray-800/80 hover:border-gray-700 transition-colors group">
+                    <div className="text-sm leading-relaxed flex-1">
+                      <span className={`font-bold mr-2 ${m.role === 'host' ? 'text-red-400 font-black' : 'text-emerald-400'}`}>
+                        {m.userName || 'Convidado'}
+                        {m.role === 'host' && (
+                          <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
+                            HOST
+                          </span>
+                        )}
+                        :
+                      </span>
+                      <span className="text-gray-200">{m.text}</span>
+                    </div>
+                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => onPinMessage(m.text)}
+                        title="Fixar mensagem no topo do chat"
+                        className="p-1.5 hover:bg-gray-800 text-amber-400 rounded-lg transition-colors"
+                      >
+                        <Pin className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(m.id)}
+                        title="Apagar mensagem"
+                        className="p-1.5 hover:bg-gray-800 text-red-400 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleSendMessage} className="flex-none p-3 bg-gray-900 border-t border-gray-800 flex items-center gap-2">
+              <Input
+                value={adminText}
+                onChange={(e) => setAdminText(e.target.value)}
+                placeholder="Enviar resposta no chat como HOST/Apresentador..."
+                className="flex-1 bg-gray-950 text-white border-gray-800 text-sm focus-visible:ring-emerald-500"
+              />
+              <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-2">
+                <Send className="w-4 h-4" />
+                Enviar
+              </Button>
+            </form>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // MODO NORMAL (DENTRO DA CARD)
+  return (
+    <div className="pt-4 border-t border-gray-100 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold text-gray-800 flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-emerald-600" />
+          Monitor & Moderação do Chat Ao Vivo
+        </span>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50 font-bold">
+            {messages.length} mensagens
+          </Badge>
+          <Button
+            type="button"
+            onClick={() => setIsFullscreen(true)}
+            variant="outline"
+            size="sm"
+            className="text-xs font-bold gap-1 text-gray-700 hover:text-emerald-700"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            Expandir Studio (Tela Cheia)
+          </Button>
+        </div>
+      </div>
+
+      {/* Caixa do Chat com Rolagem */}
+      <div className="bg-gray-950 text-white rounded-xl p-4 h-72 overflow-y-auto space-y-2 border border-gray-800">
+        {messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-gray-500 text-xs">
+            Nenhuma mensagem no chat no momento.
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className="flex items-start justify-between gap-2 group hover:bg-gray-900/80 p-2 rounded-lg transition-colors border border-transparent hover:border-gray-800">
+              <div className="text-xs leading-relaxed flex-1">
+                <span className={`font-bold mr-1.5 ${m.role === 'host' ? 'text-red-400 font-extrabold' : 'text-emerald-400'}`}>
+                  {m.userName || 'Convidado'}
+                  {m.role === 'host' && (
+                    <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
+                      HOST
+                    </span>
+                  )}
+                  :
+                </span>
+                <span className="text-gray-200">{m.text}</span>
+              </div>
+              <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={() => onPinMessage(m.text)}
+                  title="Fixar mensagem no topo do chat"
+                  className="p-1.5 hover:bg-gray-800 text-amber-400 rounded transition-colors"
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(m.id)}
+                  title="Apagar mensagem"
+                  className="p-1.5 hover:bg-gray-800 text-red-400 rounded transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input para Enviar Mensagem como HOST */}
+      <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+        <Input
+          value={adminText}
+          onChange={(e) => setAdminText(e.target.value)}
+          placeholder="Digite para responder no chat como HOST/Apresentador..."
+          className="flex-1 text-xs"
+        />
+        <Button type="submit" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 font-bold">
+          <Send className="w-3.5 h-3.5" />
+          Enviar
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [customMessages, setCustomMessages] = useState<CustomMessage[]>([
     {
@@ -62,17 +362,47 @@ export default function Settings() {
   const [newContent, setNewContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
-  // Estados da Live Pre-Mix
-  const [liveConfig, setLiveConfig] = useState({ isLive: false, youtubeVideoId: '', title: 'Live Pre-mix' });
+  // Estados da Live Pre-Mix expandidos
+  const [liveConfig, setLiveConfig] = useState({
+    isLive: false,
+    youtubeVideoId: '',
+    title: 'Live Pre-mix',
+    startsAt: '',
+    coverImage: '',
+    pinnedMessage: '',
+    offerActive: false,
+    offerTitle: '',
+    offerSubtitle: '',
+    offerCta: '',
+    offerUrl: '',
+  });
 
   React.useEffect(() => {
     const unsubLive = onSnapshot(doc(db, "configs", "live_premix"), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
+        let startsAtStr = '';
+        if (data.startsAt?.toDate) {
+          const d = data.startsAt.toDate();
+          startsAtStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        } else if (data.startsAt) {
+          const d = new Date(data.startsAt);
+          if (!isNaN(d.getTime())) {
+            startsAtStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+          }
+        }
         setLiveConfig({
           isLive: data.isLive || false,
           youtubeVideoId: data.youtubeVideoId || '',
           title: data.title || 'Live Pre-mix',
+          startsAt: startsAtStr,
+          coverImage: data.coverImage || '',
+          pinnedMessage: data.pinnedMessage || '',
+          offerActive: data.offer?.active || false,
+          offerTitle: data.offer?.title || '',
+          offerSubtitle: data.offer?.subtitle || '',
+          offerCta: data.offer?.cta || '',
+          offerUrl: data.offer?.url || '',
         });
       }
     });
@@ -90,11 +420,22 @@ export default function Settings() {
 
   const handleSaveLiveConfig = async () => {
     try {
-      await setDoc(doc(db, "configs", "live_premix"), { 
+      const payload: any = { 
         youtubeVideoId: liveConfig.youtubeVideoId || '',
-        title: liveConfig.title || 'Live Pre-mix'
-      }, { merge: true });
-      toast.success('Configurações da Live salvas!');
+        title: liveConfig.title || 'Live Pre-mix',
+        coverImage: liveConfig.coverImage || '',
+        pinnedMessage: liveConfig.pinnedMessage || '',
+        startsAt: liveConfig.startsAt ? new Date(liveConfig.startsAt) : null,
+        offer: {
+          active: liveConfig.offerActive,
+          title: liveConfig.offerTitle || '',
+          subtitle: liveConfig.offerSubtitle || '',
+          cta: liveConfig.offerCta || 'Aproveitar',
+          url: liveConfig.offerUrl || '',
+        },
+      };
+      await setDoc(doc(db, "configs", "live_premix"), payload, { merge: true });
+      toast.success('Configurações da Live salvas com sucesso!');
     } catch (e) {
       console.error(e);
       toast.error('Erro ao salvar Live: verifique o console');
@@ -597,7 +938,8 @@ export default function Settings() {
                 </div>
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="pt-6 space-y-6">
+              {/* Informações Básicas */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -609,21 +951,131 @@ export default function Settings() {
                     placeholder="Ex: jfKfPfyJRdk"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    O ID do vídeo é o código após "v=" no link do YouTube.
+                    Cole o link ou apenas o código após "v=" no link do YouTube.
                   </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Título da Live
+                    Título da Transmissão
                   </label>
                   <Input 
                     value={liveConfig.title}
                     onChange={(e) => setLiveConfig({ ...liveConfig, title: e.target.value })}
-                    placeholder="Ex: Sorteio Semanal"
+                    placeholder="Ex: Sorteio Semanal Pre-mix"
                   />
                 </div>
               </div>
-              <Button onClick={handleSaveLiveConfig} className="bg-red-600 hover:bg-red-700 text-white">
+
+              {/* Pré-Live & Contagem Regressiva */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Data e Horário de Início (Contagem Regressiva)
+                  </label>
+                  <Input 
+                    type="datetime-local"
+                    value={liveConfig.startsAt}
+                    onChange={(e) => setLiveConfig({ ...liveConfig, startsAt: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    URL da Imagem da Capa (Pré-live)
+                  </label>
+                  <Input 
+                    value={liveConfig.coverImage}
+                    onChange={(e) => setLiveConfig({ ...liveConfig, coverImage: e.target.value })}
+                    placeholder="https://exemplo.com/capa.jpg"
+                  />
+                </div>
+              </div>
+
+              {/* Mensagem Fixada no Chat */}
+              <div className="pt-2 border-t border-gray-100">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  📌 Mensagem Fixada no Chat
+                </label>
+                <Input 
+                  value={liveConfig.pinnedMessage}
+                  onChange={(e) => setLiveConfig({ ...liveConfig, pinnedMessage: e.target.value })}
+                  placeholder="Ex: Sejam bem-vindos! O sorteio começará em instantes."
+                />
+              </div>
+
+              {/* Banner de Oferta Especial */}
+              <div className="pt-2 border-t border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-800">
+                    🎁 Banner de Oferta Especial na Live
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <LabelUI htmlFor="offer-toggle" className="text-xs text-gray-600">
+                      {liveConfig.offerActive ? 'Ativado' : 'Desativado'}
+                    </LabelUI>
+                    <Switch 
+                      id="offer-toggle"
+                      checked={liveConfig.offerActive}
+                      onCheckedChange={(val) => setLiveConfig({ ...liveConfig, offerActive: val })}
+                    />
+                  </div>
+                </div>
+
+                {liveConfig.offerActive && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Título da Oferta
+                      </label>
+                      <Input 
+                        value={liveConfig.offerTitle}
+                        onChange={(e) => setLiveConfig({ ...liveConfig, offerTitle: e.target.value })}
+                        placeholder="Ex: Upgrade para 1 Giga por R$ 99"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Subtítulo
+                      </label>
+                      <Input 
+                        value={liveConfig.offerSubtitle}
+                        onChange={(e) => setLiveConfig({ ...liveConfig, offerSubtitle: e.target.value })}
+                        placeholder="Ex: Exclusivo para quem está assistindo"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Texto do Botão
+                      </label>
+                      <Input 
+                        value={liveConfig.offerCta}
+                        onChange={(e) => setLiveConfig({ ...liveConfig, offerCta: e.target.value })}
+                        placeholder="Ex: Quero Aproveitar"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Link de Destino (WhatsApp / Site)
+                      </label>
+                      <Input 
+                        value={liveConfig.offerUrl}
+                        onChange={(e) => setLiveConfig({ ...liveConfig, offerUrl: e.target.value })}
+                        placeholder="https://wa.me/55..."
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Monitor & Moderação de Chat Ao Vivo */}
+              <LiveChatMonitor 
+                youtubeVideoId={liveConfig.youtubeVideoId}
+                onPinMessage={(msgText) => {
+                  setLiveConfig(prev => ({ ...prev, pinnedMessage: msgText }));
+                  toast.success('Mensagem selecionada para fixar! Clique em Salvar para aplicar.');
+                }}
+              />
+
+              <Button onClick={handleSaveLiveConfig} className="bg-red-600 hover:bg-red-700 text-white w-full md:w-auto">
                 Salvar Configurações da Live
               </Button>
             </CardContent>
