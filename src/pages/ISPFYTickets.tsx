@@ -15,10 +15,22 @@ import {
   Loader2,
   Clock,
   Database,
+  Copy,
+  Send,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { toast } from 'sonner';
 import PageTransition from '@/components/PageTransition';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import { ISPFYTicketData } from '@/types/ispfy';
+import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
+import type { WhapiGroup } from '@/types/whapi';
 import TicketCard from '@/components/ispfy/TicketCard';
 
 const ISPFYTickets: React.FC = () => {
@@ -29,6 +41,60 @@ const ISPFYTickets: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('abertos');
   const [selectedTicket, setSelectedTicket] = useState<ISPFYTicketData | null>(null);
+
+  // WhatsApp Groups
+  const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
+  const [selectedGroupPhone, setSelectedGroupPhone] = useState('120363426874994471-group');
+  const [sendingToGroup, setSendingToGroup] = useState(false);
+
+  useEffect(() => {
+    whapiService.getGroups().then((groups) => {
+      if (groups && groups.length > 0) {
+        setWhatsappGroups(groups);
+      }
+    }).catch(console.error);
+  }, []);
+
+  const formatTicketText = (t: ISPFYTicketData) => {
+    return (
+      `🛠 *O.S. #${t.id || ''} – Ordem de Serviço*\n` +
+      (t.id_cliente ? `Cliente ID: #${t.id_cliente}\n` : '') +
+      `📌 *Assunto:* ${t.assunto || 'Sem assunto'}\n` +
+      (t.prioridade ? `⚡ *Prioridade:* ${t.prioridade}\n` : '') +
+      (t.status ? `📊 *Status:* ${t.status}\n` : '') +
+      (t.tecnico ? `👷 *Técnico:* ${t.tecnico}\n` : '') +
+      (t.data_abertura ? `📅 *Abertura:* ${t.data_abertura}\n` : '') +
+      (t.descricao || t.mensagem ? `📝 *Descrição:* ${t.descricao || t.mensagem}\n` : '')
+    );
+  };
+
+  const handleCopyTicket = (t: ISPFYTicketData) => {
+    navigator.clipboard.writeText(formatTicketText(t))
+      .then(() => toast.success('Dados da O.S. copiados!'))
+      .catch(() => toast.error('Falha ao copiar dados.'));
+  };
+
+  const handleSendTicketToGroup = async (t: ISPFYTicketData) => {
+    if (!selectedGroupPhone) {
+      toast.warning('Selecione um grupo do WhatsApp.');
+      return;
+    }
+    const target = whatsappGroups.find(g => g.phone === selectedGroupPhone);
+    const groupName = target?.name || 'Grupo selecionado';
+    setSendingToGroup(true);
+    try {
+      const res = await whapiService.sendGroupMessage(selectedGroupPhone, formatTicketText(t));
+      if (res.sent) {
+        toast.success(`O.S. enviada com sucesso para o grupo "${groupName}"!`);
+      } else {
+        toast.error(`Falha ao enviar para o grupo: ${res.error}`);
+      }
+    } catch {
+      toast.error('Erro ao enviar mensagem.');
+    } finally {
+      setSendingToGroup(false);
+    }
+  };
 
   // Carregar tickets abertos ao montar o componente
   useEffect(() => {
@@ -343,6 +409,60 @@ const ISPFYTickets: React.FC = () => {
                         <p className="text-gray-900 mt-1">{selectedTicket.tipo}</p>
                       </div>
                     )}
+
+                    {/* Ações: Enviar Grupo WhatsApp & Copiar */}
+                    <div className="pt-4 border-t border-gray-100 space-y-3">
+                      <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-semibold text-emerald-800">
+                            Enviar para Grupo WhatsApp
+                          </Label>
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-medium">
+                            {whatsappGroups.length} grupos
+                          </span>
+                        </div>
+
+                        <Select
+                          value={selectedGroupPhone}
+                          onValueChange={setSelectedGroupPhone}
+                        >
+                          <SelectTrigger className="w-full bg-white border-emerald-200 h-9 text-xs">
+                            <SelectValue placeholder="Selecione o grupo..." />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-56 bg-white border-gray-200 z-50">
+                            {whatsappGroups.map((g) => (
+                              <SelectItem key={g.phone} value={g.phone} className="text-xs">
+                                👥 {g.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Button
+                          size="sm"
+                          onClick={() => handleSendTicketToGroup(selectedTicket)}
+                          disabled={sendingToGroup || !selectedGroupPhone}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 gap-1.5"
+                        >
+                          {sendingToGroup ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          Enviar O.S. para o Grupo
+                        </Button>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCopyTicket(selectedTicket)}
+                        className="w-full text-xs h-9 border-gray-300 text-gray-700 hover:bg-gray-50 gap-1.5"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copiar Informações da O.S.
+                      </Button>
+                    </div>
                   </motion.div>
                 ) : (
                   <div className="text-center py-8 text-gray-500">

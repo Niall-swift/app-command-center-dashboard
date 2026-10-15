@@ -21,6 +21,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import type { ISPFYClienteData } from '@/types/ispfy';
+import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
+import type { WhapiGroup } from '@/types/whapi';
 import { toast } from 'sonner';
 import {
   Search,
@@ -36,6 +38,8 @@ import {
   X,
   AlertCircle,
   PlusCircle,
+  Copy,
+  Wifi,
 } from 'lucide-react';
 
 // ─── WhatsApp SVG Icon ────────────────────────────────────────────────────────
@@ -91,10 +95,37 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   const [subjectLabel, setSubjectLabel] = useState('');
   const [priority, setPriority] = useState('N');
   const [message, setMessage] = useState('');
+  const [clientPlan, setClientPlan] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // ── Etapa 3: sucesso ────────────────────────────────────────────────────────
+  // ── Etapa 3: sucesso & Envio WhatsApp ───────────────────────────────────────
   const [createdTicketId, setCreatedTicketId] = useState('');
+  const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [selectedGroupPhone, setSelectedGroupPhone] = useState('120363426874994471-group');
+  const [sendToGroupOnCreate, setSendToGroupOnCreate] = useState(true);
+  const [sendingToGroup, setSendingToGroup] = useState(false);
+  const [sentGroupSuccess, setSentGroupSuccess] = useState<string | null>(null);
+
+  // Carregar grupos atualizados do WhatsApp ao montar
+  useEffect(() => {
+    whapiService
+      .getGroups()
+      .then((groups) => {
+        if (groups && groups.length > 0) {
+          setWhatsappGroups(groups);
+          if (!selectedGroupPhone) {
+            const defaultGroup = groups.find(g => 
+              g.phone === '120363426874994471-group' ||
+              g.name.toUpperCase().includes('OPERAÇÃO') ||
+              g.name.toUpperCase().includes('EQUIPE')
+            ) || groups[0];
+            setSelectedGroupPhone(defaultGroup.phone);
+          }
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   // ─── Reset quando abre/fecha ─────────────────────────────────────────────
   useEffect(() => {
@@ -102,17 +133,24 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       if (preselectedClient) {
         setSelectedClient(preselectedClient);
         setStep(2);
+        if (preselectedClient.id) {
+          ispfyService.getClientPlanDetails(preselectedClient.id).then((details) => {
+            setClientPlan(details.planName);
+          }).catch(console.error);
+        }
       } else {
         setStep(1);
         setSelectedClient(null);
         setSearchQuery('');
         setSearchResults([]);
+        setClientPlan('');
       }
       setSelectedSubject('');
       setSubjectLabel('');
       setPriority('N');
       setMessage('');
       setCreatedTicketId('');
+      setSentGroupSuccess(null);
     }
   }, [open, preselectedClient]);
 
@@ -217,6 +255,11 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   const handleSelectClient = (c: ISPFYClienteData) => {
     setSelectedClient(c);
     setStep(2);
+    if (c.id) {
+      ispfyService.getClientPlanDetails(c.id).then((details) => {
+        setClientPlan(details.planName);
+      }).catch(console.error);
+    }
   };
 
   // ─── Criar O.S. ──────────────────────────────────────────────────────────
@@ -238,6 +281,22 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
         setCreatedTicketId(tid);
         setStep(3);
         onSuccess?.(tid);
+        toast.success(`O.S. #${tid} criada com sucesso!`);
+
+        // Envio automático para o grupo WhatsApp
+        if (sendToGroupOnCreate && selectedGroupPhone) {
+          const text = buildGroupOSText(tid);
+          whapiService.sendGroupMessage(selectedGroupPhone, text).then((res) => {
+            const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
+            const groupName = targetGroup?.name || 'Grupo selecionado';
+            if (res.sent) {
+              setSentGroupSuccess(groupName);
+              toast.success(`O.S. enviada para o grupo "${groupName}"!`);
+            } else {
+              toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${res.error}`);
+            }
+          }).catch(console.error);
+        }
       } else {
         toast.error('Erro ao abrir O.S.', { description: result.message });
       }
@@ -248,7 +307,61 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     }
   };
 
-  // ─── Enviar WhatsApp ──────────────────────────────────────────────────────
+  // ─── Enviar para Grupo WhatsApp ──────────────────────────────────────────
+  const buildGroupOSText = (ticketIdOverride?: string): string => {
+    const tid = ticketIdOverride || createdTicketId || 'PENDENTE';
+    const priorityLabel = PRIORITY_LABELS[priority]?.label || priority;
+    const clientN = clientDisplayName(selectedClient!);
+    const clientP = clientPhone(selectedClient!);
+    const addr = clientCity(selectedClient!);
+
+    return (
+      `🛠 *O.S. #${tid} – Ordem de Serviço*\n` +
+      `Cliente: *${clientN}*\n` +
+      `Contato: ${clientP}\n` +
+      (clientPlan ? `📶 *Plano:* ${clientPlan}\n` : '') +
+      `📌 *Assunto:* ${subjectLabel}\n` +
+      `⚡ *Prioridade:* ${priorityLabel}\n` +
+      (addr ? `📍 *Endereço/Região:* ${addr}\n` : '') +
+      (message ? `📝 *Descrição:* ${message}\n` : '')
+    );
+  };
+
+  const handleCopyInfo = () => {
+    const text = buildGroupOSText();
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success('Informações da O.S. copiadas!');
+    }).catch(() => {
+      toast.error('Falha ao copiar.');
+    });
+  };
+
+  const handleSendToGroup = async () => {
+    if (!selectedGroupPhone) {
+      toast.warning('Selecione um grupo do WhatsApp.');
+      return;
+    }
+    const targetGroup = whatsappGroups.find(g => g.phone === selectedGroupPhone);
+    const groupName = targetGroup?.name || 'Grupo selecionado';
+
+    setSendingToGroup(true);
+    try {
+      const text = buildGroupOSText();
+      const res = await whapiService.sendGroupMessage(selectedGroupPhone, text);
+      if (res.sent) {
+        setSentGroupSuccess(groupName);
+        toast.success(`O.S. enviada com sucesso para o grupo ${groupName}!`);
+      } else {
+        toast.error(`Falha ao enviar para o grupo: ${res.error || 'Erro desconhecido'}`);
+      }
+    } catch {
+      toast.error('Erro ao enviar mensagem.');
+    } finally {
+      setSendingToGroup(false);
+    }
+  };
+
+  // ─── Enviar WhatsApp para Cliente ──────────────────────────────────────────
   const handleWhatsApp = () => {
     const rawPhone =
       selectedClient?.fone_whatsapp ||
@@ -473,6 +586,19 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                   </div>
                 )}
 
+                {/* Plano de Internet */}
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/10 text-xs">
+                  <span className="text-white/60 flex items-center gap-1.5 font-medium">
+                    <Wifi className="w-3.5 h-3.5 text-emerald-400" /> Plano do Cliente:
+                  </span>
+                  <input
+                    value={clientPlan}
+                    onChange={e => setClientPlan(e.target.value)}
+                    placeholder="Clique para informar plano..."
+                    className="bg-transparent border-b border-white/20 text-emerald-400 font-semibold text-xs px-1 text-right focus:outline-none focus:border-emerald-400 max-w-[220px]"
+                  />
+                </div>
+
                 {/* Assunto */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-white/60">
@@ -540,8 +666,52 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="Descreva o problema do cliente..."
                     rows={3}
-                    className="bg-white/5 border-white/10 text-white placeholder:text-white/20 focus-visible:ring-emerald-500 focus-visible:border-emerald-500/50 resize-none"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-white/20 focus-visible:ring-emerald-500 focus-visible:border-emerald-500/50 resize-none text-xs"
                   />
+                </div>
+
+                {/* Destino WhatsApp Grupo */}
+                <div className="space-y-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                      <WhatsAppIcon /> Grupo WhatsApp de Destino
+                    </Label>
+                    <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                      {whatsappGroups.length} grupos
+                    </Badge>
+                  </div>
+
+                  <Select
+                    value={selectedGroupPhone}
+                    onValueChange={setSelectedGroupPhone}
+                  >
+                    <SelectTrigger className="bg-slate-900 border-white/15 text-white h-9 text-xs focus:ring-emerald-500">
+                      <SelectValue placeholder="Selecione o grupo..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-56 bg-slate-900 border-slate-800 text-white z-50">
+                      {whatsappGroups.map((g) => (
+                        <SelectItem
+                          key={g.phone}
+                          value={g.phone}
+                          className="text-xs focus:bg-emerald-500/20 focus:text-emerald-300 cursor-pointer"
+                        >
+                          👥 {g.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 select-none">
+                    <input
+                      type="checkbox"
+                      checked={sendToGroupOnCreate}
+                      onChange={(e) => setSendToGroupOnCreate(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-white/20 bg-black/40 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-[11px] text-white/80">
+                      Enviar automaticamente para o grupo ao registrar
+                    </span>
+                  </label>
                 </div>
               </motion.div>
             )}
@@ -604,28 +774,104 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                   )}
                 </div>
 
-                {/* Botão WhatsApp */}
-                {hasWhatsApp ? (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleWhatsApp}
-                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-white transition-all"
+                {/* Envio Direto para Grupos do WhatsApp */}
+                <div className="w-full p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-left space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <WhatsAppIcon />
+                      Enviar para Grupo WhatsApp
+                    </span>
+                    {whatsappGroups.length > 0 && (
+                      <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                        {whatsappGroups.length} grupos
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-white/70 text-xs font-medium">
+                      Grupo de Destino:
+                    </Label>
+                    {loadingGroups ? (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/10 text-xs text-white/50">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        Carregando grupos...
+                      </div>
+                    ) : (
+                      <Select
+                        value={selectedGroupPhone}
+                        onValueChange={setSelectedGroupPhone}
+                      >
+                        <SelectTrigger className="w-full bg-slate-900/90 border-white/15 text-white h-10 text-xs focus:ring-emerald-500">
+                          <SelectValue placeholder="Selecione o grupo..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60 bg-slate-900 border-slate-800 text-white">
+                          {whatsappGroups.map((g) => (
+                            <SelectItem
+                              key={g.phone}
+                              value={g.phone}
+                              className="text-xs focus:bg-emerald-500/20 focus:text-emerald-300 cursor-pointer"
+                            >
+                              👥 {g.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={handleSendToGroup}
+                    disabled={sendingToGroup || !selectedGroupPhone || loadingGroups}
+                    className="w-full h-11 rounded-lg font-semibold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] text-xs"
                     style={{
                       background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                      boxShadow: '0 4px 20px rgba(37,211,102,0.3)',
+                      boxShadow: '0 4px 16px rgba(37,211,102,0.3)',
                     }}
                   >
-                    <WhatsAppIcon />
-                    Enviar pelo WhatsApp
-                    <Send className="w-4 h-4 ml-1" />
-                  </motion.button>
-                ) : (
-                  <div className="flex items-center gap-2 text-yellow-400/70 text-xs bg-yellow-500/5 border border-yellow-500/10 rounded-lg px-3 py-2 w-full">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>Cliente sem WhatsApp cadastrado no ISPFY</span>
-                  </div>
-                )}
+                    {sendingToGroup ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Enviando O.S. para o grupo...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        Enviar O.S. para o Grupo Selecionado
+                      </>
+                    )}
+                  </Button>
+
+                  {sentGroupSuccess && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                      <span>Enviada para <strong>{sentGroupSuccess}</strong>!</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Copiar e Envio Individual ao Cliente */}
+                <div className="w-full space-y-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleCopyInfo}
+                    className="w-full flex items-center justify-center gap-2 h-10 rounded-xl bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white text-xs"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copiar Informações da O.S.
+                  </Button>
+
+                  {hasWhatsApp && (
+                    <Button
+                      variant="ghost"
+                      onClick={handleWhatsApp}
+                      className="w-full flex items-center justify-center gap-2 h-10 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-xs"
+                    >
+                      <WhatsAppIcon />
+                      Notificar Cliente via WhatsApp Direto
+                    </Button>
+                  )}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

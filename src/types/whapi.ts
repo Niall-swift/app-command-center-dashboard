@@ -73,3 +73,11 @@ export interface GroupedClients {
   color: string;
   icon: string;
 }
+
+export interface WhapiGroup {
+  phone: string;
+  name: string;
+  unread?: string;
+  lastMessageTime?: string;
+}
+

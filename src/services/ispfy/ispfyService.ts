@@ -88,6 +88,7 @@ function andFilters(...filters: string[]): string {
 class ISPFYService {
   private client: AxiosInstance;
   private token: string;
+  private cachedPlanos: ISPFYPlanoData[] | null = null;
 
   constructor() {
     const host = import.meta.env.VITE_ISPFY_HOST;
@@ -1227,12 +1228,117 @@ class ISPFYService {
   }
 
   async getPlanosAtivos(): Promise<ISPFYPlanoData[]> {
-    const response = await this.makeRequest<ISPFYPlanoData>('/plano', {
-      filter: buildFilter('ativo', 'EQ', 'S'),
-      limit: 1000,
-      sort: 'descricao:ASC',
-    });
-    return this.getRows(response);
+    if (this.cachedPlanos && this.cachedPlanos.length > 0) {
+      return this.cachedPlanos;
+    }
+    try {
+      const response = await this.makeRequest<ISPFYPlanoData>('/plano', {
+        limit: 1000,
+        sort: 'descricao:ASC',
+      });
+      const rows = this.getRows(response);
+      if (rows && rows.length > 0) {
+        this.cachedPlanos = rows;
+        return rows;
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar planos ativos:', err);
+    }
+    return [];
+  }
+
+  /**
+   * Resolução inteligente do plano do cliente a partir do contrato, login/ponto e lista de planos da empresa
+   */
+  resolveClientPlan(
+    contrato?: Partial<ISPFYContratoData> | null,
+    login?: Partial<ISPFYLoginData> | null,
+    allPlanos?: ISPFYPlanoData[]
+  ): string {
+    // 1. Se o contrato ou login já contiver nome explícito válido
+    if (contrato?.plano && !contrato.plano.startsWith('Contrato #')) return contrato.plano;
+    if (contrato?.descricao && contrato.descricao !== 'Contrato' && !contrato.descricao.startsWith('Contrato #')) return contrato.descricao;
+    if (login?.grupo_nome) return login.grupo_nome;
+
+    const banda = (login?.banda_contratada || login?.banda || (login as any)?.banda_download || '').trim();
+    const valor = parseFloat(String(contrato?.valor_mensal || contrato?.valor || '0'));
+
+    // 2. Tenta casar por banda_limit e valor_mensal exato
+    if (banda && valor > 0 && allPlanos && allPlanos.length > 0) {
+      const exact = allPlanos.find(p =>
+        p.banda_limit &&
+        p.banda_limit.toLowerCase() === banda.toLowerCase() &&
+        Math.abs(parseFloat(String(p.valor_mensal || p.valor || '0')) - valor) < 2
+      );
+      if (exact) return exact.nome || exact.descricao || '';
+    }
+
+    // 3. Tenta casar por banda_limit isolada
+    if (banda && allPlanos && allPlanos.length > 0) {
+      const byBanda = allPlanos.find(p =>
+        p.banda_limit && p.banda_limit.toLowerCase() === banda.toLowerCase()
+      );
+      if (byBanda) return byBanda.nome || byBanda.descricao || '';
+    }
+
+    // 4. Tenta casar por valor_mensal isolado (se valor > 0 e plano não for 0)
+    if (valor > 0 && allPlanos && allPlanos.length > 0) {
+      const byValor = allPlanos.find(p =>
+        p.id !== '1008' &&
+        Math.abs(parseFloat(String(p.valor_mensal || p.valor || '0')) - valor) < 1
+      );
+      if (byValor) return byValor.nome || byValor.descricao || '';
+    }
+
+    // 5. Extração amigável de velocidade se houver banda_contratada (ex: "350000K/700000K" -> "FIBRA 700 MEGA")
+    if (banda) {
+      const parts = banda.split('/');
+      const dlStr = parts[1] || parts[0];
+      const match = dlStr.match(/(\d+)\s*([KkMmGg])/);
+      if (match) {
+        let num = parseInt(match[1], 10);
+        const unit = match[2].toUpperCase();
+        if (unit === 'K') num = Math.round(num / 1000);
+        return `FIBRA ${num} MEGA`;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Helper completo para buscar contratos, logins e identificar o plano do cliente
+   */
+  async getClientPlanDetails(idCliente: string): Promise<{
+    planName: string;
+    activeContrato: ISPFYContratoData | null;
+    activeLogin: ISPFYLoginData | null;
+    contratos: ISPFYContratoData[];
+    logins: ISPFYLoginData[];
+    allPlanos: ISPFYPlanoData[];
+  }> {
+    const [allPlanos, contratos, logins] = await Promise.all([
+      this.getPlanosAtivos().catch(() => [] as ISPFYPlanoData[]),
+      this.getContratosByCliente(idCliente).catch(() => [] as ISPFYContratoData[]),
+      this.getLoginsByCliente(idCliente).catch(() => [] as ISPFYLoginData[]),
+    ]);
+
+    const activeContrato = contratos.find(
+      ct => ct.contrato_ativo === 's' || ct.contrato_ativo === 'S' || ct.status === 'A' || ct.status_internet === 'A'
+    ) || contratos[0] || null;
+
+    const activeLogin = logins[0] || null;
+
+    const planName = this.resolveClientPlan(activeContrato, activeLogin, allPlanos);
+
+    return {
+      planName,
+      activeContrato,
+      activeLogin,
+      contratos,
+      logins,
+      allPlanos,
+    };
   }
 
   // =====================================================================

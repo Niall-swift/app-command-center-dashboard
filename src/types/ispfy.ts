@@ -77,11 +77,16 @@ export interface ISPFYContratoData {
   id_cliente?: string;
   descricao?: string;
   valor?: string;
+  valor_mensal?: string;
+  contrato_ativo?: string;
+  status_contrato?: string;
   status?: 'A' | 'I' | 'C'; // Ativo, Inativo, Cancelado
   status_internet?: string; // A, D, CA, CM, FA, BA, AA
   bloqueio_automatico?: 'S' | 'N';
   data_inicio?: string;
   data_fim?: string;
+  data_adesao?: string;
+  data_rescisao?: string;
   id_plano?: string;
   plano?: string;
   velocidade_download?: string;
@@ -139,12 +144,15 @@ export interface ISPFYTicketData {
 // Tipos para Planos/Produtos
 export interface ISPFYPlanoData {
   id?: string;
+  nome?: string;
   descricao?: string;
   valor?: string;
+  valor_mensal?: string;
+  banda_limit?: string;
   velocidade_download?: string;
   velocidade_upload?: string;
   tipo?: string;
-  ativo?: 'S' | 'N';
+  ativo?: 'S' | 'N' | 's' | 'n';
   [key: string]: any;
 }
 
@@ -226,13 +234,16 @@ export interface ISPFYCashMovementData {
 export interface ISPFYLoginData {
   id?: string;
   id_cliente?: string;
+  id_contrato?: string;
   login?: string;
+  usuario?: string;
   senha?: string;
   ip?: string; // IP fixo se houver
   mac?: string; // MAC amarrado
-  ativo?: 'S' | 'N';
+  ativo?: 'S' | 'N' | 's' | 'n';
   online?: 'S' | 'N'; // Status calculado ou vindo da API
   grupo_nome?: string; // Nome do plano/grupo
+  banda_contratada?: string;
   latitude?: string;
   longitude?: string;
   id_caixa_ftth?: string;

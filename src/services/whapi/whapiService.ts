@@ -4,13 +4,27 @@ import type {
   WhapiResponse,
   WhapiBulkRecipient,
   WhapiSendProgress,
-  WhapiSendLog
+  WhapiSendLog,
+  WhapiGroup
 } from '@/types/whapi';
 import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculateDaysOverdue, calculateDaysRemaining } from './messageTemplates';
 import { spin } from '@/utils/spintax';
 import { db } from '@/config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { generateAIBillingMessage } from '@/services/gemini/geminiService';
+
+export const DEFAULT_AVL_WHATSAPP_GROUPS: WhapiGroup[] = [
+  { phone: "120363426874994471-group", name: "⚙️ OPERAÇÃO INTERNA DAS OS  • AVL TELECOM" },
+  { phone: "120363040961050323-group", name: "EQUIPE AVL " },
+  { phone: "120363406862014109-group", name: "IMPORTANTE AVL" },
+  { phone: "120363040545792966-group", name: "IMPORTANTE  BASE 1💼" },
+  { phone: "120363424849771979-group", name: "🚀 OPERAÇÃO GOL • AVL TELECOM" },
+  { phone: "120363424698066312-group", name: "🚀 OPERAÇÃO UNO  • AVL TELECOM" },
+  { phone: "120363428422691143-group", name: "* 📍 AVL | LOCALIZAÇÃO DE CLIENTES" },
+  { phone: "120363426375742932-group", name: "🔥 💼 MIGUEL COUTO | VENDA • TROCA • OPORTUNIDADES 💼 🔥" },
+  { phone: "120363426865123546-group", name: "🍀COMUNIDADE  PRE-MIX 🍀" },
+  { phone: "120363413676936204-group", name: "Grupo de estudos" },
+];
 
 export class WhapiService {
   private client: AxiosInstance;
@@ -48,6 +62,11 @@ export class WhapiService {
    * Saída: 5511999999999
    */
   private formatPhoneNumber(phone: string): string {
+    // Preservar identificadores de grupos WhatsApp (ex: 120363040961050323-group ou @g.us)
+    if (phone.includes('-group') || phone.includes('@g.us') || phone.includes('-')) {
+      return phone.trim();
+    }
+
     // Remover caracteres não numéricos
     const cleaned = phone.replace(/\D/g, '');
     
@@ -442,6 +461,55 @@ export class WhapiService {
     } catch (error) {
       console.error('Erro ao obter informações da conta:', error);
       return null;
+    }
+  }
+
+  /**
+   * Obter lista de grupos do WhatsApp conectados via Z-API
+   */
+  async getGroups(): Promise<WhapiGroup[]> {
+    try {
+      const response = await this.client.get('/groups');
+      const data = response.data;
+      if (Array.isArray(data) && data.length > 0) {
+        return data
+          .filter((g: any) => g.phone && g.name)
+          .map((g: any) => ({
+            phone: g.phone,
+            name: g.name.trim(),
+            unread: g.unread || g.messagesUnread || '0',
+            lastMessageTime: g.lastMessageTime || '',
+          }));
+      }
+      return DEFAULT_AVL_WHATSAPP_GROUPS;
+    } catch (error) {
+      console.warn('Usando lista padrão de grupos AVL Telecom devido a:', error);
+      return DEFAULT_AVL_WHATSAPP_GROUPS;
+    }
+  }
+
+  /**
+   * Enviar mensagem diretamente para um grupo do WhatsApp
+   */
+  async sendGroupMessage(groupPhone: string, messageText: string): Promise<WhapiResponse> {
+    try {
+      const payload = {
+        phone: groupPhone.trim(),
+        message: messageText,
+      };
+      console.log(`📦 Enviando O.S. para Grupo WhatsApp (${groupPhone}):`, payload);
+      const response = await this.client.post('/send-text', payload);
+      return {
+        sent: true,
+        message: 'Mensagem enviada para o grupo com sucesso!',
+        id: response.data?.zaapId || response.data?.id,
+      };
+    } catch (error: any) {
+      console.error('Erro ao enviar mensagem para grupo WhatsApp:', error);
+      return {
+        sent: false,
+        error: error.response?.data?.message || error.message || 'Falha ao enviar para o grupo',
+      };
     }
   }
 }
