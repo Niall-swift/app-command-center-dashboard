@@ -79,12 +79,25 @@ export default defineConfig(({ mode }) => ({
         ]
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 3000000,
+        maximumFileSizeToCacheInBytes: 6000000,
       }
     }),
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['lucide-react', 'framer-motion'],
+          'vendor-charts': ['recharts'],
+          'vendor-firebase': ['firebase/app', 'firebase/firestore', 'firebase/auth'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

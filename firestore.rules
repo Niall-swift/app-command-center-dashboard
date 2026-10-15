@@ -46,9 +46,6 @@ service cloud.firestore {
     match /pre_mix_roulette_items/{document=**} {
       allow read, write: if true;
     }
-<<<<<<< HEAD
-=======
-    
     // Content Stats
     match /contentStats/{contentId} {
       allow read: if true;
@@ -66,7 +63,6 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false; // Somente painel administrativo (admin SDK) tem acesso irrestrito
     }
->>>>>>> 5260ee9 (Commit inicial)
 
     // Regras padrão para outras collections
     match /{document=**} {
