@@ -314,3 +314,77 @@ export interface ISPFYClienteContato {
   pode_enviar_mensagem?: string;
 }
 
+// =====================================================================
+// Tipos para Auditoria de Clientes (Cadastros, Cancelamentos, Exclusões)
+// =====================================================================
+
+export interface ISPFYAuditClient {
+  id: string;
+  nome_razao: string;
+  cpf_cnpj: string;
+  data_cadastro: string;
+  usuario_cadastrou: string;
+  bairro?: string;
+  cidade?: string;
+  rua?: string;
+  numero?: string;
+  status_contrato?: string;
+  contrato_ativo?: string;
+  plano?: string;
+  valor_mensal?: string;
+  telefone?: string;
+}
+
+export interface ISPFYAuditCancelledContract {
+  id: string;
+  id_cliente: string;
+  nome_cliente?: string;
+  cpf_cnpj?: string;
+  data_adesao?: string;
+  data_rescisao: string;
+  contrato_ativo: string;
+  status_contrato: string;
+  usuario_cadastrou?: string;
+  valor_mensal?: string;
+  dias_ativo?: number;
+  observacoes?: string;
+  telefone?: string;
+  cidade?: string;
+}
+
+export interface ISPFYAuditDeletedRecord {
+  id: string;
+  provavel_data?: string;
+  tipo: 'gap_sequencial' | 'snapshot_removido';
+  nome?: string;
+  cpf_cnpj?: string;
+  usuario_cadastrou?: string;
+  referencia_anterior?: { id: string; nome: string };
+  referencia_posterior?: { id: string; nome: string };
+  motivo: string;
+}
+
+export interface ISPFYAuditSummary {
+  totalCadastrados: number;
+  totalCancelados: number;
+  totalExcluidos: number;
+  saldoLiquido: number;
+  mrrPerdido: number;
+  mrrAdicionado: number;
+  rankingAtendentes: { usuario: string; cadastros: number }[];
+}
+
+export interface ISPFYAuditData {
+  periodo: {
+    ano: number;
+    mes: number;
+    inicio: string;
+    fim: string;
+  };
+  cadastrados: ISPFYAuditClient[];
+  cancelados: ISPFYAuditCancelledContract[];
+  excluidos: ISPFYAuditDeletedRecord[];
+  resumo: ISPFYAuditSummary;
+}
+
+

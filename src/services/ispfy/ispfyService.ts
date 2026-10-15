@@ -17,7 +17,12 @@ import type {
   ISPFYPopData,
   ISPFYFinancialCaixaData,
   ISPFYPayableData,
-  ISPFYCashMovementData
+  ISPFYCashMovementData,
+  ISPFYAuditClient,
+  ISPFYAuditCancelledContract,
+  ISPFYAuditDeletedRecord,
+  ISPFYAuditSummary,
+  ISPFYAuditData
 } from '@/types/ispfy';
 
 // =====================================================================
@@ -1606,6 +1611,315 @@ class ISPFYService {
       });
     }
     return series;
+  }
+
+  // =====================================================================
+  // AUDITORIA DE CLIENTES (Cadastrados, Cancelados e Excluídos do Mês)
+  // =====================================================================
+
+  /**
+   * Obtém os dados consolidados de auditoria para um determinado mês e ano:
+   * - Clientes cadastrados no período
+   * - Contratos cancelados / rescindidos no período
+   * - Clientes excluídos ou lacunas de sequência detectadas
+   * - Resumo com saldo líquido, MRR e ranking de atendentes
+   */
+  async getAuditData(
+    ano: number,
+    mes: number,
+    onProgress?: (step: string) => void
+  ): Promise<ISPFYAuditData> {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const lastDay = new Date(ano, mes, 0).getDate();
+    const dataInicio = `${ano}-${pad(mes)}-01`;
+    const dataFim = `${ano}-${pad(mes)}-${pad(lastDay)}`;
+
+    onProgress?.('Buscando clientes cadastrados no mês...');
+
+    // 1. Clientes cadastrados no período
+    const filterCadastro = `data_cadastro:GTE:${dataInicio} [AND] data_cadastro:LTE:${dataFim} 23:59:59`;
+    const respCadastrados = await this.makeRequest<ISPFYClienteData>('/cliente', {
+      filter: filterCadastro,
+      limit: 1000,
+      sort: 'data_cadastro:DESC',
+    });
+    const rawCadastrados = this.getRows(respCadastrados);
+
+    // 2. Contratos com adesão no período (para vincular plano e mensalidade da nova ativação)
+    onProgress?.('Buscando contratos vinculados aos cadastros...');
+    let rawContratosAdesao: ISPFYContratoData[] = [];
+    try {
+      const respAdesao = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: `data_adesao:GTE:${dataInicio} [AND] data_adesao:LTE:${dataFim}`,
+        limit: 1000,
+        sort: 'id:DESC',
+      });
+      rawContratosAdesao = this.getRows(respAdesao);
+    } catch (e) {
+      console.warn('Erro ao buscar contratos de adesão do mês:', e);
+    }
+
+    const contratosMap = new Map<string, ISPFYContratoData>();
+    rawContratosAdesao.forEach((ct) => {
+      if (ct.id_cliente && !contratosMap.has(String(ct.id_cliente))) {
+        contratosMap.set(String(ct.id_cliente), ct);
+      }
+    });
+
+    // 3. Contratos cancelados / rescindidos no período
+    onProgress?.('Buscando contratos cancelados no mês...');
+    let rawContratosCancelados: ISPFYContratoData[] = [];
+    try {
+      const respRescisao = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: `data_rescisao:GTE:${dataInicio} [AND] data_rescisao:LTE:${dataFim}`,
+        limit: 1000,
+        sort: 'data_rescisao:DESC',
+      });
+      rawContratosCancelados = this.getRows(respRescisao);
+    } catch (e) {
+      console.warn('Erro ao buscar contratos cancelados por rescisão:', e);
+    }
+
+    // Também verificar contratos inativos (contrato_ativo:EQ:n)
+    try {
+      const respInativos = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: `contrato_ativo:EQ:n`,
+        limit: 300,
+        sort: 'id:DESC',
+      });
+      const inativos = this.getRows(respInativos);
+      inativos.forEach((ct) => {
+        if (ct.data_rescisao && ct.data_rescisao >= dataInicio && ct.data_rescisao <= dataFim) {
+          if (!rawContratosCancelados.some((r) => String(r.id) === String(ct.id))) {
+            rawContratosCancelados.push(ct);
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Erro ao buscar contratos inativos:', e);
+    }
+
+    // 4. Buscar e vincular dados dos clientes cancelados
+    onProgress?.('Identificando clientes cancelados...');
+    const canceladosList: ISPFYAuditCancelledContract[] = [];
+    const clientCache = new Map<string, ISPFYClienteData>();
+    rawCadastrados.forEach((c) => {
+      if (c.id) clientCache.set(String(c.id), c);
+    });
+
+    for (const ct of rawContratosCancelados) {
+      const idCliente = String(ct.id_cliente || '');
+      let clientInfo = clientCache.get(idCliente);
+      if (!clientInfo && idCliente) {
+        try {
+          const fetched = await this.getClienteById(idCliente);
+          if (fetched) {
+            clientInfo = fetched;
+            clientCache.set(idCliente, fetched);
+          }
+        } catch {
+          // segue
+        }
+      }
+
+      // Calcular tempo em dias como cliente
+      let diasAtivo: number | undefined;
+      if (ct.data_adesao && ct.data_rescisao) {
+        const d1 = new Date(ct.data_adesao).getTime();
+        const d2 = new Date(ct.data_rescisao).getTime();
+        if (!isNaN(d1) && !isNaN(d2) && d2 >= d1) {
+          diasAtivo = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      canceladosList.push({
+        id: String(ct.id || ''),
+        id_cliente: idCliente,
+        nome_cliente: clientInfo?.nome_razao || clientInfo?.nome || `Cliente #${idCliente}`,
+        cpf_cnpj: clientInfo?.cpf_cnpj || clientInfo?.cnpj_cpf || '',
+        data_adesao: ct.data_adesao,
+        data_rescisao: ct.data_rescisao || '',
+        contrato_ativo: ct.contrato_ativo || 'n',
+        status_contrato: ct.status_contrato || 'cancelado',
+        usuario_cadastrou: ct.usuario_cadastrou || clientInfo?.usuario_cadastrou || 'desconhecido',
+        valor_mensal: ct.valor_mensal || '0.00',
+        dias_ativo: diasAtivo,
+        observacoes: ct.observacoes || '',
+        telefone: clientInfo?.fone_celular || clientInfo?.fone_whatsapp || clientInfo?.telefone_celular || '',
+        cidade: clientInfo?.cidade || '',
+      });
+    }
+
+    // 5. Montar lista de cadastrados enriquecidos
+    onProgress?.('Formatando cadastros...');
+    let mrrAdicionado = 0;
+    const cadastradosList: ISPFYAuditClient[] = rawCadastrados.map((c) => {
+      const ct = contratosMap.get(String(c.id));
+      const valor = ct?.valor_mensal ? parseFloat(ct.valor_mensal) : 0;
+      if (!isNaN(valor)) mrrAdicionado += valor;
+
+      return {
+        id: String(c.id || ''),
+        nome_razao: c.nome_razao || c.nome || '',
+        cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '',
+        data_cadastro: c.data_cadastro || '',
+        usuario_cadastrou: c.usuario_cadastrou || 'desconhecido',
+        bairro: c.endereco_cobranca_bairro || c.bairro || '',
+        cidade: c.cidade || '',
+        rua: c.endereco_cobranca_rua || c.endereco || '',
+        numero: c.endereco_cobranca_numero || '',
+        status_contrato: ct?.status_contrato || 'livre',
+        contrato_ativo: ct?.contrato_ativo || 's',
+        plano: ct?.descricao || ct?.plano || '',
+        valor_mensal: ct?.valor_mensal || '0.00',
+        telefone: c.fone_celular || c.fone_whatsapp || c.telefone_celular || c.telefone || '',
+      };
+    });
+
+    // 6. Detectar clientes excluídos / deletados (Gaps Sequenciais e Snapshot Cache)
+    onProgress?.('Auditando exclusões e lacunas...');
+    const excluidosList: ISPFYAuditDeletedRecord[] = [];
+    const localAuditKey = `ispfy_audit_clients_${ano}_${mes}`;
+    let previousSnapshot: Record<string, any> = {};
+    try {
+      const stored = localStorage.getItem(localAuditKey);
+      if (stored) previousSnapshot = JSON.parse(stored);
+    } catch {
+      // ignora
+    }
+
+    // Snapshot check: se um cliente estava no snapshot local e agora não existe na API
+    const currentIdsSet = new Set(rawCadastrados.map((c) => String(c.id)));
+    for (const [id, savedClient] of Object.entries(previousSnapshot)) {
+      if (!currentIdsSet.has(id)) {
+        excluidosList.push({
+          id,
+          tipo: 'snapshot_removido',
+          nome: savedClient.nome_razao || savedClient.nome || 'Cadastro Excluído',
+          cpf_cnpj: savedClient.cpf_cnpj || savedClient.cnpj_cpf || '',
+          usuario_cadastrou: savedClient.usuario_cadastrou || '',
+          provavel_data: savedClient.data_cadastro || '',
+          motivo: 'Registro estava presente no sistema e foi excluído/deletado permanentemente do ISPFY.',
+        });
+      }
+    }
+
+    // Gap check: dentro do range numérico de cadastros do mês
+    if (rawCadastrados.length > 0) {
+      const numericIds = rawCadastrados
+        .map((c) => parseInt(c.id || '', 10))
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b);
+
+      if (numericIds.length > 1) {
+        const minId = numericIds[0];
+        const maxId = numericIds[numericIds.length - 1];
+
+        // Mapear id -> cliente para identificar os vizinhos mais próximos
+        const idToClientMap = new Map<number, ISPFYClienteData>();
+        rawCadastrados.forEach((c) => {
+          const n = parseInt(c.id || '', 10);
+          if (!isNaN(n)) idToClientMap.set(n, c);
+        });
+
+        for (let checkId = minId; checkId <= maxId; checkId++) {
+          if (!currentIdsSet.has(String(checkId)) && !excluidosList.some((e) => e.id === String(checkId))) {
+            // Achar vizinho anterior mais próximo
+            let prevClient: ISPFYClienteData | undefined;
+            for (let p = checkId - 1; p >= minId; p--) {
+              if (idToClientMap.has(p)) {
+                prevClient = idToClientMap.get(p);
+                break;
+              }
+            }
+            // Achar vizinho posterior mais próximo
+            let nextClient: ISPFYClienteData | undefined;
+            for (let n = checkId + 1; n <= maxId; n++) {
+              if (idToClientMap.has(n)) {
+                nextClient = idToClientMap.get(n);
+                break;
+              }
+            }
+
+            const refPrev = prevClient ? { id: String(prevClient.id), nome: prevClient.nome_razao || prevClient.nome || '' } : undefined;
+            const refNext = nextClient ? { id: String(nextClient.id), nome: nextClient.nome_razao || nextClient.nome || '' } : undefined;
+
+            excluidosList.push({
+              id: String(checkId),
+              tipo: 'gap_sequencial',
+              referencia_anterior: refPrev,
+              referencia_posterior: refNext,
+              provavel_data: prevClient?.data_cadastro || nextClient?.data_cadastro || '',
+              motivo: `ID #${checkId} foi excluído da base de dados do ISPFY (lacuna identificada entre ${refPrev?.nome || 'ID anterior'} e ${refNext?.nome || 'ID posterior'}).`,
+            });
+          }
+        }
+      }
+    }
+
+    // Salvar snapshot atualizado para persistência de auditoria
+    try {
+      const newSnapshot: Record<string, any> = {};
+      rawCadastrados.forEach((c) => {
+        if (c.id) {
+          newSnapshot[String(c.id)] = {
+            id: c.id,
+            nome_razao: c.nome_razao || c.nome,
+            cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf,
+            data_cadastro: c.data_cadastro,
+            usuario_cadastrou: c.usuario_cadastrou,
+          };
+        }
+      });
+      localStorage.setItem(localAuditKey, JSON.stringify(newSnapshot));
+    } catch {
+      // ignora
+    }
+
+    // 7. Calcular métricas e ranking de atendentes
+    const rankingMap = new Map<string, number>();
+    cadastradosList.forEach((c) => {
+      const user = c.usuario_cadastrou || 'desconhecido';
+      rankingMap.set(user, (rankingMap.get(user) || 0) + 1);
+    });
+
+    const rankingAtendentes = Array.from(rankingMap.entries())
+      .map(([usuario, cadastros]) => ({ usuario, cadastros }))
+      .sort((a, b) => b.cadastros - a.cadastros);
+
+    let mrrPerdido = 0;
+    canceladosList.forEach((c) => {
+      const val = parseFloat(c.valor_mensal || '0');
+      if (!isNaN(val)) mrrPerdido += val;
+    });
+
+    const totalCadastrados = cadastradosList.length;
+    const totalCancelados = canceladosList.length;
+    const totalExcluidos = excluidosList.length;
+    const saldoLiquido = totalCadastrados - totalCancelados - totalExcluidos;
+
+    onProgress?.('Auditoria concluída com sucesso!');
+
+    return {
+      periodo: {
+        ano,
+        mes,
+        inicio: dataInicio,
+        fim: dataFim,
+      },
+      cadastrados: cadastradosList,
+      cancelados: canceladosList,
+      excluidos: excluidosList,
+      resumo: {
+        totalCadastrados,
+        totalCancelados,
+        totalExcluidos,
+        saldoLiquido,
+        mrrPerdido,
+        mrrAdicionado,
+        rankingAtendentes,
+      },
+    };
   }
 }
 

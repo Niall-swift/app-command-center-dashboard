@@ -40,6 +40,7 @@ import ISPFYDici from "./pages/ISPFYDici";
 import ISPFYActiveClientsExport from "./pages/ISPFYActiveClientsExport";
 import ISPFYVencimentos from "./pages/ISPFYVencimentos";
 import ISPFYNovaOS from "./pages/ISPFYNovaOS";
+import ISPFYAuditoria from "./pages/ISPFYAuditoria";
 import Notifications from "./pages/Notifications";
 import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
 import NotFound from "./pages/NotFound";
@@ -66,6 +67,7 @@ function AnimatedRoutes() {
         <Route path="/technical-support" element={<TechnicalSupport />} />
         <Route path="/network-map" element={<NetworkMap />} />
         <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
+        <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
         <Route path="/ispfy/cliente/:id" element={<ISPFYClientDetails />} />
         <Route path="/ispfy/financeiro" element={<ISPFYFinanceiro />} />
         <Route path="/ispfy/tickets" element={<ISPFYTickets />} />
