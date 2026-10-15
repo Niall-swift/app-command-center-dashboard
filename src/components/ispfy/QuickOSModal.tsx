@@ -24,6 +24,7 @@ import type { ISPFYClienteData } from '@/types/ispfy';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import type { WhapiGroup } from '@/types/whapi';
 import { toast } from 'sonner';
+import { useDailyOS } from '@/hooks/useDailyOS';
 import {
   Search,
   Loader2,
@@ -40,6 +41,7 @@ import {
   PlusCircle,
   Copy,
   Wifi,
+  Calendar,
 } from 'lucide-react';
 
 // ─── WhatsApp SVG Icon ────────────────────────────────────────────────────────
@@ -100,6 +102,15 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
   // ── Etapa 3: sucesso & Envio WhatsApp ───────────────────────────────────────
   const [createdTicketId, setCreatedTicketId] = useState('');
+  const [createdDailyFormatted, setCreatedDailyFormatted] = useState<string | null>(null);
+
+  // ─── Contagem Diária de O.S. (Reinicia a cada dia às 00:00) ────────────────
+  const {
+    count: dailyCount,
+    formattedNextDailyNumber,
+    registerOS,
+  } = useDailyOS();
+
   const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [selectedGroupPhone, setSelectedGroupPhone] = useState('120363426874994471-group');
@@ -279,19 +290,37 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       if (result.success) {
         const tid = result.id ?? '';
         setCreatedTicketId(tid);
+
+        const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
+        const groupName = targetGroup?.name || 'Grupo selecionado';
+
+        const { formattedDailyNumber } = await registerOS({
+          ticketId: tid,
+          clientId: selectedClient.id,
+          clientName: clientDisplayName(selectedClient),
+          phone: clientPhone(selectedClient),
+          plan: clientPlan,
+          subject: subjectLabel,
+          priority,
+          address: clientCity(selectedClient),
+          observation: message,
+          whatsappSent: !!(sendToGroupOnCreate && selectedGroupPhone),
+          whatsappGroup: groupName,
+          fullMessage: buildGroupOSText(tid, formattedNextDailyNumber),
+        });
+
+        setCreatedDailyFormatted(formattedDailyNumber);
         setStep(3);
         onSuccess?.(tid);
-        toast.success(`O.S. #${tid} criada com sucesso!`);
+        toast.success(`O.S. #${formattedDailyNumber} criada hoje! (ISPFY #${tid})`);
 
         // Envio automático para o grupo WhatsApp
         if (sendToGroupOnCreate && selectedGroupPhone) {
-          const text = buildGroupOSText(tid);
+          const text = buildGroupOSText(tid, formattedDailyNumber);
           whapiService.sendGroupMessage(selectedGroupPhone, text).then((res) => {
-            const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
-            const groupName = targetGroup?.name || 'Grupo selecionado';
             if (res.sent) {
               setSentGroupSuccess(groupName);
-              toast.success(`O.S. enviada para o grupo "${groupName}"!`);
+              toast.success(`O.S. #${formattedDailyNumber} enviada para o grupo "${groupName}"!`);
             } else {
               toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${res.error}`);
             }
@@ -308,17 +337,18 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   };
 
   // ─── Enviar para Grupo WhatsApp ──────────────────────────────────────────
-  const buildGroupOSText = (ticketIdOverride?: string): string => {
+  const buildGroupOSText = (ticketIdOverride?: string, dailyOverride?: string): string => {
     const tid = ticketIdOverride || createdTicketId || 'PENDENTE';
+    const dailyNum = dailyOverride || createdDailyFormatted || formattedNextDailyNumber;
     const priorityLabel = PRIORITY_LABELS[priority]?.label || priority;
     const clientN = clientDisplayName(selectedClient!);
     const clientP = clientPhone(selectedClient!);
     const addr = clientCity(selectedClient!);
 
     return (
-      `🛠 *O.S. #${tid} – Ordem de Serviço*\n` +
-      `Cliente: *${clientN}*\n` +
-      `Contato: ${clientP}\n` +
+      `🛠 *O.S. #${dailyNum} – Ordem de Serviço* (ISPFY #${tid})\n` +
+      `👤 *Cliente:* ${clientN}\n` +
+      `📞 *Contato:* ${clientP}\n` +
       (clientPlan ? `📶 *Plano:* ${clientPlan}\n` : '') +
       `📌 *Assunto:* ${subjectLabel}\n` +
       `⚡ *Prioridade:* ${priorityLabel}\n` +
@@ -441,11 +471,16 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
               <Ticket className="w-5 h-5 text-white" />
             </div>
             <div>
-              <DialogTitle className="text-white text-lg font-bold">
-                {step === 1 && 'Nova Ordem de Serviço'}
-                {step === 2 && 'Dados da O.S.'}
-                {step === 3 && 'O.S. Criada com Sucesso!'}
-              </DialogTitle>
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-white text-lg font-bold">
+                  {step === 1 && 'Nova Ordem de Serviço'}
+                  {step === 2 && 'Dados da O.S.'}
+                  {step === 3 && 'O.S. Criada com Sucesso!'}
+                </DialogTitle>
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">
+                  Hoje: #{dailyCount}
+                </Badge>
+              </div>
               {/* Step indicator */}
               <div className="flex items-center gap-1.5 mt-1">
                 {[1, 2, 3].map((s) => (
@@ -737,7 +772,10 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
                 <div className="text-center space-y-1">
                   <p className="text-white font-bold text-lg">
-                    O.S. #{createdTicketId} aberta!
+                    O.S. #{createdDailyFormatted || formattedNextDailyNumber} do Dia Aberta!
+                  </p>
+                  <p className="text-xs text-emerald-400 font-semibold">
+                    Protocolo ISPFY: #{createdTicketId}
                   </p>
                   <p className="text-white/40 text-sm">
                     A ordem de serviço foi criada para{' '}

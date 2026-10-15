@@ -34,6 +34,9 @@ import { ispfyService } from '@/services/ispfy/ispfyService';
 import type { ISPFYClienteData, ISPFYLoginData, ISPFYContratoData, ISPFYPlanoData } from '@/types/ispfy';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import type { WhapiGroup } from '@/types/whapi';
+import { useDailyOS } from '@/hooks/useDailyOS';
+import { DailyOSModal } from '@/components/ispfy/DailyOSModal';
+import { Calendar } from 'lucide-react';
 
 // ─── WhatsApp SVG Icon ────────────────────────────────────────────────────────
 const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
@@ -76,7 +79,7 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string; bg: string
 
 // ─── Modelo Padrão da O.S. & Variáveis Dinâmicas ──────────────────────────────
 export const DEFAULT_OS_TEMPLATE = 
-`🛠 *O.S. #{numero_os} – Ordem de Serviço*
+`🛠 *O.S. #{numero_diario} – Ordem de Serviço* (ISPFY #{numero_os})
 👤 *Cliente:* {cliente}
 📞 *Contato:* {telefone}
 📶 *Plano:* {plano}
@@ -92,7 +95,9 @@ export const DEFAULT_OS_TEMPLATE =
 const STORAGE_KEY_TEMPLATE = 'avl_os_template_structure_v2';
 
 const TEMPLATE_VARIABLES = [
-  { tag: '{numero_os}', label: 'Nº O.S.', desc: 'Ex: #12345' },
+  { tag: '{numero_diario}', label: 'Nº O.S. do Dia', desc: 'Ex: #01, #02 (Reinicia todo dia às 00:00)' },
+  { tag: '{numero_os}', label: 'ID ISPFY', desc: 'Ex: #12345 (ID oficial no sistema)' },
+  { tag: '{data_hoje}', label: 'Data Atual', desc: 'Ex: 15/10/2026' },
   { tag: '{cliente}', label: 'Cliente', desc: 'Nome completo' },
   { tag: '{telefone}', label: 'Telefone', desc: 'Contato / Celular' },
   { tag: '{plano}', label: 'Plano', desc: 'Plano de Internet' },
@@ -184,6 +189,17 @@ const ISPFYNovaOS: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState('');
+  const [createdDailyFormatted, setCreatedDailyFormatted] = useState<string | null>(null);
+  const [isDailyOrdersModalOpen, setIsDailyOrdersModalOpen] = useState(false);
+
+  // ─── Contagem e Rastreamento Diário de O.S. (Reinicia a cada dia) ───────────
+  const {
+    count: dailyCount,
+    formattedNextDailyNumber,
+    orders: dailyOrders,
+    formattedDate,
+    registerOS,
+  } = useDailyOS();
 
   // Estado dos Grupos WhatsApp
   const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
@@ -411,12 +427,13 @@ const ISPFYNovaOS: React.FC = () => {
   };
 
   // ─── Gerador da Estrutura da O.S. a partir do Template ───────────────────────
-  const generateOSText = useCallback((ticketIdOverride?: string): string => {
+  const generateOSText = useCallback((ticketIdOverride?: string, dailyNumberOverride?: string): string => {
     if (!selectedClient) {
       return 'Selecione um cliente para gerar o formato da O.S.';
     }
 
-    const tid = ticketIdOverride || createdTicketId || 'NOVA O.S.';
+    const tid = ticketIdOverride || createdTicketId || 'PENDENTE';
+    const dailyFormatted = dailyNumberOverride || createdDailyFormatted || formattedNextDailyNumber;
     const name = clientName(selectedClient);
     const phone = clientPhone(selectedClient);
     const plan = clientPlan.trim() || 'Não informado';
@@ -442,8 +459,20 @@ const ISPFYNovaOS: React.FC = () => {
     const obsText = observation.trim() ? `📝 *Obs:* ${observation.trim()}` : '';
     const mapText = mapsLink ? `🗺️ *Mapa:* ${mapsLink}` : '';
 
-    let text = osTemplate
-      .replace(/{numero_os}/g, tid)
+    let text = osTemplate;
+
+    // Compatibilidade inteligente: se o template antigo não possui a tag {numero_diario},
+    // adapta {numero_os} para exibir o número do dia e o ID do ISPFY
+    if (!text.includes('{numero_diario}')) {
+      text = text.replace(/{numero_os}/g, `${dailyFormatted} (ISPFY #${tid})`);
+    } else {
+      text = text
+        .replace(/{numero_diario}/g, dailyFormatted)
+        .replace(/{numero_os}/g, tid);
+    }
+
+    text = text
+      .replace(/{data_hoje}/g, formattedDate)
       .replace(/{cliente}/g, name)
       .replace(/{telefone}/g, phone)
       .replace(/{plano}/g, plan)
@@ -468,6 +497,9 @@ const ISPFYNovaOS: React.FC = () => {
   }, [
     selectedClient,
     createdTicketId,
+    createdDailyFormatted,
+    formattedNextDailyNumber,
+    formattedDate,
     clientPlan,
     clientLogins,
     selectedProblems,
@@ -508,22 +540,44 @@ const ISPFYNovaOS: React.FC = () => {
       if (result.success) {
         const newTicketId = result.id ?? '';
         setCreatedTicketId(newTicketId);
+
+        // ─── Registro e Incremento na Contagem Diária ───────────────────────────
+        const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
+        const groupName = targetGroup?.name || 'Grupo de Operação';
+
+        const { formattedDailyNumber } = await registerOS({
+          ticketId: newTicketId,
+          clientId: selectedClient.id,
+          clientName: clientName(selectedClient),
+          phone: clientPhone(selectedClient),
+          plan: clientPlan,
+          subject: subjectLabel || 'Não informado',
+          priority,
+          address: addr,
+          referencePoint,
+          observation,
+          whatsappSent: !!(sendToGroupOnCreate && selectedGroupPhone),
+          whatsappGroup: groupName,
+          fullMessage: '', // preenchido logo abaixo
+        });
+
+        setCreatedDailyFormatted(formattedDailyNumber);
         setCreated(true);
-        toast.success(`O.S. #${newTicketId} criada com sucesso!`);
+        toast.success(`O.S. #${formattedDailyNumber} registrada hoje! (ISPFY #${newTicketId})`);
 
         // Mensagem final enviada
         const finalMessage = customOSText !== null 
-          ? customOSText.replace(/NOVA O.S.|PENDENTE/g, `#${newTicketId}`)
-          : generateOSText(newTicketId);
+          ? customOSText
+              .replace(/NOVA O.S.|PENDENTE/g, `#${newTicketId}`)
+              .replace(/{numero_diario}/g, formattedDailyNumber)
+          : generateOSText(newTicketId, formattedDailyNumber);
 
         // Envio automático para o grupo do WhatsApp selecionado
         if (sendToGroupOnCreate && selectedGroupPhone) {
           whapiService.sendGroupMessage(selectedGroupPhone, finalMessage).then((res) => {
-            const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
-            const groupName = targetGroup?.name || 'Grupo de Operação';
             if (res.sent) {
               setSentGroupSuccess(groupName);
-              toast.success(`O.S. enviada para o grupo "${groupName}"!`);
+              toast.success(`O.S. #${formattedDailyNumber} enviada para o grupo "${groupName}"!`);
             } else {
               toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${res.error}`);
             }
@@ -589,6 +643,7 @@ const ISPFYNovaOS: React.FC = () => {
     setReferencePoint('');
     setCreated(false);
     setCreatedTicketId('');
+    setCreatedDailyFormatted(null);
     setClientLogins([]);
     setClientContracts([]);
     setClientPlan('');
@@ -648,7 +703,7 @@ const ISPFYNovaOS: React.FC = () => {
         <motion.div
           initial={{ opacity: 0, y: -16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl border border-white/10"
+          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl border border-white/10"
           style={{ background: 'rgba(255,255,255,0.02)', backdropFilter: 'blur(16px)' }}
         >
           <div className="flex items-center gap-4">
@@ -656,26 +711,44 @@ const ISPFYNovaOS: React.FC = () => {
               <ClipboardList className="w-7 h-7 text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-2xl font-bold tracking-tight text-white">Central de Abertura de O.S.</h1>
                 <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/30 text-[10px] font-semibold uppercase tracking-wider">
                   ISPFY + Z-API
                 </Badge>
+                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[11px] gap-1 px-2.5 py-0.5">
+                  <Calendar className="w-3 h-3 text-emerald-400" />
+                  Hoje: #{dailyCount} O.S. emitidas
+                </Badge>
+                <Badge variant="outline" className="bg-white/5 text-white/70 border-white/10 text-[11px] px-2 py-0.5">
+                  Próxima do dia: #{formattedNextDailyNumber}
+                </Badge>
               </div>
               <p className="text-white/50 text-xs sm:text-sm mt-0.5">
-                Emissão inteligente de chamados com detecção de plano de internet e disparo instantâneo para grupos WhatsApp.
+                Emissão inteligente com contagem diária segmentada (reinicia automaticamente à meia-noite).
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => setIsDailyOrdersModalOpen(true)}
+              className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all shadow-lg shadow-emerald-500/10"
+            >
+              <ClipboardList className="w-4 h-4 text-emerald-400" />
+              <span>Ver O.S. de Hoje</span>
+              <Badge className="bg-emerald-500/30 text-emerald-200 border-none text-[10px] px-1.5 py-0 h-5">
+                {dailyCount}
+              </Badge>
+            </Button>
             <Button
               variant="outline"
               onClick={openTemplateModal}
               className="bg-white/5 hover:bg-emerald-500/10 border-white/10 hover:border-emerald-500/30 text-white/80 hover:text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all"
             >
               <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-              Editar Estrutura da O.S.
+              Editar Estrutura
             </Button>
             <Button
               variant="ghost"
@@ -712,10 +785,15 @@ const ISPFYNovaOS: React.FC = () => {
 
                 <div>
                   <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-xs mb-2">
-                    Ordem de Serviço Registrada
+                    Ordem de Serviço Diária #{createdDailyFormatted || formattedNextDailyNumber} Registrada
                   </Badge>
-                  <p className="text-3xl font-extrabold text-white tracking-tight">O.S. #{createdTicketId}</p>
-                  <p className="text-white/60 mt-1 text-sm">
+                  <p className="text-3xl font-extrabold text-white tracking-tight">
+                    O.S. #{createdDailyFormatted || formattedNextDailyNumber} do Dia
+                  </p>
+                  <p className="text-emerald-400 text-xs font-semibold mt-1">
+                    Protocolo ISPFY: #{createdTicketId} • Total hoje: {dailyCount} O.S.
+                  </p>
+                  <p className="text-white/60 mt-1.5 text-sm">
                     Cadastrada com sucesso para <span className="text-emerald-300 font-semibold">{clientName(selectedClient!)}</span>
                   </p>
                 </div>
@@ -1243,8 +1321,13 @@ const ISPFYNovaOS: React.FC = () => {
                         <WhatsAppIcon className="w-4 h-4 text-emerald-400" />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-white uppercase tracking-wider">Pré-visualização</p>
-                        <p className="text-[10px] text-emerald-400 font-medium">WhatsApp O.S.</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-white uppercase tracking-wider">Pré-visualização</p>
+                          <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[9px] px-1.5 py-0 font-mono">
+                            Próxima do dia: #{formattedNextDailyNumber}
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-emerald-400 font-medium">WhatsApp O.S. • {formattedDate}</p>
                       </div>
                     </div>
 
@@ -1478,6 +1561,15 @@ const ISPFYNovaOS: React.FC = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Modal de O.S. Segmentadas de Hoje (Contagem Diária) */}
+        <DailyOSModal
+          open={isDailyOrdersModalOpen}
+          onOpenChange={setIsDailyOrdersModalOpen}
+          orders={dailyOrders}
+          formattedDate={formattedDate}
+          totalCount={dailyCount}
+        />
       </div>
     </PageTransition>
   );

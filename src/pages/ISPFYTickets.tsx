@@ -17,6 +17,8 @@ import {
   Database,
   Copy,
   Send,
+  ClipboardList,
+  Calendar,
 } from 'lucide-react';
 import {
   Select,
@@ -32,6 +34,8 @@ import { ISPFYTicketData } from '@/types/ispfy';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import type { WhapiGroup } from '@/types/whapi';
 import TicketCard from '@/components/ispfy/TicketCard';
+import { useDailyOS } from '@/hooks/useDailyOS';
+import { DailyOSModal } from '@/components/ispfy/DailyOSModal';
 
 const ISPFYTickets: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -41,6 +45,15 @@ const ISPFYTickets: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('abertos');
   const [selectedTicket, setSelectedTicket] = useState<ISPFYTicketData | null>(null);
+
+  // Contagem diária de O.S. (Reinicia todo dia)
+  const {
+    count: dailyCount,
+    formattedNextDailyNumber,
+    orders: dailyOrders,
+    formattedDate,
+  } = useDailyOS();
+  const [isDailyModalOpen, setIsDailyModalOpen] = useState(false);
 
   // WhatsApp Groups
   const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
@@ -184,14 +197,51 @@ const ISPFYTickets: React.FC = () => {
                 Tickets de Suporte
               </h1>
               <p className="text-gray-600 mt-2">
-                Gerencie chamados e solicitações de suporte
+                Gerencie chamados e solicitações de suporte com contagem diária de O.S.
               </p>
             </div>
+            <Button
+              onClick={() => setIsDailyModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs font-semibold shadow-lg shadow-emerald-600/20"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>O.S. de Hoje</span>
+              <span className="bg-emerald-800 text-emerald-100 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                #{dailyCount}
+              </span>
+            </Button>
           </div>
         </motion.div>
 
         {/* Métricas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card
+            className="border-emerald-500/30 bg-gradient-to-br from-emerald-50 to-teal-50/40 hover:shadow-md transition-all cursor-pointer"
+            onClick={() => setIsDailyModalOpen(true)}
+          >
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-semibold text-emerald-900">O.S. de Hoje</p>
+                    <span className="text-[10px] bg-emerald-200 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                      Zera 00h
+                    </span>
+                  </div>
+                  <p className="text-2xl font-black text-emerald-700">
+                    #{dailyCount}
+                  </p>
+                  <p className="text-[11px] text-emerald-600 mt-0.5 font-medium">
+                    Próxima: #{formattedNextDailyNumber} • Ver lista
+                  </p>
+                </div>
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 flex items-center justify-center text-emerald-600">
+                  <ClipboardList className="w-6 h-6" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -474,6 +524,15 @@ const ISPFYTickets: React.FC = () => {
             </Card>
           </div>
         </div>
+
+        {/* Modal de O.S. Segmentadas de Hoje (Contagem Diária) */}
+        <DailyOSModal
+          open={isDailyModalOpen}
+          onOpenChange={setIsDailyModalOpen}
+          orders={dailyOrders}
+          formattedDate={formattedDate}
+          totalCount={dailyCount}
+        />
       </div>
     </PageTransition>
   );

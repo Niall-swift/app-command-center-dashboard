@@ -64,6 +64,11 @@ service cloud.firestore {
       allow write: if false; // Somente painel administrativo (admin SDK) tem acesso irrestrito
     }
 
+    // Rastreamento e contagem diária de Ordens de Serviço (O.S.)
+    match /os_daily_tracking/{document=**} {
+      allow read, write: if true;
+    }
+
     // Regras padrão para outras collections
     match /{document=**} {
       allow read: if true;

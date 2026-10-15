@@ -398,4 +398,36 @@ export interface ISPFYAuditData {
   resumo: ISPFYAuditSummary;
 }
 
+// ─── Contagem e Rastreamento Diário de Ordens de Serviço ─────────────────────────
+export interface DailyOSOrder {
+  id: string;                      // ID único do registro (gerado ou ticketId)
+  dailyNumber: number;             // Número sequencial do dia (1, 2, 3...)
+  formattedDailyNumber: string;    // Formatado ("01", "02", "03"...)
+  ticketId: string;                // ID oficial retornado pelo ISPFY ou PENDENTE
+  clientId?: string;               // ID do cliente no ISPFY
+  clientName: string;              // Nome completo do assinante
+  phone?: string;                  // Telefone / WhatsApp de contato
+  plan?: string;                   // Plano de internet detectado
+  subject: string;                 // Assunto do chamado (ex: SEM CONEXÃO)
+  priority: string;                // Prioridade (B, N, A, C)
+  address?: string;                // Endereço completo
+  referencePoint?: string;         // Ponto de referência
+  observation?: string;            // Observação técnica
+  createdAt: string;               // ISO Timestamp da abertura
+  timeStr: string;                 // Hora formatada (ex: "14:32")
+  dateStr: string;                 // Data YYYY-MM-DD
+  whatsappSent?: boolean;          // Se foi enviado para grupo de WhatsApp
+  whatsappGroup?: string;          // Nome do grupo destinatário
+  fullMessage?: string;            // Mensagem completa gerada para envio
+}
+
+export interface DailyOSTrackingData {
+  date: string;                    // YYYY-MM-DD
+  formattedDate: string;           // DD/MM/YYYY
+  count: number;                   // Total de O.S. abertas no dia
+  orders: DailyOSOrder[];          // Lista segmentada das O.S. de hoje
+  lastUpdated?: string;            // ISO Timestamp da última atualização
+}
+
+
 
