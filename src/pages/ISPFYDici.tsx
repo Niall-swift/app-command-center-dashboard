@@ -229,71 +229,71 @@ export default function ISPFYDici() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-7xl">
+    <div className="space-y-6 text-foreground">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
           <FileSpreadsheet className="h-8 w-8 text-blue-500" />
           Gerador DICI Anatel
         </h1>
-        <p className="text-slate-400">
+        <p className="text-muted-foreground">
           Consolidação automática de contratos ISPFY para coleta de dados regulatórios.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1 bg-slate-900/50 border-slate-800 shadow-2xl backdrop-blur-sm">
+        <Card className="lg:col-span-1 bg-card border-border shadow-sm text-card-foreground">
           <CardHeader>
-            <CardTitle className="text-white text-lg">Parâmetros de Coleta</CardTitle>
-            <CardDescription className="text-slate-500 text-xs">Informe os dados da licença SCM.</CardDescription>
+            <CardTitle className="text-foreground text-lg">Parâmetros de Coleta</CardTitle>
+            <CardDescription className="text-muted-foreground text-xs">Informe os dados da licença SCM.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="cnpj" className="text-slate-300 text-xs font-semibold uppercase tracking-wider">CNPJ da Prestadora</Label>
+              <Label htmlFor="cnpj" className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">CNPJ da Prestadora</Label>
               <Input 
                 id="cnpj" 
                 value={cnpj} 
                 onChange={(e) => setCnpj(e.target.value)}
                 placeholder="45517137000156"
-                className="bg-slate-950 border-slate-800 text-white h-11 focus:ring-blue-500/50"
+                className="bg-background border-input text-foreground h-11 focus:ring-blue-500/50"
               />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="ano" className="text-slate-300 text-xs font-semibold uppercase tracking-wider">Ano Base</Label>
+                <Label htmlFor="ano" className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Ano Base</Label>
                 <Input 
                   id="ano" 
                   value={ano} 
                   onChange={(e) => setAno(e.target.value)}
-                  className="bg-slate-950 border-slate-800 text-white h-11"
+                  className="bg-background border-input text-foreground h-11"
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="mes" className="text-slate-300 text-xs font-semibold uppercase tracking-wider">Mês de Ref.</Label>
+                <Label htmlFor="mes" className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Mês de Ref.</Label>
                 <Input 
                   id="mes" 
                   value={mes} 
                   onChange={(e) => setMes(e.target.value)}
-                  className="bg-slate-950 border-slate-800 text-white h-11"
+                  className="bg-background border-input text-foreground h-11"
                 />
               </div>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="ibge" className="text-slate-300 text-xs font-semibold uppercase tracking-wider">Município (Cód. IBGE)</Label>
+              <Label htmlFor="ibge" className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Município (Cód. IBGE)</Label>
               <Input 
                 id="ibge" 
                 value={codIbge} 
                 onChange={(e) => setCodIbge(e.target.value)}
-                className="bg-slate-950 border-slate-800 text-white h-11"
+                className="bg-background border-input text-foreground h-11"
               />
-              <p className="text-[10px] text-slate-500 px-1 italic">Ex: 3303500 (Itaboraí), 3305109 (São Gonçalo)</p>
+              <p className="text-[10px] text-muted-foreground px-1 italic">Ex: 3303500 (Itaboraí), 3305109 (São Gonçalo)</p>
             </div>
 
             <div className="flex flex-col gap-3 pt-4">
               <Button 
                 variant="outline"
-                className="border-slate-800 hover:bg-slate-800 text-slate-300 h-12"
+                className="border-border hover:bg-secondary text-foreground h-12"
                 onClick={() => handleGenerate(false)} 
                 disabled={loading}
               >
@@ -303,7 +303,7 @@ export default function ISPFYDici() {
               
               <Button 
                 variant="ghost"
-                className="text-[10px] text-slate-600 hover:text-slate-400"
+                className="text-[10px] text-muted-foreground hover:text-foreground"
                 onClick={async () => {
                   const contracts = await ispfyService.fetchAllContratosAtivos();
                   console.log('🔍 DEBUG CONTRATO (Campos disponíveis):', contracts[0]);
@@ -314,7 +314,7 @@ export default function ISPFYDici() {
               </Button>
 
               <Button 
-                className="bg-blue-600 hover:bg-blue-700 text-white h-12 font-bold shadow-lg shadow-blue-900/20" 
+                className="bg-blue-600 hover:bg-blue-700 text-white h-12 font-bold shadow-lg shadow-blue-500/20" 
                 onClick={() => handleGenerate(true)} 
                 disabled={loading}
               >
@@ -325,45 +325,45 @@ export default function ISPFYDici() {
             
             {progress && (
               <div className="flex items-center justify-center gap-2 mt-2">
-                <RefreshCw className="h-3 w-3 text-blue-400 animate-spin" />
-                <p className="text-[10px] text-blue-400 font-medium">{progress}</p>
+                <RefreshCw className="h-3 w-3 text-blue-500 animate-spin" />
+                <p className="text-[10px] text-blue-500 font-medium">{progress}</p>
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2 bg-slate-900/50 border-slate-800 overflow-hidden shadow-2xl backdrop-blur-sm">
-          <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800/50 pb-4">
+        <Card className="lg:col-span-2 bg-card border-border overflow-hidden shadow-sm text-card-foreground">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 pb-4">
             <div>
-              <CardTitle className="text-white text-lg">Consolidação de Acessos</CardTitle>
-              <CardDescription className="text-slate-500 text-xs">Resumo por Velocidade e Categoria.</CardDescription>
+              <CardTitle className="text-foreground text-lg">Consolidação de Acessos</CardTitle>
+              <CardDescription className="text-muted-foreground text-xs">Resumo por Velocidade e Categoria.</CardDescription>
             </div>
-            <TableIcon className="h-5 w-5 text-slate-700" />
+            <TableIcon className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent className="p-0">
             {previewData.length > 0 ? (
               <ScrollArea className="h-[480px]">
                 <Table>
-                  <TableHeader className="bg-slate-950/50 sticky top-0 z-10 backdrop-blur-md">
-                    <TableRow className="border-slate-800/50 hover:bg-transparent">
-                      <TableHead className="text-slate-400 text-xs font-bold uppercase py-4">Categoria</TableHead>
-                      <TableHead className="text-slate-400 text-xs font-bold uppercase py-4">Velocidade</TableHead>
-                      <TableHead className="text-slate-400 text-xs font-bold uppercase py-4">Meio / Tecnologia</TableHead>
-                      <TableHead className="text-slate-400 text-xs font-bold uppercase py-4 text-right">Qtd. Acessos</TableHead>
+                  <TableHeader className="bg-secondary/40 sticky top-0 z-10 backdrop-blur-md">
+                    <TableRow className="border-border/60 hover:bg-transparent">
+                      <TableHead className="text-foreground text-xs font-bold uppercase py-4">Categoria</TableHead>
+                      <TableHead className="text-foreground text-xs font-bold uppercase py-4">Velocidade</TableHead>
+                      <TableHead className="text-foreground text-xs font-bold uppercase py-4">Meio / Tecnologia</TableHead>
+                      <TableHead className="text-foreground text-xs font-bold uppercase py-4 text-right">Qtd. Acessos</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {previewData.map((row, i) => (
-                      <TableRow key={i} className="border-slate-800/30 hover:bg-slate-800/40 transition-colors">
-                        <TableCell className="font-bold text-slate-200">
-                          <span className={row.tipo_cliente === 'PJ' ? 'text-purple-400' : 'text-blue-400'}>
+                      <TableRow key={i} className="border-border/60 hover:bg-secondary/40 transition-colors">
+                        <TableCell className="font-bold text-foreground">
+                          <span className={row.tipo_cliente === 'PJ' ? 'text-purple-500 dark:text-purple-400' : 'text-blue-500 dark:text-blue-400'}>
                             {row.tipo_cliente}
                           </span>
                         </TableCell>
-                        <TableCell className="text-slate-300 font-medium">{row.velocidade} Mbps</TableCell>
-                        <TableCell className="text-slate-500 text-xs">{row.tipo_meio} | {row.tipo_tecnologia}</TableCell>
+                        <TableCell className="text-foreground font-medium">{row.velocidade} Mbps</TableCell>
+                        <TableCell className="text-muted-foreground text-xs">{row.tipo_meio} | {row.tipo_tecnologia}</TableCell>
                         <TableCell className="text-right">
-                          <span className="bg-blue-500/10 text-blue-400 px-3 py-1 rounded-full text-sm font-black border border-blue-500/20">
+                          <span className="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-3 py-1 rounded-full text-sm font-black border border-blue-500/20">
                             {row.acessos}
                           </span>
                         </TableCell>
@@ -373,13 +373,13 @@ export default function ISPFYDici() {
                 </Table>
               </ScrollArea>
             ) : (
-              <div className="h-[480px] flex flex-col items-center justify-center text-slate-600 bg-slate-950/20">
+              <div className="h-[480px] flex flex-col items-center justify-center text-muted-foreground bg-secondary/20">
                 <div className="relative mb-6">
-                  <FileSpreadsheet className="h-20 w-20 opacity-5" />
+                  <FileSpreadsheet className="h-20 w-20 opacity-20" />
                   <Loader2 className={`h-6 w-6 absolute inset-0 m-auto text-blue-500 ${loading ? 'animate-spin' : 'hidden'}`} />
                 </div>
                 <p className="text-sm font-medium">Nenhum dado processado para visualização</p>
-                <p className="text-[10px] mt-1 opacity-50 uppercase tracking-tighter">Inicie a coleta nos parâmetros ao lado</p>
+                <p className="text-[10px] mt-1 opacity-70 uppercase tracking-tighter">Inicie a coleta nos parâmetros ao lado</p>
               </div>
             )}
           </CardContent>
@@ -387,18 +387,18 @@ export default function ISPFYDici() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-         <Alert className="bg-slate-900 border-slate-800">
-            <Info className="h-4 w-4 text-blue-400" />
-            <AlertTitle className="text-slate-200 text-xs">Nota sobre Velocidades</AlertTitle>
-            <AlertDescription className="text-[10px] text-slate-500">
+         <Alert className="bg-card border-border shadow-sm text-card-foreground">
+            <Info className="h-4 w-4 text-blue-500" />
+            <AlertTitle className="text-foreground text-xs font-bold">Nota sobre Velocidades</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground leading-relaxed mt-1">
               O sistema busca a velocidade no Contrato e, se ausente, recorre ao Plano associado no ISPFY. 
               Planos sem velocidade numérica explícita no nome ou campo serão ignorados na contagem.
             </AlertDescription>
          </Alert>
-         <Alert className="bg-slate-900 border-slate-800">
-            <Info className="h-4 w-4 text-purple-400" />
-            <AlertTitle className="text-slate-200 text-xs">Separação de Clientes</AlertTitle>
-            <AlertDescription className="text-[10px] text-slate-500">
+         <Alert className="bg-card border-border shadow-sm text-card-foreground">
+            <Info className="h-4 w-4 text-purple-500" />
+            <AlertTitle className="text-foreground text-xs font-bold">Separação de Clientes</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground leading-relaxed mt-1">
               Pessoas Jurídicas (PJ) são identificadas pelo tipo 'J' ou CNPJ com mais de 11 dígitos. 
               Pessoas Físicas (PF) são identificadas pelo tipo 'F' ou CPF com até 11 dígitos.
             </AlertDescription>

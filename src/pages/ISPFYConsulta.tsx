@@ -221,27 +221,27 @@ const ISPFYConsulta: React.FC = () => {
 
   return (
     <PageTransition>
-      <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
+      <div className="space-y-6 text-foreground">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-2"
         >
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Database className="w-4 h-4" />
             <span>Sistema ISPFY</span>
             <span>/</span>
-            <span className="text-gray-900 font-medium">Consulta de Clientes</span>
+            <span className="text-foreground font-medium">Consulta de Clientes</span>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
                   <User className="w-6 h-6 text-white" />
                 </div>
                 Consulta ISPFY
               </h1>
-              <p className="text-gray-600 mt-2">
+              <p className="text-muted-foreground mt-2">
                 Busque informações de clientes na base de dados ISPFY
               </p>
             </div>
@@ -253,10 +253,10 @@ const ISPFYConsulta: React.FC = () => {
                     connectionStatus === 'connected' ? 'bg-green-500' :
                     connectionStatus === 'disconnected' ? 'bg-red-500' :
                     connectionStatus === 'testing' ? 'bg-yellow-500 animate-pulse' :
-                    'bg-gray-400'
+                    'bg-muted-foreground'
                   }`}
                 />
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-muted-foreground">
                   {connectionStatus === 'connected' && 'Conectado'}
                   {connectionStatus === 'disconnected' && 'Desconectado'}
                   {connectionStatus === 'testing' && 'Testando...'}
@@ -268,7 +268,7 @@ const ISPFYConsulta: React.FC = () => {
         </motion.div>
 
         {/* Card de Busca */}
-        <Card className="bg-white shadow-sm">
+        <Card className="bg-card border-border shadow-sm text-card-foreground">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Search className="w-5 h-5" />
@@ -376,14 +376,14 @@ const ISPFYConsulta: React.FC = () => {
         {/* Resultados da Busca */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Lista de Resultados */}
-          <Card className="bg-white shadow-sm">
+          <Card className="bg-card border-border shadow-sm text-card-foreground">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <User className="w-5 h-5" />
+                  <User className="w-5 h-5 text-primary" />
                   Resultados ({searchState.totalResults})
                 </span>
-                {searchState.loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {searchState.loading && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -401,10 +401,10 @@ const ISPFYConsulta: React.FC = () => {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.1 }}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                         selectedClient?.id === cliente.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary/20'
+                          : 'border-border hover:border-primary/30 hover:bg-secondary/40'
                       }`}
                       onClick={async () => {
                         console.log('--- DADOS BRUTOS DO CLIENTE (Consulta) ---', cliente);
@@ -425,16 +425,16 @@ const ISPFYConsulta: React.FC = () => {
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium text-gray-900">
+                          <p className="font-bold text-foreground">
                             {cliente.nome_razao || cliente.nome || cliente.razao || 'Nome não informado'}
                           </p>
-                          <p className="text-sm text-gray-600">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {(cliente.cpf_cnpj || cliente.cnpj_cpf) ? formatCnpjCpf(cliente.cpf_cnpj || cliente.cnpj_cpf) : 'CPF/CNPJ não informado'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           {(cliente.ativo === 'S' || cliente.contrato_ativo === 'S') && (
-                            <Badge variant="default" className="bg-green-100 text-green-800">
+                            <Badge variant="default" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-medium">
                               Ativo
                             </Badge>
                           )}
@@ -447,7 +447,7 @@ const ISPFYConsulta: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted-foreground">
                   <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p>Nenhum resultado encontrado</p>
                   <p className="text-sm">Tente ajustar os critérios de busca</p>
@@ -457,10 +457,10 @@ const ISPFYConsulta: React.FC = () => {
           </Card>
 
           {/* Detalhes do Cliente Selecionado */}
-          <Card className="bg-white shadow-sm">
+          <Card className="bg-card border-border shadow-sm text-card-foreground">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
+                <FileText className="w-5 h-5 text-primary" />
                 Detalhes do Cliente
               </CardTitle>
             </CardHeader>
@@ -473,9 +473,9 @@ const ISPFYConsulta: React.FC = () => {
                 >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600">Nome</Label>
+                      <Label className="text-sm font-medium text-muted-foreground">Nome</Label>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900">{selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || 'Não informado'}</p>
+                        <p className="text-foreground font-semibold">{selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || 'Não informado'}</p>
                         {(selectedClient.nome_razao || selectedClient.nome || selectedClient.razao) && (
                           <Button
                             variant="ghost"
@@ -489,17 +489,17 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600">Tipo de Pessoa</Label>
-                      <p className="text-gray-900">
+                      <Label className="text-sm font-medium text-muted-foreground">Tipo de Pessoa</Label>
+                      <p className="text-foreground">
                         {selectedClient.tipo_pessoa === 'F' ? 'Física' : 
                          selectedClient.tipo_pessoa === 'J' ? 'Jurídica' : 'Não informado'}
                       </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600">CNPJ/CPF</Label>
+                      <Label className="text-sm font-medium text-muted-foreground">CNPJ/CPF</Label>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900">{formatCnpjCpf(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf)}</p>
+                        <p className="text-foreground font-mono">{formatCnpjCpf(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf)}</p>
                         {(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf) && (
                           <Button
                             variant="ghost"
@@ -513,10 +513,10 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600">Status</Label>
+                      <Label className="text-sm font-medium text-muted-foreground">Status</Label>
                       <div className="flex items-center gap-2">
                         {(selectedClient.ativo === 'S' || selectedClient.contrato_ativo === 'S') ? (
-                          <Badge variant="default" className="bg-green-100 text-green-800">
+                          <Badge variant="default" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                             <CheckCircle className="w-3 h-3 mr-1" />
                             Ativo
                           </Badge>
@@ -533,12 +533,12 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                         <Phone className="w-3 h-3" />
                         Telefone
                       </Label>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900">{formatPhone(selectedClient.fone_celular)}</p>
+                        <p className="text-foreground">{formatPhone(selectedClient.fone_celular)}</p>
                         {selectedClient.fone_celular && (
                           <Button
                             variant="ghost"
@@ -552,12 +552,12 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                         <Phone className="w-3 h-3" />
                         WhatsApp
                       </Label>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900">{formatPhone(selectedClient.fone_whatsapp)}</p>
+                        <p className="text-foreground">{formatPhone(selectedClient.fone_whatsapp)}</p>
                         {selectedClient.fone_whatsapp && (
                           <Button
                             variant="ghost"
@@ -571,12 +571,12 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                         <Mail className="w-3 h-3" />
                         Email
                       </Label>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900">{selectedClient.email || 'Não informado'}</p>
+                        <p className="text-foreground">{selectedClient.email || 'Não informado'}</p>
                         {selectedClient.email && (
                           <Button
                             variant="ghost"
@@ -590,19 +590,19 @@ const ISPFYConsulta: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
                         Cidade
                       </Label>
-                      <p className="text-gray-900">{selectedClient.endereco_cobranca_bairro ? `${selectedClient.endereco_cobranca_bairro}` : selectedClient.cidade || 'Não informado'}</p>
+                      <p className="text-foreground">{selectedClient.endereco_cobranca_bairro ? `${selectedClient.endereco_cobranca_bairro}` : selectedClient.cidade || 'Não informado'}</p>
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
-                      <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
                         Endereço
                       </Label>
-                      <p className="text-gray-900">
+                      <p className="text-foreground">
                         {(selectedClient.endereco_cobranca_rua || selectedClient.endereco) 
                           ? `${selectedClient.endereco_cobranca_rua || selectedClient.endereco}, ${selectedClient.endereco_cobranca_numero || ''} ${selectedClient.endereco_cobranca_bairro || selectedClient.bairro || ''}`.trim()
                           : 'Não informado'}
@@ -611,8 +611,8 @@ const ISPFYConsulta: React.FC = () => {
 
                     {selectedClient.obs && (
                       <div className="space-y-2 md:col-span-2">
-                        <Label className="text-sm font-medium text-gray-600">Observações</Label>
-                        <p className="text-gray-900">{selectedClient.obs}</p>
+                        <Label className="text-sm font-medium text-muted-foreground">Observações</Label>
+                        <p className="text-foreground bg-secondary/30 p-2.5 rounded-lg border border-border/60">{selectedClient.obs}</p>
                       </div>
                     )}
                   </div>

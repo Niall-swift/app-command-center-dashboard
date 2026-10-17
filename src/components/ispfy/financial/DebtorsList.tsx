@@ -120,42 +120,42 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
 
     return (
         <>
-            <Card className="bg-white shadow-sm h-full flex flex-col">
+            <Card className="bg-card border-border shadow-sm h-full flex flex-col text-card-foreground">
                 <CardHeader>
-                    <CardTitle className="text-lg text-gray-800 flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-red-500" />
+                    <CardTitle className="text-lg text-foreground flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-rose-500" />
                         Top 10 Inadimplentes (Críticos)
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0 flex-1 overflow-hidden">
                     <div className="h-full overflow-y-auto">
                         {debtors.length === 0 ? (
-                            <div className="p-4 text-center text-gray-500">
+                            <div className="p-4 text-center text-muted-foreground">
                                 Nenhuma inadimplência crítica encontrada.
                             </div>
                         ) : (
                             <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+                                <thead className="text-xs text-muted-foreground uppercase bg-secondary/60 sticky top-0 z-10 border-b border-border/60">
                                     <tr>
-                                        <th className="px-4 py-3 bg-gray-50">Cliente</th>
-                                        <th className="px-4 py-3 text-right bg-gray-50">Dívida Total</th>
-                                        <th className="px-4 py-3 text-center bg-gray-50">Ações</th>
+                                        <th className="px-4 py-3">Cliente</th>
+                                        <th className="px-4 py-3 text-right">Dívida Total</th>
+                                        <th className="px-4 py-3 text-center">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {debtors.map((d, i) => (
-                                        <tr key={i} className="border-b hover:bg-gray-50 transition-colors">
-                                            <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-[150px]" title={d.nome}>
+                                        <tr key={i} className="border-b border-border/60 hover:bg-secondary/40 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-foreground truncate max-w-[150px]" title={d.nome}>
                                                 {d.nome}
                                             </td>
-                                            <td className="px-4 py-3 text-right text-red-600 font-bold">
+                                            <td className="px-4 py-3 text-right text-rose-600 dark:text-rose-400 font-bold">
                                                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.valor)}
                                             </td>
                                             <td className="px-4 py-3 text-center">
                                                 <Button 
                                                     variant="ghost" 
                                                     size="icon" 
-                                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 hover:bg-emerald-500/10"
                                                     onClick={() => handleOpenBilling(d)}
                                                     title="Cobrar no WhatsApp"
                                                 >
@@ -172,10 +172,10 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
             </Card>
 
             <Dialog open={!!selectedDebtor} onOpenChange={(open) => !open && setSelectedDebtor(null)}>
-                <DialogContent>
+                <DialogContent className="max-w-md bg-card border-border text-foreground">
                     <DialogHeader>
-                        <DialogTitle>Enviar Cobrança</DialogTitle>
-                        <DialogDescription>
+                        <DialogTitle className="text-foreground">Enviar Cobrança</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">
                             Enviar mensagem de cobrança via WhatsApp para <strong>{selectedDebtor?.nome}</strong>.
                         </DialogDescription>
                     </DialogHeader>
@@ -188,28 +188,28 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
                     ) : (
                         <div className="space-y-4 py-2">
                             <div className="text-sm">
-                                <span className="font-semibold text-gray-700">Contatos encontrados:</span>
+                                <span className="font-semibold text-foreground">Contatos encontrados:</span>
                                 {phones.length > 0 ? (
                                     <div className="flex flex-wrap gap-2 mt-1">
                                         {phones.map((phone, idx) => (
-                                            <div key={idx} className="flex items-center gap-1 bg-green-50 text-green-700 px-2 py-1 rounded-md text-xs border border-green-200">
+                                            <div key={idx} className="flex items-center gap-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-md text-xs border border-emerald-500/30">
                                                 <Phone className="w-3 h-3" />
                                                 {phone}
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <p className="text-red-500 mt-1">Nenhum telefone válido encontrado.</p>
+                                    <p className="text-rose-500 mt-1">Nenhum telefone válido encontrado.</p>
                                 )}
                             </div>
 
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-gray-700">Mensagem:</label>
+                                    <label className="text-sm font-medium text-foreground">Mensagem:</label>
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1 font-bold text-xs"
+                                        className="h-8 text-primary hover:bg-primary/10 gap-1 font-bold text-xs"
                                         onClick={handleGenerateAIMessage}
                                         disabled={isGeneratingAI}
                                     >
@@ -222,7 +222,7 @@ export const DebtorsList: React.FC<DebtorsListProps> = ({ debtors, loading }) =>
                                     </Button>
                                 </div>
                                 <textarea 
-                                    className="w-full p-3 border rounded-xl text-sm bg-gray-50 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-indigo-500 border-gray-200"
+                                    className="w-full p-3 border rounded-xl text-sm bg-background text-foreground min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary border-input"
                                     value={messagePreview}
                                     onChange={(e) => setMessagePreview(e.target.value)}
                                 />

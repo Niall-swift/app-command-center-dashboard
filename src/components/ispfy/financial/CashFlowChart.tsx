@@ -14,9 +14,9 @@ export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, loading }) =
   }
 
   return (
-    <Card className="bg-white shadow-sm border-none">
+    <Card className="bg-card border-border shadow-sm text-card-foreground">
       <CardHeader>
-        <CardTitle className="text-xl font-bold text-gray-900">Fluxo de Caixa (Entradas vs Saídas)</CardTitle>
+        <CardTitle className="text-xl font-bold text-foreground">Fluxo de Caixa (Entradas vs Saídas)</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[350px] w-full mt-4">
@@ -32,22 +32,22 @@ export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, loading }) =
                   <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis 
                 dataKey="date" 
-                tick={{ fontSize: 12, fill: '#9CA3AF' }} 
+                tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} 
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis 
-                tick={{ fontSize: 12, fill: '#9CA3AF' }} 
+                tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} 
                 tickFormatter={(value) => `R$ ${value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}`}
                 axisLine={false}
                 tickLine={false}
               />
               <Tooltip 
                 formatter={(value: number) => [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']}
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                contentStyle={{ borderRadius: '12px', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--card-foreground))' }}
               />
               <Legend verticalAlign="top" align="right" height={36}/>
               <Area 

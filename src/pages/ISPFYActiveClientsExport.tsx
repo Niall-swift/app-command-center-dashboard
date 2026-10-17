@@ -335,29 +335,29 @@ export default function ISPFYActiveClientsExport() {
 
   return (
     <PageTransition>
-      <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
+      <div className="space-y-6 text-foreground">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-2"
         >
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Database className="w-4 h-4" />
             <span>Sistema ISPFY</span>
             <span>/</span>
-            <span className="text-gray-900 font-medium">Exportador de Clientes Ativos</span>
+            <span className="text-foreground font-medium">Exportador de Clientes Ativos</span>
           </div>
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-black text-gray-900 flex items-center gap-3 tracking-tight">
-                <div className="w-12 h-12 bg-gradient-to-br from-sky-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-sky-200">
+              <h1 className="text-4xl font-black text-foreground flex items-center gap-3 tracking-tight">
+                <div className="w-12 h-12 bg-gradient-to-br from-sky-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-sky-500/20">
                   <FileSpreadsheet className="w-7 h-7 text-white" />
                 </div>
                 Exportar Clientes Ativos
               </h1>
-              <p className="text-gray-500 mt-2 font-medium">
+              <p className="text-muted-foreground mt-2 font-medium">
                 Busca recursiva na base ISPFY para extrair e gerar planilha de cadastros ativos.
               </p>
             </div>
@@ -366,15 +366,15 @@ export default function ISPFYActiveClientsExport() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Seletor de Colunas */}
-          <Card className="lg:col-span-2 bg-white border-none shadow-sm flex flex-col justify-between">
-            <CardHeader className="border-b border-gray-100 pb-4">
+          <Card className="lg:col-span-2 bg-card border-border shadow-sm flex flex-col justify-between text-card-foreground">
+            <CardHeader className="border-b border-border/60 pb-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-gray-900 text-lg flex items-center gap-2">
+                  <CardTitle className="text-foreground text-lg flex items-center gap-2">
                     <Settings2 className="w-5 h-5 text-sky-500" />
                     Colunas do Cadastro
                   </CardTitle>
-                  <CardDescription className="text-gray-500 text-xs">
+                  <CardDescription className="text-muted-foreground text-xs">
                     Selecione quais dados cadastrais deseja incluir no relatório final.
                   </CardDescription>
                 </div>
@@ -382,7 +382,7 @@ export default function ISPFYActiveClientsExport() {
                   variant="outline" 
                   size="sm" 
                   onClick={handleSelectAll}
-                  className="text-xs h-8 font-semibold border-gray-200 hover:border-sky-500"
+                  className="text-xs h-8 font-semibold border-border hover:border-sky-500 hover:bg-secondary"
                 >
                   {selectedColumns.length === AVAILABLE_COLUMNS.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
                 </Button>
@@ -398,8 +398,8 @@ export default function ISPFYActiveClientsExport() {
                       onClick={() => handleToggleColumn(col.key as string)}
                       className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                         isChecked 
-                          ? 'border-sky-200 bg-sky-50/50 shadow-sm' 
-                          : 'border-gray-100 hover:border-gray-200 bg-white'
+                          ? 'border-sky-500/40 bg-sky-500/10 shadow-sm' 
+                          : 'border-border/60 hover:border-border bg-secondary/20 hover:bg-secondary/50'
                       }`}
                     >
                       <Checkbox 
@@ -411,11 +411,11 @@ export default function ISPFYActiveClientsExport() {
                       <div className="space-y-0.5">
                         <Label 
                           htmlFor={`col-${col.key}`} 
-                          className="font-bold text-sm text-gray-800 cursor-pointer"
+                          className="font-bold text-sm text-foreground cursor-pointer"
                         >
                           {col.label}
                         </Label>
-                        <p className="text-xs text-gray-500 leading-normal">{col.description}</p>
+                        <p className="text-xs text-muted-foreground leading-normal">{col.description}</p>
                       </div>
                     </div>
                   );
@@ -425,45 +425,45 @@ export default function ISPFYActiveClientsExport() {
           </Card>
 
           {/* Configurações de Download e Progresso */}
-          <Card className="lg:col-span-1 bg-white border-none shadow-sm flex flex-col justify-between">
-            <CardHeader className="border-b border-gray-100 pb-4">
-              <CardTitle className="text-gray-900 text-lg flex items-center gap-2">
+          <Card className="lg:col-span-1 bg-card border-border shadow-sm flex flex-col justify-between text-card-foreground">
+            <CardHeader className="border-b border-border/60 pb-4">
+              <CardTitle className="text-foreground text-lg flex items-center gap-2">
                 <ListFilter className="w-5 h-5 text-sky-500" />
                 Configuração de Saída
               </CardTitle>
-              <CardDescription className="text-gray-500 text-xs">
+              <CardDescription className="text-muted-foreground text-xs">
                 Defina o formato de salvamento da planilha.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6 flex-1 space-y-6">
               <div className="space-y-3">
-                <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Delimitador do CSV
                 </Label>
                 <div className="flex gap-2">
                   <Button
                     variant={delimiter === ';' ? 'default' : 'outline'}
-                    className={`flex-1 font-bold ${delimiter === ';' ? 'bg-sky-600 hover:bg-sky-700' : ''}`}
+                    className={`flex-1 font-bold ${delimiter === ';' ? 'bg-sky-600 hover:bg-sky-700 text-white' : ''}`}
                     onClick={() => setDelimiter(';')}
                   >
                     Ponto e vírgula (;)
                   </Button>
                   <Button
                     variant={delimiter === ',' ? 'default' : 'outline'}
-                    className={`flex-1 font-bold ${delimiter === ',' ? 'bg-sky-600 hover:bg-sky-700' : ''}`}
+                    className={`flex-1 font-bold ${delimiter === ',' ? 'bg-sky-600 hover:bg-sky-700 text-white' : ''}`}
                     onClick={() => setDelimiter(',')}
                   >
                     Vírgula (,)
                   </Button>
                 </div>
-                <p className="text-[10px] text-gray-400 italic">
+                <p className="text-[10px] text-muted-foreground italic">
                   * Ponto e vírgula (;) é recomendado para abrir diretamente no Microsoft Excel brasileiro.
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 space-y-4">
+              <div className="pt-4 border-t border-border/60 space-y-4">
                 <Button 
-                  className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold h-12 rounded-xl shadow-md shadow-sky-100 gap-2 transition-all active:scale-[0.98]"
+                  className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold h-12 rounded-xl shadow-md shadow-sky-500/20 gap-2 transition-all active:scale-[0.98]"
                   onClick={handleFetchActiveClients}
                   disabled={loading}
                 >
@@ -482,7 +482,7 @@ export default function ISPFYActiveClientsExport() {
 
                 {activeClients.length > 0 && !loading && (
                   <Button
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-12 rounded-xl shadow-md shadow-emerald-100 gap-2 transition-all active:scale-[0.98]"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-12 rounded-xl shadow-md shadow-emerald-500/20 gap-2 transition-all active:scale-[0.98]"
                     onClick={handleDownloadCSV}
                   >
                     <Download className="w-5 h-5" />
@@ -493,13 +493,13 @@ export default function ISPFYActiveClientsExport() {
 
               {/* Status e Progresso */}
               {(loading || progress > 0) && (
-                <div className="space-y-2 pt-4 border-t border-gray-100">
+                <div className="space-y-2 pt-4 border-t border-border/60">
                   <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="text-gray-600">Status da Coleta</span>
-                    <span className="text-sky-600 font-bold">{loadedCount} registros</span>
+                    <span className="text-muted-foreground">Status da Coleta</span>
+                    <span className="text-sky-500 font-bold">{loadedCount} registros</span>
                   </div>
-                  <Progress value={progress} className="h-2 bg-gray-100 text-sky-500" />
-                  <p className="text-[11px] font-medium text-gray-500 flex items-center gap-1.5">
+                  <Progress value={progress} className="h-2 bg-secondary text-sky-500" />
+                  <p className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
                     {loading && <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />}
                     {statusMessage}
                   </p>
@@ -517,15 +517,15 @@ export default function ISPFYActiveClientsExport() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
             >
-              <Card className="bg-white border-none shadow-sm overflow-hidden">
-                <CardHeader className="border-b border-gray-100 pb-4">
+              <Card className="bg-card border-border shadow-sm overflow-hidden text-card-foreground">
+                <CardHeader className="border-b border-border/60 pb-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-gray-900 text-lg flex items-center gap-2">
+                      <CardTitle className="text-foreground text-lg flex items-center gap-2">
                         <FileText className="w-5 h-5 text-sky-500" />
                         Pré-visualização dos Clientes Ativos
                       </CardTitle>
-                      <CardDescription className="text-gray-500 text-xs">
+                      <CardDescription className="text-muted-foreground text-xs">
                         Mostrando uma amostra das primeiras 10 linhas que serão exportadas.
                       </CardDescription>
                     </div>
@@ -534,12 +534,12 @@ export default function ISPFYActiveClientsExport() {
                 <CardContent className="p-0">
                   <ScrollArea className="w-full overflow-x-auto">
                     <Table>
-                      <TableHeader className="bg-gray-50">
-                        <TableRow>
+                      <TableHeader className="bg-secondary/40">
+                        <TableRow className="border-border/60">
                           {AVAILABLE_COLUMNS
                             .filter(col => selectedColumns.includes(col.key as string))
                             .map(col => (
-                              <TableHead key={col.key} className="text-gray-700 font-bold uppercase text-xs">
+                              <TableHead key={col.key} className="text-foreground font-bold uppercase text-xs">
                                 {col.label}
                               </TableHead>
                             ))}
@@ -547,11 +547,11 @@ export default function ISPFYActiveClientsExport() {
                       </TableHeader>
                       <TableBody>
                         {activeClients.slice(0, 10).map((client, i) => (
-                          <TableRow key={i} className="hover:bg-gray-50/50 transition-colors">
+                          <TableRow key={i} className="hover:bg-secondary/40 transition-colors border-border/60">
                             {AVAILABLE_COLUMNS
                               .filter(col => selectedColumns.includes(col.key as string))
                               .map(col => (
-                                <TableCell key={col.key} className="text-gray-700 text-sm max-w-xs truncate">
+                                <TableCell key={col.key} className="text-foreground text-sm max-w-xs truncate">
                                   {getClientValue(client, col.key as string) || '-'}
                                 </TableCell>
                               ))}
@@ -568,18 +568,18 @@ export default function ISPFYActiveClientsExport() {
 
         {/* Alertas informativos */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Alert className="bg-white border-none shadow-sm">
+          <Alert className="bg-card border-border shadow-sm text-card-foreground">
             <Info className="h-4 w-4 text-sky-500" />
-            <AlertTitle className="text-gray-800 font-bold text-sm">Controle de Progresso</AlertTitle>
-            <AlertDescription className="text-xs text-gray-500 leading-relaxed mt-1">
+            <AlertTitle className="text-foreground font-bold text-sm">Controle de Progresso</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground leading-relaxed mt-1">
               A API do ISPFY Soft retorna registros paginados de 1.000 em 1.000. O sistema acumulará recursivamente 
               todos os clientes ativos e atualizará o progresso em lotes.
             </AlertDescription>
           </Alert>
-          <Alert className="bg-white border-none shadow-sm">
+          <Alert className="bg-card border-border shadow-sm text-card-foreground">
             <HelpCircle className="h-4 w-4 text-sky-500" />
-            <AlertTitle className="text-gray-800 font-bold text-sm">Codificação UTF-8</AlertTitle>
-            <AlertDescription className="text-xs text-gray-500 leading-relaxed mt-1">
+            <AlertTitle className="text-foreground font-bold text-sm">Codificação UTF-8</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground leading-relaxed mt-1">
               Exportamos a planilha com o marcador UTF-8 BOM, garantindo compatibilidade direta com acentuações no Excel 
               sem necessitar de assistente de importação manual.
             </AlertDescription>

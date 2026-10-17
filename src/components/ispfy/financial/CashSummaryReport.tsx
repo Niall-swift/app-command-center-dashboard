@@ -69,7 +69,7 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
 
   if (loading) {
     return (
-      <Card className="bg-white shadow-sm border-none overflow-hidden">
+      <Card className="bg-card border-border shadow-sm overflow-hidden text-card-foreground">
         <CardHeader><Skeleton className="h-6 w-1/3" /></CardHeader>
         <CardContent><Skeleton className="h-[400px] w-full" /></CardContent>
       </Card>
@@ -77,12 +77,12 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
   }
 
   return (
-    <Card className="bg-white shadow-sm border-none overflow-hidden">
+    <Card className="bg-card border-border shadow-sm overflow-hidden text-card-foreground">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle className="text-xl font-bold text-gray-900">Resumo do Caixa</CardTitle>
+        <CardTitle className="text-xl font-bold text-foreground">Resumo do Caixa</CardTitle>
         <div className="flex items-center gap-4">
           <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Buscar lançamentos..." 
               className="pl-10 h-9 text-sm"
@@ -91,7 +91,7 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
             />
           </div>
           <Button 
-            className="bg-indigo-600 hover:bg-indigo-700 h-9 gap-2"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 gap-2"
             onClick={() => setIsModalOpen(true)}
             disabled={!selectedCaixaId}
           >
@@ -103,43 +103,43 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-gray-100 text-gray-500 uppercase font-semibold">
+              <tr className="border-b border-border/60 text-muted-foreground uppercase font-semibold">
                 <th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3">Histórico</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3 text-right">Valor</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-border/60">
               {filteredMovements.length > 0 ? filteredMovements.map((m) => (
-                <tr key={m.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-4 text-gray-600 whitespace-nowrap">
+                <tr key={m.id} className="hover:bg-secondary/40 transition-colors">
+                  <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
                     {m.data?.split(' ')[0].split('-').reverse().join('/')}
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-col">
-                      <span className="font-medium text-gray-900">{m.historico}</span>
-                      <span className="text-xs text-gray-400">Doc: {m.documento || '---'}</span>
+                      <span className="font-medium text-foreground">{m.historico}</span>
+                      <span className="text-xs text-muted-foreground">Doc: {m.documento || '---'}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     {m.tipo === 'E' ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 border-none hover:bg-emerald-100 gap-1">
+                      <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-none hover:bg-emerald-500/20 gap-1">
                         <ArrowUpCircle className="w-3 h-3" /> Entrada
                       </Badge>
                     ) : (
-                      <Badge className="bg-rose-100 text-rose-700 border-none hover:bg-rose-100 gap-1">
+                      <Badge className="bg-rose-500/10 text-rose-700 dark:text-rose-300 border-none hover:bg-rose-500/20 gap-1">
                         <ArrowDownCircle className="w-3 h-3" /> Saída
                       </Badge>
                     )}
                   </td>
-                  <td className={`px-4 py-4 text-right font-bold ${m.tipo === 'E' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <td className={`px-4 py-4 text-right font-bold ${m.tipo === 'E' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                     {m.tipo === 'E' ? '+' : '-'} R$ {parseFloat(m.valor || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-gray-500 italic">
+                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground italic">
                     Nenhum lançamento encontrado para o período.
                   </td>
                 </tr>
@@ -150,9 +150,9 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
       </CardContent>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="max-w-md bg-white">
+          <DialogContent className="max-w-md bg-card border-border text-foreground">
               <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-gray-900">Novo Lançamento Manual</DialogTitle>
+                  <DialogTitle className="text-xl font-bold text-foreground">Novo Lançamento Manual</DialogTitle>
               </DialogHeader>
               
               <div className="grid gap-4 py-4">
@@ -165,9 +165,9 @@ export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
                           <SelectTrigger className="w-full">
                               <SelectValue placeholder="Selecione o tipo" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white">
-                              <SelectItem value="E" className="text-emerald-600 font-bold">Entrada (+)</SelectItem>
-                              <SelectItem value="S" className="text-rose-600 font-bold">Saída (-)</SelectItem>
+                          <SelectContent className="bg-popover border-border text-popover-foreground">
+                              <SelectItem value="E" className="text-emerald-600 dark:text-emerald-400 font-bold">Entrada (+)</SelectItem>
+                              <SelectItem value="S" className="text-rose-600 dark:text-rose-400 font-bold">Saída (-)</SelectItem>
                           </SelectContent>
                       </Select>
                   </div>

@@ -42,27 +42,27 @@ const ISPFYFinancial: React.FC = () => {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
+            <div className="space-y-6 text-foreground">
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-2"
                 >
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Database className="w-4 h-4" />
                         <span>Sistema ISPFY</span>
                         <span>/</span>
-                        <span className="text-gray-900 font-medium">Financeiro</span>
+                        <span className="text-foreground font-medium">Financeiro</span>
                     </div>
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
                                 <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
                                     <TrendingUp className="w-6 h-6 text-white" />
                                 </div>
                                 Dashboard Financeiro
                             </h1>
-                            <p className="text-gray-600 mt-2">
+                            <p className="text-muted-foreground mt-2">
                                 Visão geral da saúde financeira do provedor
                             </p>
                         </div>

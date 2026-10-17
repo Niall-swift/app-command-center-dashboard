@@ -133,42 +133,42 @@ const ISPFYFinanceiro: React.FC = () => {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
+            <div className="space-y-6 text-foreground">
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-2"
                 >
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Database className="w-4 h-4" />
                         <span>Sistema ISPFY</span>
                         <span>/</span>
-                        <span className="text-gray-900 font-medium">Gestão Financeira Elite</span>
+                        <span className="text-foreground font-medium">Gestão Financeira Elite</span>
                     </div>
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-4xl font-black text-gray-900 flex items-center gap-3 tracking-tight">
-                                <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                            <h1 className="text-4xl font-black text-foreground flex items-center gap-3 tracking-tight">
+                                <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
                                     <TrendingUp className="w-7 h-7 text-white" />
                                 </div>
                                 Financeiro & Business Intelligence
                             </h1>
-                            <p className="text-gray-500 mt-2 font-medium">
+                            <p className="text-muted-foreground mt-2 font-medium">
                                 Controle total de fluxo de caixa, inadimplência e contas correntes
                             </p>
                         </div>
                         <div className="flex items-center gap-3">
                             <Button 
                                 variant="outline" 
-                                className="bg-gradient-to-r from-indigo-50 to-violet-50 border-indigo-100 text-indigo-700 hover:from-indigo-100 hover:to-violet-100 gap-2 h-11 px-6 rounded-xl font-bold transition-all shadow-sm"
+                                className="bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 gap-2 h-11 px-6 rounded-xl font-bold transition-all shadow-sm"
                                 onClick={handleGenerateAIAnalysis}
                                 disabled={isGeneratingAi || loading}
                             >
                                 {isGeneratingAi ? (
                                     <RefreshCcw className="w-4 h-4 animate-spin" />
                                 ) : (
-                                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                                    <Sparkles className="w-4 h-4 text-primary" />
                                 )}
                                 Insights com IA
                             </Button>
@@ -176,7 +176,7 @@ const ISPFYFinanceiro: React.FC = () => {
                                 variant="outline" 
                                 onClick={fetchData} 
                                 disabled={loading}
-                                className="gap-2 h-11 px-6 rounded-xl border-gray-200 hover:bg-white hover:border-indigo-600 transition-all font-semibold"
+                                className="gap-2 h-11 px-6 rounded-xl border-border hover:bg-secondary transition-all font-semibold"
                             >
                                 <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                                 Sincronizar ISPFY
@@ -187,35 +187,35 @@ const ISPFYFinanceiro: React.FC = () => {
 
                 {/* KPI Cards Extraordinários */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Card className="bg-white border-none shadow-sm h-full">
+                    <Card className="bg-card border-border shadow-sm h-full text-card-foreground">
                         <CardContent className="p-6">
                             <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-emerald-100 rounded-xl text-emerald-600">
+                                <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600 dark:text-emerald-400">
                                     <ArrowUpCircle className="w-6 h-6" />
                                 </div>
-                                <Badge className="bg-emerald-50 text-emerald-700 border-none font-bold">+12.5%</Badge>
+                                <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-none font-bold">+12.5%</Badge>
                             </div>
-                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Entradas (30d)</h3>
-                            <p className="text-2xl font-black text-gray-900 mt-1">
+                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Entradas (30d)</h3>
+                            <p className="text-2xl font-black text-foreground mt-1">
                                 R$ {(fullSummary?.inflow || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </p>
                         </CardContent>
                     </Card>
-                    <Card className="bg-white border-none shadow-sm h-full">
+                    <Card className="bg-card border-border shadow-sm h-full text-card-foreground">
                         <CardContent className="p-6">
                             <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-rose-100 rounded-xl text-rose-600">
+                                <div className="p-3 bg-rose-500/10 rounded-xl text-rose-600 dark:text-rose-400">
                                     <ArrowDownCircle className="w-6 h-6" />
                                 </div>
-                                <Badge className="bg-rose-50 text-rose-700 border-none font-bold">Saída</Badge>
+                                <Badge className="bg-rose-500/10 text-rose-700 dark:text-rose-300 border-none font-bold">Saída</Badge>
                             </div>
-                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Saídas (30d)</h3>
-                            <p className="text-2xl font-black text-gray-900 mt-1">
+                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Saídas (30d)</h3>
+                            <p className="text-2xl font-black text-foreground mt-1">
                                 R$ {(fullSummary?.outflow || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </p>
                         </CardContent>
                     </Card>
-                    <Card className="bg-indigo-600 border-none shadow-lg shadow-indigo-100 h-full">
+                    <Card className="bg-gradient-to-br from-indigo-600 to-violet-700 text-white border-none shadow-lg shadow-indigo-500/20 h-full">
                         <CardContent className="p-6">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="p-3 bg-white/20 rounded-xl text-white">
@@ -229,7 +229,7 @@ const ISPFYFinanceiro: React.FC = () => {
                             </p>
                         </CardContent>
                     </Card>
-                    <Card className="bg-amber-500 border-none shadow-lg shadow-amber-100 h-full text-white">
+                    <Card className="bg-gradient-to-br from-amber-500 to-amber-600 border-none shadow-lg shadow-amber-500/20 h-full text-white">
                         <CardContent className="p-6">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="p-3 bg-white/20 rounded-xl">
@@ -274,15 +274,15 @@ const ISPFYFinanceiro: React.FC = () => {
 
             {/* AI Insights Modal */}
             <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
-                <DialogContent className="max-w-2xl bg-white border-indigo-100">
+                <DialogContent className="max-w-2xl bg-card border-border text-foreground">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900">
-                            <BrainCircuit className="h-7 w-7 text-indigo-600" />
+                        <DialogTitle className="flex items-center gap-2 text-2xl font-black text-foreground">
+                            <BrainCircuit className="h-7 w-7 text-primary" />
                             Análise Estratégica AVL
                         </DialogTitle>
                     </DialogHeader>
                     
-                    <div className="mt-4 p-6 bg-indigo-50/30 rounded-2xl font-sans leading-relaxed whitespace-pre-wrap text-gray-800 border border-indigo-100 shadow-inner overflow-y-auto max-h-[60vh]">
+                    <div className="mt-4 p-6 bg-secondary/30 rounded-2xl font-sans leading-relaxed whitespace-pre-wrap text-foreground border border-border/80 shadow-inner overflow-y-auto max-h-[60vh]">
                         {aiReport}
                     </div>
 
@@ -290,12 +290,12 @@ const ISPFYFinanceiro: React.FC = () => {
                         <Button
                             variant="ghost"
                             onClick={() => setIsAiModalOpen(false)}
-                            className="font-bold text-gray-500"
+                            className="font-bold text-muted-foreground hover:text-foreground"
                         >
                             Fechar
                         </Button>
                         <Button
-                            className="bg-green-600 hover:bg-green-700 text-white gap-2 h-12 px-8 rounded-xl font-bold shadow-lg shadow-green-100 transition-all active:scale-95"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 h-12 px-8 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
                             onClick={handleSendToWhatsapp}
                             disabled={isSendingToWhatsapp}
                         >

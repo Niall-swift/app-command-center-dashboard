@@ -189,77 +189,77 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 text-foreground">
       {/* Welcome Section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+          <h1 className="text-3xl font-black text-foreground tracking-tight">
             Olá, {userData?.name || user?.displayName || 'Usuário'}! 👋
           </h1>
-          <p className="text-gray-500 font-medium">Bem-vindo ao centro de comando operacional do PreMix.</p>
+          <p className="text-muted-foreground font-medium">Bem-vindo ao centro de comando operacional do PreMix.</p>
         </div>
       </div>
 
       {/* KPI Cards / Widgets */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="bg-white border-none shadow-sm relative overflow-hidden">
+        <Card className="bg-card border-border shadow-sm relative overflow-hidden text-card-foreground">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cadastros no App</p>
-                <h3 className="text-3xl font-black text-gray-950 mt-1">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Cadastros no App</p>
+                <h3 className="text-3xl font-black text-foreground mt-1">
                   {loading ? '...' : totalUsersCount.toLocaleString()}
                 </h3>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
                 <Users className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-3 font-semibold flex items-center gap-1.5">
+            <p className="text-xs text-muted-foreground mt-3 font-semibold flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-blue-500" />
               Usuários cadastrados no PreMix
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-none shadow-sm relative overflow-hidden">
+        <Card className="bg-card border-border shadow-sm relative overflow-hidden text-card-foreground">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500" />
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Resgates Pendentes</p>
-                <h3 className="text-3xl font-black text-gray-950 mt-1">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Resgates Pendentes</p>
+                <h3 className="text-3xl font-black text-foreground mt-1">
                   {loading ? '...' : pendingRedemptionsCount}
                 </h3>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 dark:text-amber-400">
                 <Gift className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-3 font-semibold flex items-center gap-1.5">
+            <p className="text-xs text-muted-foreground mt-3 font-semibold flex items-center gap-1.5">
               <Hourglass className="w-3.5 h-3.5 text-amber-500" />
               Aguardando aprovação no painel
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-none shadow-sm relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-green-500" />
+        <Card className="bg-card border-border shadow-sm relative overflow-hidden text-card-foreground">
+          <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Assistindo Agora</p>
-                <h3 className="text-3xl font-black text-gray-950 mt-1">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Assistindo Agora</p>
+                <h3 className="text-3xl font-black text-foreground mt-1">
                   {activeWatchers.length}
                 </h3>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-green-600">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
                 <Activity className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-3 font-semibold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <p className="text-xs text-muted-foreground mt-3 font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               Clientes online no AVL Play
             </p>
           </CardContent>
@@ -273,44 +273,44 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           
           {/* Recent Registrations */}
-          <Card className="bg-white border-none shadow-sm">
-            <CardHeader className="pb-3 border-b border-gray-50 flex flex-row items-center justify-between">
+          <Card className="bg-card border-border shadow-sm text-card-foreground">
+            <CardHeader className="pb-3 border-b border-border/60 flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg font-bold text-gray-900">Novos Usuários no App</CardTitle>
-                <CardDescription className="text-xs">Clientes integrados recentemente ao aplicativo móvel.</CardDescription>
+                <CardTitle className="text-lg font-bold text-foreground">Novos Usuários no App</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">Clientes integrados recentemente ao aplicativo móvel.</CardDescription>
               </div>
               <Link to="/raffle">
-                <Button variant="ghost" size="sm" className="text-xs text-blue-600 hover:text-blue-700 font-bold gap-1">
+                <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary/90 font-bold gap-1">
                   Ver Todos <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </Link>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
-                <div className="p-8 text-center text-gray-400 text-sm">Carregando novos usuários...</div>
+                <div className="p-8 text-center text-muted-foreground text-sm">Carregando novos usuários...</div>
               ) : recentUsers.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-sm">Nenhum usuário cadastrado recentemente.</div>
+                <div className="p-8 text-center text-muted-foreground text-sm">Nenhum usuário cadastrado recentemente.</div>
               ) : (
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-border/60">
                   {recentUsers.map(user => {
                     const userName = user.name || user.nome || 'Usuário PreMix';
                     const initials = getInitials(userName);
                     return (
-                      <div key={user.id} className="flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors">
+                      <div key={user.id} className="flex items-center justify-between p-4 hover:bg-secondary/40 transition-colors">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${getAvatarBg(initials)}`}>
                             {initials}
                           </div>
                           <div>
-                            <h4 className="text-sm font-bold text-gray-800">{userName}</h4>
-                            <p className="text-xs text-gray-400 font-medium">
+                            <h4 className="text-sm font-bold text-foreground">{userName}</h4>
+                            <p className="text-xs text-muted-foreground font-medium">
                               {user.cidade || user.city || 'Cidade não informada'}
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-xs text-gray-600 font-bold block">{user.whatsapp || user.telefone || '-'}</span>
-                          <span className="text-[10px] text-gray-400">Contato Direct</span>
+                          <span className="text-xs text-foreground font-bold block">{user.whatsapp || user.telefone || '-'}</span>
+                          <span className="text-[10px] text-muted-foreground">Contato Direct</span>
                         </div>
                       </div>
                     );
@@ -321,40 +321,40 @@ export default function Dashboard() {
           </Card>
 
           {/* Pending Resgates */}
-          <Card className="bg-white border-none shadow-sm">
-            <CardHeader className="pb-3 border-b border-gray-50 flex flex-row items-center justify-between">
+          <Card className="bg-card border-border shadow-sm text-card-foreground">
+            <CardHeader className="pb-3 border-b border-border/60 flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg font-bold text-gray-900">Resgates Pendentes Recentes</CardTitle>
-                <CardDescription className="text-xs">Prêmios resgatados no app aguardando aprovação administrativa.</CardDescription>
+                <CardTitle className="text-lg font-bold text-foreground">Resgates Pendentes Recentes</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">Prêmios resgatados no app aguardando aprovação administrativa.</CardDescription>
               </div>
               <Link to="/redemption-orders">
-                <Button variant="ghost" size="sm" className="text-xs text-blue-600 hover:text-blue-700 font-bold gap-1">
+                <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary/90 font-bold gap-1">
                   Gerenciar Resgates <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </Link>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
-                <div className="p-8 text-center text-gray-400 text-sm">Carregando pedidos de resgate...</div>
+                <div className="p-8 text-center text-muted-foreground text-sm">Carregando pedidos de resgate...</div>
               ) : recentRedemptions.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-sm text-emerald-600 font-medium bg-emerald-50/20">
+                <div className="p-8 text-center text-sm text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-500/10">
                   🎉 Tudo em dia! Nenhum resgate pendente de aprovação.
                 </div>
               ) : (
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-border/60">
                   {recentRedemptions.map(redemption => (
-                    <div key={redemption.id} className="flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors">
+                    <div key={redemption.id} className="flex items-center justify-between p-4 hover:bg-secondary/40 transition-colors">
                       <div>
-                        <h4 className="text-sm font-bold text-gray-800">{redemption.rewardTitle}</h4>
-                        <p className="text-xs text-gray-400 font-semibold">
-                          Por: <span className="text-gray-600">{redemption.userName}</span>
+                        <h4 className="text-sm font-bold text-foreground">{redemption.rewardTitle}</h4>
+                        <p className="text-xs text-muted-foreground font-semibold">
+                          Por: <span className="text-foreground/90">{redemption.userName}</span>
                         </p>
                       </div>
                       <div className="text-right">
-                        <span className="inline-flex items-center bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase mb-1">
+                        <span className="inline-flex items-center bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase mb-1 border border-amber-500/20">
                           {redemption.pointsCost} PTS
                         </span>
-                        <p className="text-[10px] text-gray-400">
+                        <p className="text-[10px] text-muted-foreground">
                           {redemption.redeemedAt instanceof Date 
                             ? redemption.redeemedAt.toLocaleDateString('pt-BR') 
                             : 'Pendente'
@@ -373,38 +373,38 @@ export default function Dashboard() {
         <div className="space-y-6">
           
           {/* Active Watchers Monitor */}
-          <Card className="bg-white border-none shadow-sm flex flex-col h-[340px]">
-            <CardHeader className="pb-3 border-b border-gray-50 flex flex-row items-center justify-between">
+          <Card className="bg-card border-border shadow-sm flex flex-col h-[340px] text-card-foreground">
+            <CardHeader className="pb-3 border-b border-border/60 flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg font-bold text-gray-900 flex items-center gap-1.5">
-                  <Play className="w-4 h-4 text-green-500 fill-current" />
+                <CardTitle className="text-lg font-bold text-foreground flex items-center gap-1.5">
+                  <Play className="w-4 h-4 text-emerald-500 fill-current" />
                   AVL Play Online
                 </CardTitle>
-                <CardDescription className="text-xs">Sessões ativas reproduzindo agora.</CardDescription>
+                <CardDescription className="text-xs text-muted-foreground">Sessões ativas reproduzindo agora.</CardDescription>
               </div>
               <Link to="/avlplay-analytics">
-                <Button variant="ghost" size="sm" className="text-xs text-blue-600 hover:text-blue-700 font-bold p-1">
+                <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary/90 font-bold p-1">
                   Ver Métricas
                 </Button>
               </Link>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
               {activeWatchers.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                   <Play className="w-10 h-10 stroke-[1.5] mb-2 animate-pulse" />
                   <p className="text-xs">Ninguém assistindo no momento.</p>
                 </div>
               ) : (
                 activeWatchers.slice(0, 4).map(watcher => (
-                  <div key={watcher.id} className="p-3 rounded-xl border border-gray-50 bg-gray-50/50">
+                  <div key={watcher.id} className="p-3 rounded-xl border border-border/60 bg-secondary/30">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-800 truncate max-w-[120px]">
+                      <span className="text-xs font-bold text-foreground truncate max-w-[120px]">
                         {watcher.userName}
                       </span>
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                     </div>
-                    <p className="text-[10px] text-gray-500 truncate mt-1">
-                      Assistindo: <span className="font-bold text-blue-600">
+                    <p className="text-[10px] text-muted-foreground truncate mt-1">
+                      Assistindo: <span className="font-bold text-primary">
                         {watcher.type === 'episode' ? `${watcher.seriesTitle} (T${watcher.seasonNumber}E${watcher.episodeNumber})` : watcher.title}
                       </span>
                     </p>
@@ -415,38 +415,38 @@ export default function Dashboard() {
           </Card>
 
           {/* Quick Actions Shortcuts */}
-          <Card className="bg-white border-none shadow-sm">
-            <CardHeader className="pb-3 border-b border-gray-50">
-              <CardTitle className="text-lg font-bold text-gray-900">Acesso Rápido</CardTitle>
-              <CardDescription className="text-xs">Atalhos para tarefas frequentes.</CardDescription>
+          <Card className="bg-card border-border shadow-sm text-card-foreground">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <CardTitle className="text-lg font-bold text-foreground">Acesso Rápido</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground">Atalhos para tarefas frequentes.</CardDescription>
             </CardHeader>
             <CardContent className="p-4 grid grid-cols-2 gap-3">
               
               <Link to="/ispfy/consulta" className="group">
-                <div className="p-3 rounded-xl border border-gray-100 hover:border-blue-100 hover:bg-blue-50/30 transition-all flex flex-col items-center text-center">
+                <div className="p-3 rounded-xl border border-border/70 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all flex flex-col items-center text-center">
                   <Database className="w-5 h-5 text-blue-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-bold text-gray-700">Consulta ISPFY</span>
+                  <span className="text-xs font-bold text-foreground">Consulta ISPFY</span>
                 </div>
               </Link>
 
               <Link to="/whatsapp/bulk" className="group">
-                <div className="p-3 rounded-xl border border-gray-100 hover:border-emerald-100 hover:bg-emerald-50/30 transition-all flex flex-col items-center text-center">
+                <div className="p-3 rounded-xl border border-border/70 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-all flex flex-col items-center text-center">
                   <Send className="w-5 h-5 text-emerald-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-bold text-gray-700">Envio Massa</span>
+                  <span className="text-xs font-bold text-foreground">Envio Massa</span>
                 </div>
               </Link>
 
               <Link to="/notifications" className="group">
-                <div className="p-3 rounded-xl border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all flex flex-col items-center text-center">
+                <div className="p-3 rounded-xl border border-border/70 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all flex flex-col items-center text-center">
                   <Bell className="w-5 h-5 text-indigo-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-bold text-gray-700">Disparo Push</span>
+                  <span className="text-xs font-bold text-foreground">Disparo Push</span>
                 </div>
               </Link>
 
               <Link to="/ispfy/dici" className="group">
-                <div className="p-3 rounded-xl border border-gray-100 hover:border-purple-100 hover:bg-purple-50/30 transition-all flex flex-col items-center text-center">
+                <div className="p-3 rounded-xl border border-border/70 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all flex flex-col items-center text-center">
                   <FileSpreadsheet className="w-5 h-5 text-purple-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-bold text-gray-700">Relatório DICI</span>
+                  <span className="text-xs font-bold text-foreground">Relatório DICI</span>
                 </div>
               </Link>
 

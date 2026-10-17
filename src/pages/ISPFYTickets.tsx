@@ -175,34 +175,34 @@ const ISPFYTickets: React.FC = () => {
 
   return (
     <PageTransition>
-      <div className="flex flex-col gap-6 p-6 bg-gray-50 min-h-screen">
+      <div className="space-y-6 text-foreground">
         {/* Header com Breadcrumb */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-2"
         >
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Database className="w-4 h-4" />
             <span>Sistema ISPFY</span>
             <span>/</span>
-            <span className="text-gray-900 font-medium">Tickets de Suporte</span>
+            <span className="text-foreground font-medium">Tickets de Suporte</span>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center shadow-md">
                   <Ticket className="w-6 h-6 text-white" />
                 </div>
                 Tickets de Suporte
               </h1>
-              <p className="text-gray-600 mt-2">
+              <p className="text-muted-foreground mt-2 text-sm">
                 Gerencie chamados e solicitações de suporte com contagem diária de O.S.
               </p>
             </div>
             <Button
               onClick={() => setIsDailyModalOpen(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs font-semibold shadow-lg shadow-emerald-600/20"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs font-semibold shadow-md shadow-emerald-600/20"
             >
               <ClipboardList className="w-4 h-4" />
               <span>O.S. de Hoje</span>
@@ -216,26 +216,26 @@ const ISPFYTickets: React.FC = () => {
         {/* Métricas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card
-            className="border-emerald-500/30 bg-gradient-to-br from-emerald-50 to-teal-50/40 hover:shadow-md transition-all cursor-pointer"
+            className="border-emerald-500/30 bg-emerald-500/10 hover:shadow-md transition-all cursor-pointer"
             onClick={() => setIsDailyModalOpen(true)}
           >
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-emerald-900">O.S. de Hoje</p>
-                    <span className="text-[10px] bg-emerald-200 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">O.S. de Hoje</p>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold px-1.5 py-0.5 rounded">
                       Zera 00h
                     </span>
                   </div>
-                  <p className="text-2xl font-black text-emerald-700">
+                  <p className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
                     #{dailyCount}
                   </p>
-                  <p className="text-[11px] text-emerald-600 mt-0.5 font-medium">
+                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
                     Próxima: #{formattedNextDailyNumber} • Ver lista
                   </p>
                 </div>
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 flex items-center justify-center text-emerald-600">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                   <ClipboardList className="w-6 h-6" />
                 </div>
               </div>
@@ -246,12 +246,12 @@ const ISPFYTickets: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Tickets Abertos</p>
-                  <p className="text-2xl font-bold text-yellow-600">
+                  <p className="text-sm text-muted-foreground font-medium">Tickets Abertos</p>
+                  <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
                     {metricas.totalAbertos}
                   </p>
                 </div>
-                <AlertCircle className="w-8 h-8 text-yellow-600" />
+                <AlertCircle className="w-8 h-8 text-yellow-600 dark:text-yellow-400" />
               </div>
             </CardContent>
           </Card>
@@ -260,12 +260,12 @@ const ISPFYTickets: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Em Andamento</p>
-                  <p className="text-2xl font-bold text-blue-600">
+                  <p className="text-sm text-muted-foreground font-medium">Em Andamento</p>
+                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                     {metricas.totalEmAndamento}
                   </p>
                 </div>
-                <Clock className="w-8 h-8 text-blue-600" />
+                <Clock className="w-8 h-8 text-blue-600 dark:text-blue-400" />
               </div>
             </CardContent>
           </Card>
@@ -274,12 +274,12 @@ const ISPFYTickets: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Resolvidos</p>
-                  <p className="text-2xl font-bold text-green-600">
+                  <p className="text-sm text-muted-foreground font-medium">Resolvidos</p>
+                  <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                     {metricas.totalFechados}
                   </p>
                 </div>
-                <CheckCircle className="w-8 h-8 text-green-600" />
+                <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
               </div>
             </CardContent>
           </Card>
@@ -419,55 +419,55 @@ const ISPFYTickets: React.FC = () => {
                     className="space-y-4"
                   >
                     <div>
-                      <Label className="text-sm font-medium text-gray-600">Assunto</Label>
-                      <p className="text-gray-900 mt-1">
+                      <Label className="text-sm font-medium text-muted-foreground">Assunto</Label>
+                      <p className="text-foreground mt-1 font-semibold">
                         {selectedTicket.assunto || 'Não informado'}
                       </p>
                     </div>
 
                     <div>
-                      <Label className="text-sm font-medium text-gray-600">Descrição</Label>
-                      <p className="text-gray-900 mt-1 whitespace-pre-wrap">
+                      <Label className="text-sm font-medium text-muted-foreground">Descrição</Label>
+                      <p className="text-foreground mt-1 whitespace-pre-wrap text-sm leading-relaxed">
                         {selectedTicket.descricao || 'Sem descrição'}
                       </p>
                     </div>
 
                     <div>
-                      <Label className="text-sm font-medium text-gray-600">Status</Label>
-                      <p className="text-gray-900 mt-1">
+                      <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                      <p className="text-foreground mt-1 font-medium">
                         {selectedTicket.status || 'Não informado'}
                       </p>
                     </div>
 
                     <div>
-                      <Label className="text-sm font-medium text-gray-600">Prioridade</Label>
-                      <p className="text-gray-900 mt-1">
+                      <Label className="text-sm font-medium text-muted-foreground">Prioridade</Label>
+                      <p className="text-foreground mt-1 font-medium">
                         {selectedTicket.prioridade || 'Não informado'}
                       </p>
                     </div>
 
                     {selectedTicket.tecnico && (
                       <div>
-                        <Label className="text-sm font-medium text-gray-600">Técnico Responsável</Label>
-                        <p className="text-gray-900 mt-1">{selectedTicket.tecnico}</p>
+                        <Label className="text-sm font-medium text-muted-foreground">Técnico Responsável</Label>
+                        <p className="text-foreground mt-1 font-medium">{selectedTicket.tecnico}</p>
                       </div>
                     )}
 
                     {selectedTicket.tipo && (
                       <div>
-                        <Label className="text-sm font-medium text-gray-600">Tipo</Label>
-                        <p className="text-gray-900 mt-1">{selectedTicket.tipo}</p>
+                        <Label className="text-sm font-medium text-muted-foreground">Tipo</Label>
+                        <p className="text-foreground mt-1 font-medium">{selectedTicket.tipo}</p>
                       </div>
                     )}
 
                     {/* Ações: Enviar Grupo WhatsApp & Copiar */}
-                    <div className="pt-4 border-t border-gray-100 space-y-3">
-                      <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-2.5">
+                    <div className="pt-4 border-t border-border space-y-3">
+                      <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <Label className="text-xs font-semibold text-emerald-800">
+                          <Label className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                             Enviar para Grupo WhatsApp
                           </Label>
-                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-medium">
+                          <span className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
                             {whatsappGroups.length} grupos
                           </span>
                         </div>
@@ -476,12 +476,12 @@ const ISPFYTickets: React.FC = () => {
                           value={selectedGroupPhone}
                           onValueChange={setSelectedGroupPhone}
                         >
-                          <SelectTrigger className="w-full bg-white border-emerald-200 h-9 text-xs">
+                          <SelectTrigger className="w-full bg-background border-input text-foreground h-9 text-xs focus:ring-emerald-500">
                             <SelectValue placeholder="Selecione o grupo..." />
                           </SelectTrigger>
-                          <SelectContent className="max-h-56 bg-white border-gray-200 z-50">
+                          <SelectContent className="max-h-56 bg-popover border-border text-popover-foreground z-50">
                             {whatsappGroups.map((g) => (
-                              <SelectItem key={g.phone} value={g.phone} className="text-xs">
+                              <SelectItem key={g.phone} value={g.phone} className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300">
                                 👥 {g.name}
                               </SelectItem>
                             ))}
@@ -507,7 +507,7 @@ const ISPFYTickets: React.FC = () => {
                         size="sm"
                         variant="outline"
                         onClick={() => handleCopyTicket(selectedTicket)}
-                        className="w-full text-xs h-9 border-gray-300 text-gray-700 hover:bg-gray-50 gap-1.5"
+                        className="w-full text-xs h-9 border-border bg-secondary hover:bg-secondary/80 text-foreground gap-1.5"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         Copiar Informações da O.S.
@@ -515,7 +515,7 @@ const ISPFYTickets: React.FC = () => {
                     </div>
                   </motion.div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-8 text-muted-foreground">
                     <Ticket className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p>Selecione um ticket para ver os detalhes</p>
                   </div>

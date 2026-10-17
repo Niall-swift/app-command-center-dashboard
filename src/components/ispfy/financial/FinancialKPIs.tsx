@@ -33,68 +33,68 @@ export const FinancialKPIs: React.FC<FinancialKPIsProps> = ({ data, loading }) =
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {/* Receita Hoje */}
-      <Card className="bg-white shadow-sm border-l-4 border-l-green-500">
+      <Card className="bg-card border-border shadow-sm border-l-4 border-l-emerald-500 text-card-foreground">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-500 flex justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex justify-between">
             Receita Hoje
-            <DollarSign className="w-4 h-4 text-green-500" />
+            <DollarSign className="w-4 h-4 text-emerald-500" />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(data.todayRevenue)}</div>
-          <p className="text-xs text-gray-500 mt-1">
+          <div className="text-2xl font-bold text-foreground">{formatCurrency(data.todayRevenue)}</div>
+          <p className="text-xs text-muted-foreground mt-1">
              Pagamentos recebidos hoje
           </p>
         </CardContent>
       </Card>
 
       {/* Receita Mês */}
-      <Card className="bg-white shadow-sm border-l-4 border-l-blue-500">
+      <Card className="bg-card border-border shadow-sm border-l-4 border-l-blue-500 text-card-foreground">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-500 flex justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex justify-between">
             Receita Mensal
             <Calendar className="w-4 h-4 text-blue-500" />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(data.monthRevenue)}</div>
-          <p className="text-xs text-gray-500 mt-1">
+          <div className="text-2xl font-bold text-foreground">{formatCurrency(data.monthRevenue)}</div>
+          <p className="text-xs text-muted-foreground mt-1">
              Acumulado este mês
           </p>
         </CardContent>
       </Card>
 
       {/* A Receber (Aberto) */}
-      <Card className="bg-white shadow-sm border-l-4 border-l-yellow-500">
+      <Card className="bg-card border-border shadow-sm border-l-4 border-l-amber-500 text-card-foreground">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-500 flex justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex justify-between">
             A Receber (Total)
-            <TrendingUp className="w-4 h-4 text-yellow-500" />
+            <TrendingUp className="w-4 h-4 text-amber-500" />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(data.totalOpen)}</div>
-          <p className="text-xs text-gray-500 mt-1">
+          <div className="text-2xl font-bold text-foreground">{formatCurrency(data.totalOpen)}</div>
+          <p className="text-xs text-muted-foreground mt-1">
              Total em aberto
           </p>
         </CardContent>
       </Card>
 
       {/* Inadimplência */}
-      <Card className="bg-white shadow-sm border-l-4 border-l-red-500">
+      <Card className="bg-card border-border shadow-sm border-l-4 border-l-rose-500 text-card-foreground">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-500 flex justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex justify-between">
             Inadimplência
-            <AlertCircle className="w-4 h-4 text-red-500" />
+            <AlertCircle className="w-4 h-4 text-rose-500" />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-red-600">{formatCurrency(data.totalOverdue)}</div>
+          <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">{formatCurrency(data.totalOverdue)}</div>
            <div className="flex items-center gap-2 mt-1">
             <Badge variant="destructive" className="text-[10px] h-5 px-1">
               {data.countOverdue} faturas
             </Badge>
-            <span className="text-xs text-red-400">Vencidas</span>
+            <span className="text-xs text-rose-500 dark:text-rose-400 font-medium">Vencidas</span>
            </div>
         </CardContent>
       </Card>

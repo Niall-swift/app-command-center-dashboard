@@ -7,7 +7,7 @@
 @layer base {
   :root {
     /* Shadcn tokens */
-    --background: 0 0% 100%;
+    --background: 220 20% 97.5%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -55,39 +55,73 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    /* Base background: Deep luxurious obsidian slate */
+    --background: 224 71% 4%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+
+    /* Card elevation 1: Noticeably distinguished from background */
+    --card: 222 47% 10.5%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+
+    /* Popover elevation 2: Floating surface */
+    --popover: 222 47% 12.5%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+
+    /* Brand primary: Electric vibrant blue */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary interactive surfaces */
+    --secondary: 222 35% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    /* Muted surfaces and high-contrast text */
+    --muted: 222 30% 15%;
+    --muted-foreground: 215 20% 68%;
+
+    /* Accent & interactive hover */
+    --accent: 222 35% 18%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+
+    /* Destructive alert */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+
+    /* Crisp definition borders */
+    --border: 222 30% 18%;
+    --input: 222 30% 20%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar tokens */
+    --sidebar-background: 224 71% 5.5%;
+    --sidebar-foreground: 210 40% 94%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 222 35% 16%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 222 30% 15%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 
 @layer base {
-  * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
+  * { 
+    @apply border-border; 
+  }
+  body { 
+    @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.011em;
+  }
+
+  /* Modern card elevation in dark mode */
+  .dark .bg-card,
+  .dark [class*="bg-card"],
+  .dark .card {
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
 }
 
 /* ─── Keyframe Animations ──────────────────────────────────────────────────── */
@@ -320,38 +354,204 @@
 }
 .spotlight-card:hover::before { opacity: 1; }
 
-/* ─── Global Dark Mode Overrides for Hardcoded Light Utilities ──────────────── */
+/* ─── Global Dark Mode Overrides & Visual Hierarchy Bridge ───────────────── */
 
-.dark .bg-white {
+/* 1. Base Card & Panel Surfaces */
+.dark .bg-white,
+.dark .card {
   background-color: hsl(var(--card)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05) !important;
 }
 
+/* 2. Secondary & Inner Surfaces (Inputs, headers, search bars, nested containers) */
 .dark .bg-gray-50,
 .dark .bg-slate-50,
 .dark .bg-slate-100,
-.dark .bg-gray-100\/50 {
-  background-color: hsl(var(--background)) !important;
+.dark .bg-gray-100\/50,
+.dark .bg-zinc-50,
+.dark .bg-neutral-50 {
+  background-color: hsl(222 35% 14%) !important;
 }
 
+.dark .bg-gray-100,
+.dark .bg-slate-100 {
+  background-color: hsl(222 35% 17%) !important;
+}
+
+/* 3. Text Legibility & Hierarchy */
+.dark .text-gray-950,
+.dark .text-slate-950,
 .dark .text-gray-900,
 .dark .text-slate-900,
+.dark .text-zinc-900,
+.dark .text-neutral-900,
+.dark .text-black {
+  color: #F8FAFC !important;
+}
+
 .dark .text-gray-800,
 .dark .text-slate-800,
-.dark .text-black {
-  color: hsl(var(--foreground)) !important;
+.dark .text-gray-700,
+.dark .text-slate-700,
+.dark .text-zinc-800,
+.dark .text-zinc-700 {
+  color: #E2E8F0 !important;
 }
 
 .dark .text-gray-600,
 .dark .text-slate-600,
 .dark .text-gray-500,
-.dark .text-slate-500 {
-  color: hsl(var(--muted-foreground)) !important;
+.dark .text-slate-500,
+.dark .text-zinc-600,
+.dark .text-zinc-500 {
+  color: #94A3B8 !important;
 }
 
+.dark .text-gray-400,
+.dark .text-slate-400,
+.dark .text-zinc-400 {
+  color: #94A3B8 !important; /* Raised to pass WCAG AA readability */
+}
+
+/* 4. Crisp Borders & Separators */
 .dark .border-gray-50,
 .dark .border-gray-100,
 .dark .border-gray-200,
+.dark .border-gray-300,
+.dark .border-slate-50,
 .dark .border-slate-100,
-.dark .border-slate-200 {
+.dark .border-slate-200,
+.dark .border-slate-300 {
   border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* 5. Interactive Table & List Row Hover */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-50\/50:hover,
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-50\/50:hover,
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 6. Luminous Status Badges & Chips (Fixes eye-searing pastel glaring boxes) */
+.dark .bg-blue-50,
+.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.16) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800 {
+  color: #60A5FA !important;
+}
+
+.dark .bg-emerald-50,
+.dark .bg-emerald-100,
+.dark .bg-green-50,
+.dark .bg-green-100 {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+.dark .text-emerald-600,
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-green-800 {
+  color: #4ADE80 !important;
+}
+
+.dark .bg-amber-50,
+.dark .bg-amber-100,
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 {
+  background-color: rgba(245, 158, 11, 0.16) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-yellow-600,
+.dark .text-yellow-700,
+.dark .text-yellow-800 {
+  color: #FBBF24 !important;
+}
+
+.dark .bg-rose-50,
+.dark .bg-rose-100,
+.dark .bg-red-50,
+.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.16) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+.dark .text-rose-600,
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800 {
+  color: #F87171 !important;
+}
+
+.dark .bg-purple-50,
+.dark .bg-purple-100,
+.dark .bg-indigo-50,
+.dark .bg-indigo-100,
+.dark .bg-violet-50,
+.dark .bg-violet-100 {
+  background-color: rgba(139, 92, 246, 0.16) !important;
+  border: 1px solid rgba(139, 92, 246, 0.35) !important;
+}
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-purple-800,
+.dark .text-indigo-600,
+.dark .text-indigo-700,
+.dark .text-indigo-800,
+.dark .text-violet-600,
+.dark .text-violet-700 {
+  color: #C084FC !important;
+}
+
+/* 7. Alert & Notice Boxes */
+.dark .border-red-200.bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+.dark .border-blue-200.bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+.dark .border-green-200.bg-green-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+/* 8. Input & Form Control Polish */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark textarea,
+.dark select {
+  background-color: hsl(222 35% 12%) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #F8FAFC !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748B !important;
+}
+.dark input:focus-visible,
+.dark textarea:focus-visible {
+  border-color: #3B82F6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
 }

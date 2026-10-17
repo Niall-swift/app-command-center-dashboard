@@ -59,22 +59,22 @@ const PROBLEMS = [
 ];
 
 const colorMap: Record<string, { chip: string; chipSelected: string }> = {
-  red:    { chip: 'border-red-500/20 text-red-400 bg-red-500/5',    chipSelected: 'border-red-500 text-red-300 bg-red-500/20 shadow-red-500/20' },
-  orange: { chip: 'border-orange-500/20 text-orange-400 bg-orange-500/5', chipSelected: 'border-orange-500 text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
-  yellow: { chip: 'border-yellow-500/20 text-yellow-400 bg-yellow-500/5', chipSelected: 'border-yellow-500 text-yellow-300 bg-yellow-500/20 shadow-yellow-500/20' },
-  blue:   { chip: 'border-blue-500/20 text-blue-400 bg-blue-500/5',   chipSelected: 'border-blue-500 text-blue-300 bg-blue-500/20 shadow-blue-500/20' },
-  purple: { chip: 'border-purple-500/20 text-purple-400 bg-purple-500/5', chipSelected: 'border-purple-500 text-purple-300 bg-purple-500/20 shadow-purple-500/20' },
-  pink:   { chip: 'border-pink-500/20 text-pink-400 bg-pink-500/5',   chipSelected: 'border-pink-500 text-pink-300 bg-pink-500/20 shadow-pink-500/20' },
-  green:  { chip: 'border-emerald-500/20 text-emerald-400 bg-emerald-500/5', chipSelected: 'border-emerald-500 text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
-  teal:   { chip: 'border-teal-500/20 text-teal-400 bg-teal-500/5',   chipSelected: 'border-teal-500 text-teal-300 bg-teal-500/20 shadow-teal-500/20' },
-  gray:   { chip: 'border-white/10 text-white/50 bg-white/5',         chipSelected: 'border-white/40 text-white bg-white/15 shadow-white/10' },
+  red:    { chip: 'border-red-500/20 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/15',    chipSelected: 'border-red-500 text-red-700 dark:text-red-300 bg-red-500/20 shadow-red-500/20' },
+  orange: { chip: 'border-orange-500/20 text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/15', chipSelected: 'border-orange-500 text-orange-700 dark:text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
+  yellow: { chip: 'border-amber-500/20 text-amber-600 dark:text-yellow-400 bg-amber-500/10 hover:bg-amber-500/15', chipSelected: 'border-amber-500 text-amber-700 dark:text-yellow-300 bg-amber-500/20 shadow-amber-500/20' },
+  blue:   { chip: 'border-blue-500/20 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/15',   chipSelected: 'border-blue-500 text-blue-700 dark:text-blue-300 bg-blue-500/20 shadow-blue-500/20' },
+  purple: { chip: 'border-purple-500/20 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/15', chipSelected: 'border-purple-500 text-purple-700 dark:text-purple-300 bg-purple-500/20 shadow-purple-500/20' },
+  pink:   { chip: 'border-pink-500/20 text-pink-600 dark:text-pink-400 bg-pink-500/10 hover:bg-pink-500/15',   chipSelected: 'border-pink-500 text-pink-700 dark:text-pink-300 bg-pink-500/20 shadow-pink-500/20' },
+  green:  { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelected: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
+  teal:   { chip: 'border-teal-500/20 text-teal-600 dark:text-teal-400 bg-teal-500/10 hover:bg-teal-500/15',   chipSelected: 'border-teal-500 text-teal-700 dark:text-teal-300 bg-teal-500/20 shadow-teal-500/20' },
+  gray:   { chip: 'border-border text-muted-foreground bg-secondary/60 hover:bg-secondary',         chipSelected: 'border-primary/50 text-foreground bg-secondary shadow-sm' },
 };
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  B: { label: 'Baixa',   color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
-  N: { label: 'Normal',  color: 'text-green-400',  bg: 'bg-green-500/10 border-green-500/30' },
-  A: { label: 'Alta',    color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30' },
-  C: { label: 'Crítica', color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/30' },
+  B: { label: 'Baixa',   color: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
+  N: { label: 'Normal',  color: 'text-emerald-600 dark:text-emerald-400',  bg: 'bg-emerald-500/10 border-emerald-500/30' },
+  A: { label: 'Alta',    color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30' },
+  C: { label: 'Crítica', color: 'text-red-600 dark:text-red-400',    bg: 'bg-red-500/10 border-red-500/30' },
 };
 
 // ─── Modelo Padrão da O.S. & Variáveis Dinâmicas ──────────────────────────────
@@ -695,16 +695,12 @@ const ISPFYNovaOS: React.FC = () => {
 
   return (
     <PageTransition>
-      <div
-        className="min-h-screen p-4 md:p-6 lg:p-8 space-y-6 text-white"
-        style={{ background: 'linear-gradient(135deg, #07090e 0%, #0d111a 50%, #07090e 100%)' }}
-      >
+      <div className="space-y-6 text-foreground">
         {/* Header Premium */}
         <motion.div
           initial={{ opacity: 0, y: -16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl border border-white/10"
-          style={{ background: 'rgba(255,255,255,0.02)', backdropFilter: 'blur(16px)' }}
+          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-card border border-border shadow-sm"
         >
           <div className="flex items-center gap-4">
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 shadow-xl shadow-emerald-500/25 ring-1 ring-emerald-400/40">
@@ -712,19 +708,19 @@ const ISPFYNovaOS: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-2xl font-bold tracking-tight text-white">Central de Abertura de O.S.</h1>
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/30 text-[10px] font-semibold uppercase tracking-wider">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">Central de Abertura de O.S.</h1>
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold uppercase tracking-wider">
                   ISPFY + Z-API
                 </Badge>
-                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[11px] gap-1 px-2.5 py-0.5">
-                  <Calendar className="w-3 h-3 text-emerald-400" />
+                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 text-[11px] gap-1 px-2.5 py-0.5">
+                  <Calendar className="w-3 h-3 text-emerald-500" />
                   Hoje: #{dailyCount} O.S. emitidas
                 </Badge>
-                <Badge variant="outline" className="bg-white/5 text-white/70 border-white/10 text-[11px] px-2 py-0.5">
+                <Badge variant="outline" className="bg-secondary/60 text-muted-foreground border-border text-[11px] px-2 py-0.5">
                   Próxima do dia: #{formattedNextDailyNumber}
                 </Badge>
               </div>
-              <p className="text-white/50 text-xs sm:text-sm mt-0.5">
+              <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 font-medium">
                 Emissão inteligente com contagem diária segmentada (reinicia automaticamente à meia-noite).
               </p>
             </div>
@@ -734,26 +730,26 @@ const ISPFYNovaOS: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => setIsDailyOrdersModalOpen(true)}
-              className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all shadow-lg shadow-emerald-500/10"
+              className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all shadow-sm"
             >
-              <ClipboardList className="w-4 h-4 text-emerald-400" />
+              <ClipboardList className="w-4 h-4 text-emerald-500" />
               <span>Ver O.S. de Hoje</span>
-              <Badge className="bg-emerald-500/30 text-emerald-200 border-none text-[10px] px-1.5 py-0 h-5">
+              <Badge className="bg-emerald-500/25 text-emerald-700 dark:text-emerald-200 border-none text-[10px] px-1.5 py-0 h-5">
                 {dailyCount}
               </Badge>
             </Button>
             <Button
               variant="outline"
               onClick={openTemplateModal}
-              className="bg-white/5 hover:bg-emerald-500/10 border-white/10 hover:border-emerald-500/30 text-white/80 hover:text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all"
+              className="bg-secondary hover:bg-secondary/80 border-border text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 text-xs h-10 gap-2 rounded-xl transition-all"
             >
-              <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
               Editar Estrutura
             </Button>
             <Button
               variant="ghost"
               onClick={handleReset}
-              className="text-white/40 hover:text-white hover:bg-white/5 border border-white/5 text-xs h-10 gap-1.5 rounded-xl"
+              className="text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/60 text-xs h-10 gap-1.5 rounded-xl"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Limpar
@@ -771,59 +767,58 @@ const ISPFYNovaOS: React.FC = () => {
               className="max-w-xl mx-auto"
             >
               <div
-                className="rounded-3xl border border-emerald-500/20 p-8 flex flex-col items-center gap-6 text-center shadow-2xl shadow-emerald-500/10"
-                style={{ background: 'rgba(16,185,129,0.03)', backdropFilter: 'blur(16px)' }}
+                className="rounded-3xl border border-emerald-500/30 bg-card p-8 flex flex-col items-center gap-6 text-center shadow-xl shadow-emerald-500/5"
               >
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 200, damping: 14, delay: 0.1 }}
-                  className="p-6 rounded-full bg-emerald-500/15 ring-8 ring-emerald-500/20 text-emerald-400"
+                  className="p-6 rounded-full bg-emerald-500/15 ring-8 ring-emerald-500/20 text-emerald-500"
                 >
                   <CheckCircle2 className="w-16 h-16" />
                 </motion.div>
 
                 <div>
-                  <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-xs mb-2">
+                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs mb-2">
                     Ordem de Serviço Diária #{createdDailyFormatted || formattedNextDailyNumber} Registrada
                   </Badge>
-                  <p className="text-3xl font-extrabold text-white tracking-tight">
+                  <p className="text-3xl font-extrabold text-foreground tracking-tight">
                     O.S. #{createdDailyFormatted || formattedNextDailyNumber} do Dia
                   </p>
-                  <p className="text-emerald-400 text-xs font-semibold mt-1">
+                  <p className="text-emerald-600 dark:text-emerald-400 text-xs font-semibold mt-1">
                     Protocolo ISPFY: #{createdTicketId} • Total hoje: {dailyCount} O.S.
                   </p>
-                  <p className="text-white/60 mt-1.5 text-sm">
-                    Cadastrada com sucesso para <span className="text-emerald-300 font-semibold">{clientName(selectedClient!)}</span>
+                  <p className="text-muted-foreground mt-1.5 text-sm">
+                    Cadastrada com sucesso para <span className="text-emerald-600 dark:text-emerald-300 font-semibold">{clientName(selectedClient!)}</span>
                   </p>
                 </div>
 
                 {/* Resumo da O.S. criada */}
-                <div className="w-full rounded-2xl border border-white/10 divide-y divide-white/5 text-left text-xs overflow-hidden bg-black/40">
+                <div className="w-full rounded-2xl border border-border divide-y divide-border text-left text-xs overflow-hidden bg-secondary/30">
                   <div className="flex justify-between items-center px-4 py-3">
-                    <span className="text-white/40">Plano de Internet</span>
-                    <span className="text-emerald-400 font-semibold">{clientPlan || 'Não especificado'}</span>
+                    <span className="text-muted-foreground">Plano de Internet</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{clientPlan || 'Não especificado'}</span>
                   </div>
                   <div className="flex justify-between items-center px-4 py-3">
-                    <span className="text-white/40">Assunto</span>
-                    <span className="text-white font-medium">{subjectLabel}</span>
+                    <span className="text-muted-foreground">Assunto</span>
+                    <span className="text-foreground font-medium">{subjectLabel}</span>
                   </div>
                   <div className="flex justify-between items-center px-4 py-3">
-                    <span className="text-white/40">Prioridade</span>
+                    <span className="text-muted-foreground">Prioridade</span>
                     <span className={`font-semibold ${PRIORITY_LABELS[priority]?.color}`}>
                       {PRIORITY_LABELS[priority]?.label}
                     </span>
                   </div>
                   {clientPhone(selectedClient!) && (
                     <div className="flex justify-between items-center px-4 py-3">
-                      <span className="text-white/40">Contato do Cliente</span>
-                      <span className="text-white/80">{clientPhone(selectedClient!)}</span>
+                      <span className="text-muted-foreground">Contato do Cliente</span>
+                      <span className="text-foreground">{clientPhone(selectedClient!)}</span>
                     </div>
                   )}
                   {addr && (
                     <div className="flex justify-between items-start px-4 py-3 gap-3">
-                      <span className="text-white/40 shrink-0">Endereço</span>
-                      <span className="text-white/70 text-right">{addr}</span>
+                      <span className="text-muted-foreground shrink-0">Endereço</span>
+                      <span className="text-foreground text-right">{addr}</span>
                     </div>
                   )}
                 </div>
@@ -832,11 +827,11 @@ const ISPFYNovaOS: React.FC = () => {
                 <div className="w-full flex flex-col gap-3">
                   <div className="w-full p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-left space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                        <WhatsAppIcon className="w-4 h-4 text-emerald-400" />
+                      <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <WhatsAppIcon className="w-4 h-4 text-emerald-500" />
                         Disparar para Grupo WhatsApp
                       </span>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                      <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
                         {whatsappGroups.length} grupos
                       </Badge>
                     </div>
@@ -845,15 +840,15 @@ const ISPFYNovaOS: React.FC = () => {
                       value={selectedGroupPhone}
                       onValueChange={setSelectedGroupPhone}
                     >
-                      <SelectTrigger className="w-full bg-slate-900/90 border-white/15 text-white h-11 text-xs focus:ring-emerald-500">
+                      <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500">
                         <SelectValue placeholder="Selecione o grupo..." />
                       </SelectTrigger>
-                      <SelectContent className="max-h-60 bg-slate-900 border-slate-800 text-white z-50">
+                      <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
                         {whatsappGroups.map((g) => (
                           <SelectItem
                             key={g.phone}
                             value={g.phone}
-                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-300 cursor-pointer"
+                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-600 dark:focus:text-emerald-300 cursor-pointer"
                           >
                             👥 {g.name}
                           </SelectItem>
@@ -878,8 +873,8 @@ const ISPFYNovaOS: React.FC = () => {
                     </Button>
 
                     {sentGroupSuccess && (
-                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs">
-                        <CheckCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs">
+                        <CheckCheck className="w-4 h-4 shrink-0 text-emerald-500" />
                         <span>Enviada com sucesso para: <strong>{sentGroupSuccess}</strong></span>
                       </div>
                     )}
@@ -888,53 +883,52 @@ const ISPFYNovaOS: React.FC = () => {
                   <Button
                     variant="outline"
                     onClick={handleCopyInfo}
-                    className="w-full flex items-center justify-center gap-2 h-11 rounded-xl bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white text-xs"
+                    className="w-full flex items-center justify-center gap-2 border-border text-foreground hover:bg-secondary h-11 rounded-xl text-sm font-semibold"
                   >
-                    <Copy className="w-3.5 h-3.5" />
-                    Copiar Texto Formatado da O.S.
+                    <Copy className="w-4 h-4 text-emerald-500" />
+                    Copiar Dados da O.S.
                   </Button>
 
                   <Button
-                    variant="ghost"
                     onClick={handleReset}
-                    className="w-full text-white/40 hover:text-white hover:bg-white/5 border border-white/5 h-10 text-xs"
+                    className="w-full flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 border border-border"
                   >
-                    Abrir Outra O.S.
+                    <RotateCcw className="w-4 h-4" />
+                    Criar Nova Ordem de Serviço
                   </Button>
                 </div>
               </div>
             </motion.div>
           ) : (
-            /* ─── Formulário Principal (Grid 2 Colunas) ─── */
             <motion.div
               key="form"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+              exit={{ opacity: 0 }}
+              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
             >
-              {/* ─── Coluna Esquerda: Passos de Entrada (7 Colunas) ─── */}
-              <div className="lg:col-span-7 flex flex-col gap-5">
-                
+              {/* Coluna Principal: Formulário */}
+              <div className="xl:col-span-7 space-y-6">
                 {/* 1. Seleção de Cliente e Plano */}
                 <Section
                   title="1. Cliente & Plano de Internet"
-                  icon={<User className="w-4 h-4 text-emerald-400" />}
+                  icon={<User className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     <Input
                       value={searchQuery}
                       onChange={e => handleSearchChange(e.target.value)}
                       placeholder="Buscar por nome, telefone ou CPF..."
-                      className="pl-10 pr-10 bg-white/5 border-white/10 text-white placeholder:text-white/25 focus-visible:ring-emerald-500 focus-visible:border-emerald-500/40 h-11 text-sm rounded-xl"
+                      className="pl-10 pr-10 bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 h-11 text-sm rounded-xl"
                     />
                     {searchLoading && (
-                      <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400 animate-spin" />
+                      <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-spin" />
                     )}
                     {selectedClient && !searchLoading && (
                       <button
                         onClick={() => { setSelectedClient(null); setSearchQuery(''); setSearchResults([]); setClientPlan(''); setClientContracts([]); }}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors"
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -948,37 +942,36 @@ const ISPFYNovaOS: React.FC = () => {
                         initial={{ opacity: 0, y: -6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
-                        className="rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5 max-h-[280px] overflow-y-auto custom-scrollbar"
-                        style={{ background: 'rgba(10,12,20,0.98)', backdropFilter: 'blur(20px)' }}
+                        className="rounded-2xl border border-border overflow-hidden divide-y divide-border max-h-[280px] overflow-y-auto custom-scrollbar bg-popover shadow-xl text-popover-foreground"
                       >
                         {searchResults.map(c => (
                           <button
                             key={c.id}
                             onClick={() => handleSelectClient(c)}
-                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-500/10 transition-colors text-left group"
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left group"
                           >
-                            <div className="w-8 h-8 rounded-xl bg-white/5 group-hover:bg-emerald-500/20 flex items-center justify-center transition-colors shrink-0">
-                              <User className="w-3.5 h-3.5 text-white/40 group-hover:text-emerald-400 transition-colors" />
+                            <div className="w-8 h-8 rounded-xl bg-secondary group-hover:bg-emerald-500/20 flex items-center justify-center transition-colors shrink-0">
+                              <User className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-white truncate">{clientName(c)}</p>
+                              <p className="text-sm font-medium text-foreground truncate">{clientName(c)}</p>
                               <div className="flex items-center gap-3 mt-0.5">
                                 {clientPhone(c) && (
-                                  <span className="text-xs text-white/40 flex items-center gap-1">
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
                                     <Phone className="w-2.5 h-2.5" />{clientPhone(c)}
                                   </span>
                                 )}
                                 {(c.cidade || c.endereco_cobranca_bairro) && (
-                                  <span className="text-xs text-white/40 flex items-center gap-1">
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
                                     <MapPin className="w-2.5 h-2.5" />{c.endereco_cobranca_bairro || c.cidade}
                                   </span>
                                 )}
                               </div>
                             </div>
                             {c.ativo === 'S' && (
-                              <Badge className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">Ativo</Badge>
+                              <Badge className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 shrink-0">Ativo</Badge>
                             )}
-                            <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-emerald-400 transition-colors shrink-0" />
+                            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors shrink-0" />
                           </button>
                         ))}
                       </motion.div>
@@ -991,37 +984,36 @@ const ISPFYNovaOS: React.FC = () => {
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="rounded-2xl border border-emerald-500/30 p-4 space-y-4"
-                        style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.06) 0%, rgba(6,78,59,0.04) 100%)' }}
+                        className="rounded-2xl border border-emerald-500/30 p-4 space-y-4 bg-emerald-500/5 dark:bg-emerald-500/10"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-400 font-bold text-base shadow-lg shadow-emerald-500/20">
+                            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400 font-bold text-base shadow-sm">
                               {clientName(selectedClient).charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-white font-bold text-base truncate">{clientName(selectedClient)}</p>
-                              <p className="text-white/40 text-xs">ID ISPFY: #{selectedClient.id}</p>
+                              <p className="text-foreground font-bold text-base truncate">{clientName(selectedClient)}</p>
+                              <p className="text-muted-foreground text-xs">ID ISPFY: #{selectedClient.id}</p>
                             </div>
                           </div>
                           {selectedClient.ativo === 'S' ? (
-                            <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs shrink-0">Ativo</Badge>
+                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-xs shrink-0">Ativo</Badge>
                           ) : (
-                            <Badge className="bg-red-500/20 text-red-300 border border-red-500/30 text-xs shrink-0">Inativo</Badge>
+                            <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 text-xs shrink-0">Inativo</Badge>
                           )}
                         </div>
 
                         {/* 📶 Card de Plano de Internet (Destaque) */}
-                        <div className="p-3.5 rounded-xl bg-black/40 border border-emerald-500/20 space-y-2.5">
+                        <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
                               <Wifi className="w-3.5 h-3.5" /> Plano de Internet
-                              {loadingPlan && <Loader2 className="w-3 h-3 animate-spin text-emerald-400 ml-1" />}
+                              {loadingPlan && <Loader2 className="w-3 h-3 animate-spin text-emerald-500 ml-1" />}
                             </span>
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setIsEditingPlan(!isEditingPlan)}
-                                className="text-[11px] text-white/50 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                                className="text-[11px] text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 transition-colors"
                               >
                                 <Edit3 className="w-3 h-3" />
                                 {isEditingPlan ? 'Concluir' : 'Digitar manual'}
@@ -1030,8 +1022,8 @@ const ISPFYNovaOS: React.FC = () => {
                           </div>
 
                           {loadingPlan ? (
-                            <div className="flex items-center gap-2 text-xs text-white/50 py-1">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                               <span>Identificando plano de internet no ISPFY...</span>
                             </div>
                           ) : isEditingPlan ? (
@@ -1040,7 +1032,7 @@ const ISPFYNovaOS: React.FC = () => {
                                 value={clientPlan}
                                 onChange={e => setClientPlan(e.target.value)}
                                 placeholder="Digite o nome do plano (ex: FIBRA 700 MEGA)..."
-                                className="bg-slate-900 border-emerald-500/40 text-white text-xs h-9"
+                                className="bg-background border-emerald-500/40 text-foreground text-xs h-9"
                               />
                               <Button
                                 size="sm"
@@ -1053,17 +1045,17 @@ const ISPFYNovaOS: React.FC = () => {
                           ) : (
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
+                                <span className="text-sm font-bold text-foreground tracking-wide flex items-center gap-1.5">
                                   {clientPlan ? (
-                                    <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs py-1 px-2.5">
-                                      <Zap className="w-3 h-3 mr-1 text-emerald-400" /> {clientPlan}
+                                    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 text-xs py-1 px-2.5">
+                                      <Zap className="w-3 h-3 mr-1 text-emerald-500" /> {clientPlan}
                                     </Badge>
                                   ) : (
-                                    <span className="text-white/40 italic text-xs">Nenhum plano identificado</span>
+                                    <span className="text-muted-foreground italic text-xs">Nenhum plano identificado</span>
                                   )}
                                 </span>
                                 {clientContracts.length > 1 && (
-                                  <Badge variant="outline" className="text-[10px] bg-white/5 text-white/60 border-white/10">
+                                  <Badge variant="outline" className="text-[10px] bg-secondary text-muted-foreground border-border">
                                     {clientContracts.length} contratos
                                   </Badge>
                                 )}
@@ -1075,10 +1067,10 @@ const ISPFYNovaOS: React.FC = () => {
                                     value={clientPlan}
                                     onValueChange={setClientPlan}
                                   >
-                                    <SelectTrigger className="w-full sm:w-[240px] h-7 text-[11px] bg-white/5 border-white/10 text-white/70 hover:text-white hover:border-emerald-500/30">
+                                    <SelectTrigger className="w-full sm:w-[240px] h-7 text-[11px] bg-background border-border text-foreground hover:border-emerald-500/40">
                                       <SelectValue placeholder="Trocar / Selecionar Plano..." />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-slate-900 border-slate-800 text-white text-xs max-h-64">
+                                    <SelectContent className="bg-popover border-border text-popover-foreground text-xs max-h-64 z-50">
                                       {allPlanos.map(p => (
                                         <SelectItem key={p.id} value={p.nome || p.descricao || `Plano #${p.id}`}>
                                           {p.nome || p.descricao} {p.valor_mensal && p.valor_mensal !== '0.00' ? `— R$ ${p.valor_mensal}` : ''}
@@ -1094,18 +1086,18 @@ const ISPFYNovaOS: React.FC = () => {
 
                         {/* Credenciais PPPoE se existirem */}
                         {clientLogins.length > 0 && (
-                          <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1.5 text-xs">
-                            <span className="text-white/40 text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1">
-                              <Key className="w-3 h-3 text-amber-400" /> Acesso PPPoE do Cliente
+                          <div className="p-3 rounded-xl bg-secondary/50 border border-border space-y-1.5 text-xs">
+                            <span className="text-muted-foreground text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1">
+                              <Key className="w-3 h-3 text-amber-500" /> Acesso PPPoE do Cliente
                             </span>
                             <div className="flex flex-wrap gap-3 items-center pt-0.5">
-                              <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
-                                <span className="text-white/40">Login:</span>
-                                <span className="text-white font-mono font-medium">{clientLogins[0]?.usuario || clientLogins[0]?.login || '–'}</span>
+                              <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
+                                <span className="text-muted-foreground">Login:</span>
+                                <span className="text-foreground font-mono font-medium">{clientLogins[0]?.usuario || clientLogins[0]?.login || '–'}</span>
                               </div>
-                              <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
-                                <span className="text-white/40">Senha:</span>
-                                <span className="text-white font-mono font-medium">{clientLogins[0]?.senha || '–'}</span>
+                              <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
+                                <span className="text-muted-foreground">Senha:</span>
+                                <span className="text-foreground font-mono font-medium">{clientLogins[0]?.senha || '–'}</span>
                               </div>
                             </div>
                           </div>
@@ -1115,14 +1107,14 @@ const ISPFYNovaOS: React.FC = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                           {clientPhone(selectedClient) && (
                             <InfoRow
-                              icon={<Phone className="w-3.5 h-3.5 text-emerald-400" />}
+                              icon={<Phone className="w-3.5 h-3.5 text-emerald-500" />}
                               label="Telefone / WhatsApp"
                               value={clientPhone(selectedClient)}
                             />
                           )}
                           {addr && (
                             <InfoRow
-                              icon={<MapPin className="w-3.5 h-3.5 text-blue-400" />}
+                              icon={<MapPin className="w-3.5 h-3.5 text-blue-500" />}
                               label="Endereço"
                               value={addr}
                             />
@@ -1131,14 +1123,14 @@ const ISPFYNovaOS: React.FC = () => {
 
                         {/* Ponto de Referência */}
                         <div className="space-y-1">
-                          <Label className="text-xs text-white/50 flex items-center gap-1">
-                            <Navigation className="w-3 h-3 text-emerald-400" /> Ponto de Referência para a Equipe
+                          <Label className="text-xs text-muted-foreground flex items-center gap-1 font-medium">
+                            <Navigation className="w-3 h-3 text-emerald-500" /> Ponto de Referência para a Equipe
                           </Label>
                           <Input
                             value={referencePoint}
                             onChange={e => setReferencePoint(e.target.value)}
                             placeholder="Ex: Próximo à padaria, em frente ao poste com transformador..."
-                            className="bg-white/5 border-white/10 text-white placeholder:text-white/20 focus-visible:ring-emerald-500 focus-visible:border-emerald-500/40 text-xs h-9 rounded-xl"
+                            className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
                           />
                         </div>
                       </motion.div>
@@ -1149,7 +1141,7 @@ const ISPFYNovaOS: React.FC = () => {
                 {/* 2. Tipo de Problema */}
                 <Section
                   title="2. Tipo de Problema"
-                  icon={<AlertCircle className="w-4 h-4 text-emerald-400" />}
+                  icon={<AlertCircle className="w-4 h-4 text-emerald-500" />}
                   badge={selectedProblems.length > 0 ? `${selectedProblems.length} selecionado(s)` : undefined}
                 >
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -1164,8 +1156,8 @@ const ISPFYNovaOS: React.FC = () => {
                           onClick={() => toggleProblem(problem.id)}
                           className={`relative flex flex-col items-center gap-2 p-3 rounded-2xl border text-xs font-medium transition-all duration-200 ${
                             selected
-                              ? `${colors.chipSelected} shadow-lg shadow-current/15 scale-[1.02]`
-                              : colors.chip + ' hover:brightness-125'
+                              ? `${colors.chipSelected} scale-[1.02]`
+                              : colors.chip
                           }`}
                         >
                           {selected && (
@@ -1184,16 +1176,16 @@ const ISPFYNovaOS: React.FC = () => {
                 {/* 3. Assunto e Prioridade */}
                 <Section
                   title="3. Assunto & Prioridade"
-                  icon={<Ticket className="w-4 h-4 text-emerald-400" />}
+                  icon={<Ticket className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Assunto */}
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-white/60">
-                        Assunto do Chamado <span className="text-red-400">*</span>
+                      <Label className="text-xs text-foreground font-medium">
+                        Assunto do Chamado <span className="text-red-500">*</span>
                       </Label>
                       {loadingSubjects ? (
-                        <div className="flex items-center gap-2 text-white/30 text-xs h-10 px-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex items-center gap-2 text-muted-foreground text-xs h-10 px-3 rounded-xl bg-secondary/50 border border-border">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando assuntos...
                         </div>
                       ) : (
@@ -1204,15 +1196,15 @@ const ISPFYNovaOS: React.FC = () => {
                             setSubjectLabel(subjects.find(s => s.id === v)?.assunto ?? v);
                           }}
                         >
-                          <SelectTrigger className="bg-white/5 border-white/10 text-white focus:ring-emerald-500 focus:border-emerald-500/40 text-xs h-10 rounded-xl">
+                          <SelectTrigger className="bg-background border-input text-foreground focus:ring-emerald-500 text-xs h-10 rounded-xl">
                             <SelectValue placeholder="Selecione o assunto..." />
                           </SelectTrigger>
-                          <SelectContent className="bg-[#0f1220] border-white/10 text-white max-h-52 z-50">
+                          <SelectContent className="bg-popover border-border text-popover-foreground max-h-52 z-50">
                             {subjects.map(s => (
                               <SelectItem
                                 key={s.id}
                                 value={s.id}
-                                className="focus:bg-emerald-500/20 focus:text-emerald-300 text-xs cursor-pointer"
+                                className="focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 text-xs cursor-pointer"
                               >
                                 {s.assunto}
                               </SelectItem>
@@ -1224,7 +1216,7 @@ const ISPFYNovaOS: React.FC = () => {
 
                     {/* Prioridade */}
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-white/60">Nível de Prioridade</Label>
+                      <Label className="text-xs text-foreground font-medium">Nível de Prioridade</Label>
                       <div className="grid grid-cols-4 gap-1.5">
                         {Object.entries(PRIORITY_LABELS).map(([key, { label, color, bg }]) => (
                           <button
@@ -1232,8 +1224,8 @@ const ISPFYNovaOS: React.FC = () => {
                             onClick={() => setPriority(key)}
                             className={`h-10 rounded-xl text-xs font-semibold border transition-all ${
                               priority === key
-                                ? `${bg} ${color} scale-[1.04] shadow-md`
-                                : 'bg-white/5 border-white/5 text-white/35 hover:bg-white/10'
+                                ? `${bg} ${color} scale-[1.04] shadow-sm`
+                                : 'bg-secondary/40 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
                             }`}
                           >
                             {label}
@@ -1245,13 +1237,13 @@ const ISPFYNovaOS: React.FC = () => {
 
                   {/* Observação adicional */}
                   <div className="space-y-1.5 pt-1">
-                    <Label className="text-xs text-white/60">Observações adicionais para o técnico</Label>
+                    <Label className="text-xs text-foreground font-medium">Observações adicionais para o técnico</Label>
                     <Textarea
                       value={observation}
                       onChange={e => setObservation(e.target.value)}
                       placeholder="Descreva observações específicas, instruções ou avisos..."
                       rows={3}
-                      className="bg-white/5 border-white/10 text-white placeholder:text-white/20 focus-visible:ring-emerald-500 focus-visible:border-emerald-500/40 resize-none text-xs rounded-xl"
+                      className="bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 resize-none text-xs rounded-xl"
                     />
                   </div>
                 </Section>
@@ -1259,14 +1251,14 @@ const ISPFYNovaOS: React.FC = () => {
                 {/* 4. Destino no WhatsApp (Grupos da Equipe) */}
                 <Section
                   title="4. Destino no WhatsApp (Equipe de Operações)"
-                  icon={<WhatsAppIcon className="w-4 h-4 text-emerald-400" />}
+                  icon={<WhatsAppIcon className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-white/70">
+                      <Label className="text-xs text-foreground font-medium">
                         Grupo WhatsApp que receberá a O.S.:
                       </Label>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                      <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
                         {whatsappGroups.length} grupos conectados
                       </Badge>
                     </div>
@@ -1275,15 +1267,15 @@ const ISPFYNovaOS: React.FC = () => {
                       value={selectedGroupPhone}
                       onValueChange={setSelectedGroupPhone}
                     >
-                      <SelectTrigger className="w-full bg-slate-900 border-white/15 text-white h-11 text-xs focus:ring-emerald-500 rounded-xl">
+                      <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500 rounded-xl">
                         <SelectValue placeholder="Selecione o grupo..." />
                       </SelectTrigger>
-                      <SelectContent className="max-h-60 bg-slate-900 border-slate-800 text-white z-50">
+                      <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
                         {whatsappGroups.map((g) => (
                           <SelectItem
                             key={g.phone}
                             value={g.phone}
-                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-300 cursor-pointer"
+                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 cursor-pointer"
                           >
                             👥 {g.name}
                           </SelectItem>
@@ -1296,9 +1288,9 @@ const ISPFYNovaOS: React.FC = () => {
                         type="checkbox"
                         checked={sendToGroupOnCreate}
                         onChange={(e) => setSendToGroupOnCreate(e.target.checked)}
-                        className="w-4 h-4 rounded border-white/20 bg-black/40 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                        className="w-4 h-4 rounded border-border bg-background text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                       />
-                      <span className="text-xs text-white/80">
+                      <span className="text-xs text-foreground">
                         Disparar mensagem no grupo selecionado automaticamente ao abrir a O.S.
                       </span>
                     </label>
@@ -1311,23 +1303,22 @@ const ISPFYNovaOS: React.FC = () => {
                 
                 {/* Card de Pré-visualização da O.S. (Estilo WhatsApp) */}
                 <div
-                  className="rounded-3xl border border-white/10 overflow-hidden sticky top-6 space-y-4 p-5"
-                  style={{ background: 'rgba(255,255,255,0.02)', backdropFilter: 'blur(16px)' }}
+                  className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden sticky top-6 space-y-4 p-5"
                 >
                   {/* Top Bar da Pré-visualização */}
-                  <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <div className="flex items-center justify-between pb-3 border-b border-border">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                        <WhatsAppIcon className="w-4 h-4 text-emerald-400" />
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 flex items-center justify-center">
+                        <WhatsAppIcon className="w-4 h-4 text-emerald-500" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-white uppercase tracking-wider">Pré-visualização</p>
-                          <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[9px] px-1.5 py-0 font-mono">
+                          <p className="text-xs font-bold text-foreground uppercase tracking-wider">Pré-visualização</p>
+                          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[9px] px-1.5 py-0 font-mono">
                             Próxima do dia: #{formattedNextDailyNumber}
                           </Badge>
                         </div>
-                        <p className="text-[10px] text-emerald-400 font-medium">WhatsApp O.S. • {formattedDate}</p>
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">WhatsApp O.S. • {formattedDate}</p>
                       </div>
                     </div>
 
@@ -1336,9 +1327,9 @@ const ISPFYNovaOS: React.FC = () => {
                         size="sm"
                         variant="ghost"
                         onClick={() => setIsEditingLiveMessage(!isEditingLiveMessage)}
-                        className="h-8 px-2.5 text-xs text-white/70 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg gap-1 border border-white/10"
+                        className="h-8 px-2.5 text-xs text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg gap-1 border border-border"
                       >
-                        <Edit3 className="w-3 h-3 text-emerald-400" />
+                        <Edit3 className="w-3 h-3 text-emerald-500" />
                         {isEditingLiveMessage ? 'Visualizar' : 'Editar Texto'}
                       </Button>
                       <Button
@@ -1346,26 +1337,25 @@ const ISPFYNovaOS: React.FC = () => {
                         variant="ghost"
                         onClick={openTemplateModal}
                         title="Personalizar Estrutura Padrão"
-                        className="h-8 w-8 p-0 text-white/50 hover:text-white hover:bg-white/10 rounded-lg border border-white/10"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg border border-border"
                       >
-                        <Sliders className="w-3 h-3" />
+                        <Sliders className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
 
-                  {/* Bubble de Mensagem */}
+                  {/* Bubble de Mensagem WhatsApp */}
                   <div
-                    className="p-4 rounded-2xl border border-emerald-500/20 text-xs font-mono relative leading-relaxed text-emerald-100 shadow-inner"
-                    style={{ background: 'linear-gradient(180deg, rgba(6,78,59,0.25) 0%, rgba(2,44,34,0.3) 100%)' }}
+                    className="p-4 rounded-2xl border border-emerald-500/30 text-xs font-mono relative leading-relaxed bg-emerald-50/90 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-500/30 dark:text-emerald-100 shadow-inner"
                   >
                     {isEditingLiveMessage ? (
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px] text-amber-300">
+                        <div className="flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
                           <span>✏️ Modo de edição manual ativo:</span>
                           {customOSText !== null && (
                             <button
                               onClick={() => { setCustomOSText(null); setIsEditingLiveMessage(false); }}
-                              className="text-white/40 hover:text-white underline text-[10px]"
+                              className="text-muted-foreground hover:text-foreground underline text-[10px]"
                             >
                               Restaurar gerado
                             </button>
@@ -1375,7 +1365,7 @@ const ISPFYNovaOS: React.FC = () => {
                           value={customOSText !== null ? customOSText : generateOSText()}
                           onChange={e => setCustomOSText(e.target.value)}
                           rows={14}
-                          className="bg-black/60 border-emerald-500/40 text-emerald-100 text-xs font-mono leading-relaxed rounded-xl resize-none"
+                          className="bg-background border-emerald-500/40 text-foreground text-xs font-mono leading-relaxed rounded-xl resize-none"
                         />
                       </div>
                     ) : (
@@ -1384,10 +1374,10 @@ const ISPFYNovaOS: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-white/40">
+                    <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-muted-foreground">
                       <span>{effectiveMessage.length} caracteres</span>
                       {customOSText !== null && (
-                        <span className="text-amber-400 font-semibold">● Texto editado manualmente</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold">● Texto editado manualmente</span>
                       )}
                     </div>
                   </div>
@@ -1398,33 +1388,33 @@ const ISPFYNovaOS: React.FC = () => {
                       variant="outline"
                       onClick={handleCopyInfo}
                       disabled={!selectedClient}
-                      className="bg-white/5 hover:bg-white/10 border-white/10 text-white text-xs h-10 gap-1.5 rounded-xl"
+                      className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
                     >
-                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                      <Copy className="w-3.5 h-3.5 text-emerald-500" />
                       Copiar O.S.
                     </Button>
                     <Button
                       variant="outline"
                       onClick={openTemplateModal}
-                      className="bg-white/5 hover:bg-white/10 border-white/10 text-white text-xs h-10 gap-1.5 rounded-xl"
+                      className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
                     >
-                      <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                      <Sliders className="w-3.5 h-3.5 text-blue-500" />
                       Modelo Base
                     </Button>
                   </div>
 
                   {/* Mapa Geográfico */}
-                  <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/40">
-                    <div className="px-3.5 py-2 border-b border-white/5 flex items-center justify-between text-xs">
-                      <span className="text-white/60 font-medium flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-emerald-400" /> Localização do Cliente
+                  <div className="rounded-2xl border border-border overflow-hidden bg-secondary/30">
+                    <div className="px-3.5 py-2 border-b border-border flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-500" /> Localização do Cliente
                       </span>
                       {mapsLink && (
                         <a
                           href={mapsLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-emerald-400 hover:text-emerald-300 text-[11px] flex items-center gap-1 transition-colors"
+                          className="text-emerald-600 dark:text-emerald-400 hover:underline text-[11px] flex items-center gap-1 transition-colors font-medium"
                         >
                           <Navigation className="w-3 h-3" /> Abrir Maps
                         </a>
@@ -1444,7 +1434,7 @@ const ISPFYNovaOS: React.FC = () => {
                         />
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center py-10 text-white/20">
+                      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground/60">
                         <MapPin className="w-8 h-8 mb-1.5 opacity-40" />
                         <p className="text-xs">Selecione o cliente para visualizar o mapa</p>
                       </div>
@@ -1457,7 +1447,7 @@ const ISPFYNovaOS: React.FC = () => {
                     whileTap={{ scale: 0.98 }}
                     onClick={handleCreate}
                     disabled={creating || !selectedClient || !selectedSubject}
-                    className="w-full h-13 py-3.5 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-emerald-600/30"
+                    className="w-full h-13 py-3.5 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-emerald-600/25"
                     style={{
                       background: 'linear-gradient(135deg, #059669 0%, #16a34a 100%)',
                     }}
@@ -1476,17 +1466,17 @@ const ISPFYNovaOS: React.FC = () => {
 
         {/* ─── Modal de Configuração da Estrutura / Template da O.S. ─── */}
         <Dialog open={isTemplateModalOpen} onOpenChange={setIsTemplateModalOpen}>
-          <DialogContent className="max-w-2xl bg-[#0b0e17] border-white/15 text-white p-6 rounded-3xl shadow-2xl">
+          <DialogContent className="max-w-2xl bg-card border-border text-card-foreground p-6 rounded-3xl shadow-2xl">
             <DialogHeader className="space-y-1.5">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-500">
                   <Sliders className="w-5 h-5" />
                 </div>
-                <DialogTitle className="text-xl font-bold text-white">
+                <DialogTitle className="text-xl font-bold text-foreground">
                   Personalizar Estrutura da O.S.
                 </DialogTitle>
               </div>
-              <DialogDescription className="text-white/60 text-xs">
+              <DialogDescription className="text-muted-foreground text-xs">
                 Edite a forma e o layout como a Ordem de Serviço será gerada e enviada para o WhatsApp. Clique nas variáveis abaixo para inseri-las no modelo.
               </DialogDescription>
             </DialogHeader>
@@ -1494,7 +1484,7 @@ const ISPFYNovaOS: React.FC = () => {
             <div className="space-y-4 py-2">
               {/* Tags clicáveis para inserção rápida */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-white/50 font-medium">
+                <Label className="text-xs text-foreground font-medium">
                   Variáveis dinâmicas disponíveis (clique para inserir):
                 </Label>
                 <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto custom-scrollbar p-1">
@@ -1504,7 +1494,7 @@ const ISPFYNovaOS: React.FC = () => {
                       type="button"
                       onClick={() => insertTagIntoTemplate(v.tag)}
                       title={v.desc}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono transition-all flex items-center gap-1"
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono transition-all flex items-center gap-1"
                     >
                       <span>+</span>
                       <strong className="font-semibold">{v.label}:</strong>
@@ -1516,7 +1506,7 @@ const ISPFYNovaOS: React.FC = () => {
 
               {/* Textarea do Modelo */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-white/70 font-medium">
+                <Label className="text-xs text-foreground font-medium">
                   Estrutura do Texto:
                 </Label>
                 <Textarea
@@ -1524,20 +1514,20 @@ const ISPFYNovaOS: React.FC = () => {
                   value={tempTemplateText}
                   onChange={e => setTempTemplateText(e.target.value)}
                   rows={10}
-                  className="bg-black/60 border-white/15 text-white font-mono text-xs leading-relaxed focus-visible:ring-emerald-500 focus-visible:border-emerald-500/50 rounded-xl"
+                  className="bg-background border-input text-foreground font-mono text-xs leading-relaxed focus-visible:ring-emerald-500 rounded-xl"
                   placeholder="Defina o modelo da O.S...."
                 />
               </div>
             </div>
 
-            <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2 border-t border-white/10">
+            <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2 border-t border-border">
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleRestoreDefaultTemplate}
-                className="bg-white/5 border-white/10 text-white/70 hover:text-white text-xs h-10 rounded-xl"
+                className="bg-secondary border-border text-foreground hover:bg-secondary/80 text-xs h-10 rounded-xl"
               >
-                <RotateCcw className="w-3.5 h-3.5 mr-1.5 text-amber-400" />
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
                 Restaurar Padrão AVL
               </Button>
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1545,7 +1535,7 @@ const ISPFYNovaOS: React.FC = () => {
                   type="button"
                   variant="ghost"
                   onClick={() => setIsTemplateModalOpen(false)}
-                  className="text-white/50 hover:text-white text-xs h-10 rounded-xl"
+                  className="text-muted-foreground hover:text-foreground text-xs h-10 rounded-xl"
                 >
                   Cancelar
                 </Button>
@@ -1583,16 +1573,15 @@ const Section: React.FC<{
   children: React.ReactNode;
 }> = ({ title, icon, badge, children }) => (
   <div
-    className="rounded-3xl border border-white/10 overflow-hidden"
-    style={{ background: 'rgba(255,255,255,0.02)', backdropFilter: 'blur(12px)' }}
+    className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden"
   >
-    <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between">
+    <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-card">
       <div className="flex items-center gap-2">
-        <span className="text-emerald-400">{icon}</span>
-        <span className="text-white/90 text-sm font-semibold tracking-wide">{title}</span>
+        <span className="text-emerald-500 dark:text-emerald-400">{icon}</span>
+        <span className="text-foreground text-sm font-semibold tracking-wide">{title}</span>
       </div>
       {badge && (
-        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/20 text-[10px]">
+        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 text-[10px]">
           {badge}
         </Badge>
       )}
@@ -1604,11 +1593,11 @@ const Section: React.FC<{
 const InfoRow: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({
   icon, label, value,
 }) => (
-  <div className="flex items-start gap-2.5 rounded-xl bg-white/5 border border-white/5 px-3 py-2">
+  <div className="flex items-start gap-2.5 rounded-xl bg-secondary/50 border border-border px-3 py-2">
     <span className="mt-0.5 shrink-0">{icon}</span>
     <div className="min-w-0 flex-1">
-      <p className="text-white/40 text-[10px] uppercase tracking-wide font-medium">{label}</p>
-      <p className="text-white/90 text-xs font-medium break-all">{value}</p>
+      <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium">{label}</p>
+      <p className="text-foreground text-xs font-medium break-all">{value}</p>
     </div>
   </div>
 );

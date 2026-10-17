@@ -125,11 +125,11 @@ export default function Requests() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Solicitações</h2>
-          <p className="text-gray-600">Gerencie todas as solicitações dos usuários</p>
+          <h2 className="text-2xl font-bold text-foreground">Solicitações</h2>
+          <p className="text-muted-foreground">Gerencie todas as solicitações dos usuários</p>
         </div>
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500" />
+          <Filter className="w-4 h-4 text-muted-foreground" />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Filtrar por status" />
@@ -146,11 +146,11 @@ export default function Requests() {
 
       <div className="grid gap-6">
         {filteredRequests.map((request) => (
-          <Card key={request.id} className="bg-white shadow-sm hover:shadow-md transition-shadow">
+          <Card key={request.id} className="bg-card border-border shadow-sm hover:shadow-md transition-all text-card-foreground">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <CardTitle className="text-lg font-semibold text-gray-900">
+                  <CardTitle className="text-lg font-semibold text-foreground">
                     {request.title}
                   </CardTitle>
                   <div className="flex items-center gap-2 mt-2">
@@ -170,14 +170,14 @@ export default function Requests() {
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-gray-600 mb-4">{request.description}</p>
+              <p className="text-muted-foreground mb-4">{request.description}</p>
               
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">
-                    Por: <span className="font-medium">{request.user}</span>
+                  <p className="text-sm text-muted-foreground">
+                    Por: <span className="font-medium text-foreground">{request.user}</span>
                   </p>
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     {request.createdAt.toLocaleDateString('pt-BR')}
                   </p>
                 </div>
@@ -187,7 +187,7 @@ export default function Requests() {
                     onClick={() => handleWhatsAppClick(request.userDetails.phone)}
                     size="sm"
                     variant="outline"
-                    className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                    className="bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400 hover:bg-green-500/20"
                   >
                     <MessageCircle className="w-4 h-4 mr-1" />
                     WhatsApp
@@ -197,7 +197,7 @@ export default function Requests() {
                     onClick={() => setSelectedUser(request)}
                     size="sm"
                     variant="outline"
-                    className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                    className="bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
                   >
                     <Eye className="w-4 h-4 mr-1" />
                     Detalhes

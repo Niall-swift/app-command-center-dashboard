@@ -250,12 +250,12 @@ ${mapsUrl}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Suporte Técnico</h2>
-            <p className="text-gray-600">Gerencie chamados técnicos e ordens de serviço</p>
+            <h2 className="text-2xl font-bold text-foreground">Suporte Técnico</h2>
+            <p className="text-muted-foreground">Gerencie chamados técnicos e ordens de serviço</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-500" />
+              <Filter className="w-4 h-4 text-muted-foreground" />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Filtrar por status" />
@@ -371,14 +371,14 @@ ${mapsUrl}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: index * 0.1 }}
             >
-              <Card className="bg-white shadow-sm hover:shadow-md transition-shadow">
+              <Card className="bg-card border-border shadow-sm hover:shadow-md transition-all text-card-foreground">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <CardTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                        <User className="w-5 h-5 text-blue-600" />
+                      <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
+                        <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                         {call.clientName}
-                        <span className="text-sm text-gray-500">#{call.id}</span>
+                        <span className="text-sm text-muted-foreground">#{call.id}</span>
                       </CardTitle>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge className={getPriorityColor(call.priority)}>
@@ -402,25 +402,25 @@ ${mapsUrl}
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Phone className="w-4 h-4" />
                       {call.clientPhone}
                     </div>
                     
-                    <div className="flex items-start gap-2 text-sm text-gray-600">
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
                       <MapPin className="w-4 h-4 mt-0.5" />
                       {call.address}
                     </div>
 
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <h4 className="font-medium text-sm mb-1">Problema relatado:</h4>
-                      <p className="text-sm text-gray-700">{call.problemDescription}</p>
+                    <div className="bg-secondary/40 p-3 rounded-lg border border-border">
+                      <h4 className="font-medium text-sm text-foreground mb-1">Problema relatado:</h4>
+                      <p className="text-sm text-foreground/90">{call.problemDescription}</p>
                     </div>
                   </div>
                   
                   <div className="flex items-center justify-between mt-4">
                     <div>
-                      <p className="text-sm text-gray-400">
+                      <p className="text-sm text-muted-foreground">
                         Criado em: {call.createdAt.toLocaleDateString('pt-BR')} às {call.createdAt.toLocaleTimeString('pt-BR')}
                       </p>
                     </div>
@@ -439,7 +439,7 @@ ${mapsUrl}
                         <Button
                           onClick={() => handleStatusChange(call.id, 'in-progress')}
                           size="sm"
-                          className="bg-blue-600 hover:bg-blue-700"
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
                         >
                           <Wrench className="w-4 h-4 mr-1" />
                           Iniciar
@@ -450,7 +450,7 @@ ${mapsUrl}
                         <Button
                           onClick={() => handleStatusChange(call.id, 'resolved')}
                           size="sm"
-                          className="bg-green-600 hover:bg-green-700"
+                          className="bg-green-600 hover:bg-green-700 text-white"
                         >
                           <CheckCircle className="w-4 h-4 mr-1" />
                           Resolver
@@ -481,9 +481,9 @@ ${mapsUrl}
             animate={{ opacity: 1 }}
             className="text-center py-12"
           >
-            <Wrench className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhum chamado encontrado</h3>
-            <p className="text-gray-500">
+            <Wrench className="w-12 h-12 text-muted-foreground opacity-30 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">Nenhum chamado encontrado</h3>
+            <p className="text-muted-foreground">
               {statusFilter === 'all' 
                 ? 'Não há chamados técnicos no momento.' 
                 : `Não há chamados com status "${getStatusText(statusFilter)}".`

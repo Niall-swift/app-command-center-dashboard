@@ -131,8 +131,7 @@ export function AppSidebar() {
         {/* Main nav */}
         <SidebarGroup>
           <SidebarGroupLabel
-            className="text-xs font-semibold mb-2 px-2 tracking-widest uppercase"
-            style={{ color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.6)' }}
+            className="text-xs font-bold mb-2 px-2 tracking-wider uppercase text-slate-400 dark:text-slate-400"
           >
             Navegação
           </SidebarGroupLabel>
@@ -185,7 +184,7 @@ export function AppSidebar() {
                               <item.icon
                                 className="w-4.5 h-4.5 transition-colors duration-200"
                                 style={{
-                                  color: isActive ? (isDark ? '#60A5FA' : '#2563EB') : (isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)'),
+                                  color: isActive ? (isDark ? '#60A5FA' : '#2563EB') : (isDark ? '#94A3B8' : '#64748B'),
                                   width: 18, height: 18,
                                 }}
                               />
@@ -194,7 +193,7 @@ export function AppSidebar() {
                             {/* Label */}
                             <span
                               className="text-sm font-medium transition-colors duration-200"
-                              style={{ color: isActive ? (isDark ? '#F1F5F9' : '#1E293B') : (isDark ? 'rgba(148,163,184,0.75)' : 'rgba(71,85,105,0.85)') }}
+                              style={{ color: isActive ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#E2E8F0' : '#334155') }}
                             >
                               {item.title}
                             </span>
@@ -203,7 +202,7 @@ export function AppSidebar() {
                             {!isActive && (
                               <div
                                 className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-                                style={{ background: 'rgba(255,255,255,0.04)' }}
+                                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}
                               />
                             )}
                           </Link>
@@ -220,16 +219,15 @@ export function AppSidebar() {
         {/* Divider */}
         <div
           className="my-3 h-px mx-2"
-          style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)' }}
+          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
         />
 
         {/* ISPFY section */}
         <SidebarGroup>
           <SidebarGroupLabel
-            className="text-xs font-semibold mb-2 px-2 tracking-widest uppercase flex items-center gap-2"
-            style={{ color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.6)' }}
+            className="text-xs font-bold mb-2 px-2 tracking-wider uppercase flex items-center gap-2 text-slate-400 dark:text-slate-400"
           >
-            <Database style={{ width: 10, height: 10 }} />
+            <Database style={{ width: 12, height: 12 }} />
             Sistema ISPFY
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -274,18 +272,18 @@ export function AppSidebar() {
                             <item.icon
                               style={{
                                 width: 18, height: 18,
-                                color: isActive ? (isDark ? '#34D399' : '#059669') : (isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)'),
+                                color: isActive ? (isDark ? '#34D399' : '#059669') : (isDark ? '#94A3B8' : '#64748B'),
                               }}
                             />
                             <span
                               className="text-sm font-medium"
-                              style={{ color: isActive ? (isDark ? '#F1F5F9' : '#1E293B') : (isDark ? 'rgba(148,163,184,0.75)' : 'rgba(71,85,105,0.85)') }}
+                              style={{ color: isActive ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#E2E8F0' : '#334155') }}
                             >
                               {item.title}
                             </span>
 
                             {!isActive && (
-                              <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                              <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }} />
                             )}
                           </Link>
                         </SidebarMenuButton>
@@ -303,7 +301,7 @@ export function AppSidebar() {
       <SidebarFooter className="relative z-10 p-3 pb-4">
         <div
           className="h-px mb-3 mx-1"
-          style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)' }}
+          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
         />
         <motion.div
           whileHover={{ scale: 1.02 }}

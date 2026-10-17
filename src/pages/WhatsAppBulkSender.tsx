@@ -1004,7 +1004,6 @@ export default function WhatsAppBulkSender() {
                   onClick={() => handleSendAITest('billing')} 
                   disabled={isTestingAI} 
                   variant="secondary"
-                  className="bg-white"
                 >
                   <Send className="w-4 h-4 mr-2" />
                   Testar Cobrança (Fatura)
@@ -1013,7 +1012,6 @@ export default function WhatsAppBulkSender() {
                   onClick={() => handleSendAITest('blocked')} 
                   disabled={isTestingAI} 
                   variant="secondary"
-                  className="bg-white"
                 >
                   <AlertCircle className="w-4 h-4 mr-2" />
                   Testar Alerta (Bloqueio)
@@ -1024,10 +1022,10 @@ export default function WhatsAppBulkSender() {
         </Card>
 
         {/* Search for Individual Client */}
-        <Card className="border-blue-200 bg-blue-50/30">
+        <Card className="border-blue-500/20 bg-blue-500/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5 text-blue-600" />
+              <Search className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               Enviar para Cliente Individual
             </CardTitle>
             <CardDescription>
@@ -1065,11 +1063,11 @@ export default function WhatsAppBulkSender() {
                 {searchResults.map((client) => (
                   <div
                     key={client.clienteId}
-                    className="flex items-center justify-between p-4 bg-white rounded-lg border hover:border-blue-300 transition-colors"
+                    className="flex items-center justify-between p-4 bg-card rounded-lg border border-border hover:border-blue-500/40 transition-colors"
                   >
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900">{client.nome}</p>
+                        <p className="font-semibold text-foreground">{client.nome}</p>
                         {((client as any).allPhones?.length || 1) > 1 && (
                           <Badge variant="secondary" className="text-xs">
                             {(client as any).allPhones?.length || 1} contatos
@@ -1165,10 +1163,10 @@ export default function WhatsAppBulkSender() {
                      );
                      const totalAtraso = faturasAtrasadas.reduce((acc, f) => acc + parseFloat(f.valor || '0'), 0);
                      return (
-                       <div key={contract.id} className="flex items-center justify-between p-3 bg-white rounded shadow-sm border border-red-100">
+                       <div key={contract.id} className="flex items-center justify-between p-3 bg-card rounded shadow-sm border border-red-500/20 text-card-foreground">
                           <div>
-                            <p className="font-semibold text-gray-800">{cliente?.nome_razao || cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
-                            <p className="text-sm text-gray-500">Contrato: {contract.id} | Status: {contract.status_internet}</p>
+                            <p className="font-semibold text-foreground">{cliente?.nome_razao || cliente?.nome || cliente?.razao || 'Cliente Desconhecido'}</p>
+                            <p className="text-sm text-muted-foreground">Contrato: {contract.id} | Status: {contract.status_internet}</p>
                             {cliente?.telefone_celular && <p className="text-xs text-gray-400">{cliente.telefone_celular}</p>}
                             {faturasAtrasadas.length > 0 && (
                               <p className="text-xs font-semibold text-red-600 mt-1">
@@ -1298,7 +1296,7 @@ export default function WhatsAppBulkSender() {
                   <div
                     key={index}
                     className={`flex items-center justify-between p-3 rounded-md border ${
-                      log.status === 'success' ? 'bg-green-50/50 border-green-100' : 'bg-red-50/50 border-red-100'
+                      log.status === 'success' ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'
                     }`}
                   >
                     <div className="flex items-center gap-3">

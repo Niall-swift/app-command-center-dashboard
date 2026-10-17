@@ -85,10 +85,10 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
   };
 
   return (
-    <Card className="bg-white shadow-sm border-none h-full">
+    <Card className="bg-card border-border shadow-sm h-full text-card-foreground">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
-           <Wallet className="w-5 h-5 text-indigo-600" />
+        <CardTitle className="text-xl font-bold text-foreground flex items-center gap-2">
+           <Wallet className="w-5 h-5 text-primary" />
            Contas e Caixas
         </CardTitle>
         <Button 
@@ -102,16 +102,16 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
       </CardHeader>
       <CardContent className="space-y-4">
         {isCreating && (
-          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg space-y-3 animate-in fade-in slide-in-from-top-2">
-            <h4 className="text-sm font-semibold text-indigo-900">Novo Caixa (Caixa 2)</h4>
+          <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg space-y-3 animate-in fade-in slide-in-from-top-2">
+            <h4 className="text-sm font-semibold text-foreground">Novo Caixa (Caixa 2)</h4>
             <Input 
               placeholder="Ex: Caixa 2 - Filial Norte" 
               value={newAccountName}
               onChange={(e) => setNewAccountName(e.target.value)}
-              className="bg-white border-indigo-200"
+              className="bg-background border-input text-foreground"
             />
             <div className="flex gap-2">
-              <Button size="sm" className="flex-1 bg-indigo-600 hover:bg-indigo-700" onClick={handleCreate}>Criar</Button>
+              <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleCreate}>Criar</Button>
               <Button size="sm" variant="ghost" className="flex-1" onClick={() => setIsCreating(false)}>Cancelar</Button>
             </div>
           </div>
@@ -122,39 +122,39 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
             <div 
               key={acc.id}
               onClick={() => onSelect(acc.id as string)}
-              className={`p-4 rounded-xl border-2 transition-all cursor-pointer group ${
+              className={`p-4 rounded-xl border transition-all cursor-pointer group ${
                 selectedId === acc.id 
-                ? 'border-indigo-600 bg-indigo-50/50' 
-                : 'border-transparent bg-gray-50 hover:border-gray-200'
+                ? 'border-primary bg-primary/10 shadow-sm' 
+                : 'border-border/60 bg-secondary/30 hover:bg-secondary/60'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                    selectedId === acc.id ? 'bg-indigo-600 text-white' : 'bg-white text-gray-400 group-hover:text-indigo-600'
+                    selectedId === acc.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground group-hover:text-primary'
                   }`}>
                     {acc.descricao?.toLowerCase().includes('banco') ? <Landmark className="w-5 h-5" /> : <Wallet className="w-5 h-5" />}
                   </div>
                   <div>
-                    <h5 className="font-bold text-gray-900">{acc.descricao}</h5>
-                    <p className="text-xs text-gray-500">ID: {acc.id}</p>
+                    <h5 className="font-bold text-foreground">{acc.descricao}</h5>
+                    <p className="text-xs text-muted-foreground">ID: {acc.id}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-gray-900">R$ {parseFloat(acc.saldo || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider">Saldo Atual</p>
+                  <p className="text-sm font-bold text-foreground">R$ {parseFloat(acc.saldo || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Saldo Atual</p>
                 </div>
               </div>
             </div>
           ))}
           
           {accounts.length === 0 && !loading && (
-            <p className="text-center text-gray-400 py-10 text-sm italic">Nenhuma conta vinculada.</p>
+            <p className="text-center text-muted-foreground py-10 text-sm italic">Nenhuma conta vinculada.</p>
           )}
 
           <Button 
             variant="ghost" 
-            className="w-full text-indigo-600 bg-indigo-50/0 hover:bg-indigo-50 gap-2 border border-dashed border-indigo-200 mt-2"
+            className="w-full text-primary hover:bg-primary/10 gap-2 border border-dashed border-primary/30 mt-2"
             onClick={() => setIsTransferModalOpen(true)}
             disabled={!selectedId}
           >
@@ -164,16 +164,16 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
       </CardContent>
 
       <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
-          <DialogContent className="max-w-md bg-white">
+          <DialogContent className="max-w-md bg-card border-border text-foreground">
               <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                      <ArrowRightLeft className="w-5 h-5 text-indigo-600" />
+                  <DialogTitle className="text-xl font-bold text-foreground flex items-center gap-2">
+                      <ArrowRightLeft className="w-5 h-5 text-primary" />
                       Transferência entre Contas
                   </DialogTitle>
               </DialogHeader>
               
               <div className="grid gap-4 py-4">
-                  <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-800">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-300">
                       <strong>Origem:</strong> {accounts.find(a => a.id === selectedId)?.descricao || 'Selecione um caixa'}
                   </div>
 
@@ -186,7 +186,7 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
                           <SelectTrigger className="w-full">
                               <SelectValue placeholder="Selecione o destino" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white">
+                          <SelectContent className="bg-popover border-border text-popover-foreground">
                               {accounts.filter(a => a.id !== selectedId).map(acc => (
                                   <SelectItem key={acc.id} value={acc.id as string}>
                                       {acc.descricao} (R$ {parseFloat(acc.saldo || '0').toLocaleString('pt-BR')})
@@ -210,7 +210,7 @@ export const CaixaManager: React.FC<CaixaManagerProps> = ({
               <DialogFooter>
                   <Button variant="ghost" onClick={() => setIsTransferModalOpen(false)}>Cancelar</Button>
                   <Button 
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
                     onClick={handleTransfer}
                     disabled={isTransferring}
                   >

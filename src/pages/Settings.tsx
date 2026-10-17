@@ -10,7 +10,7 @@ import { Settings2, Plus, Trash2, MessageSquare, UserPlus, Bot, Power } from 'lu
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
 import { db } from '@/config/firebase';
-import { doc, onSnapshot, setDoc, collection, query, orderBy, limit, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, orderBy, limit, addDoc, deleteDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from '@/components/ui/switch';
 import { Label as LabelUI } from '@/components/ui/label';
@@ -46,25 +46,69 @@ interface TeamUser {
 
 function LiveChatMonitor({
   youtubeVideoId,
+  currentPinnedMessage,
   onPinMessage,
 }: {
   youtubeVideoId: string;
-  onPinMessage: (text: string) => void;
+  currentPinnedMessage?: string;
+  onPinMessage?: (text: string) => void;
 }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [adminText, setAdminText] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const chatEndRef = React.useRef<HTMLDivElement>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const isFullscreenRef = React.useRef(isFullscreen);
+  isFullscreenRef.current = isFullscreen;
+  const fullscreenChatContainerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    const q = query(collection(db, "live_premix_chat"), orderBy("createdAt", "asc"), limit(100));
+    // Buscar sempre as mensagens mais recentes (desc) para não travar ao passar do limite
+    const q = query(collection(db, "live_premix_chat"), orderBy("createdAt", "desc"), limit(100));
     const unsub = onSnapshot(q, (snap) => {
-      const msgs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((m: any) => !m.deleted);
+      const parseTime = (val: any) => {
+        if (!val) return Date.now();
+        if (typeof val.toMillis === 'function') return val.toMillis();
+        if (typeof val.toDate === 'function') return val.toDate().getTime();
+        if (typeof val === 'number') return val;
+        return new Date(val).getTime() || Date.now();
+      };
+
+      const msgs = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((m: any) => !m.deleted)
+        .sort((a: any, b: any) => parseTime(a.createdAt) - parseTime(b.createdAt));
+
       setMessages(msgs);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 200);
+
+      // Apenas rolar o chat para o final se estiver no modo TELA CHEIA (STUDIO)
+      // Usando scrollTo no próprio container interno para JAMAIS mover a página de configurações!
+      if (isFullscreenRef.current && fullscreenChatContainerRef.current) {
+        setTimeout(() => {
+          if (fullscreenChatContainerRef.current) {
+            fullscreenChatContainerRef.current.scrollTo({
+              top: fullscreenChatContainerRef.current.scrollHeight,
+              behavior: 'smooth',
+            });
+          }
+        }, 100);
+      }
     });
     return () => unsub();
   }, []);
+
+  // Ao entrar em modo tela cheia, rola o chat até o final
+  React.useEffect(() => {
+    if (isFullscreen && fullscreenChatContainerRef.current) {
+      setTimeout(() => {
+        if (fullscreenChatContainerRef.current) {
+          fullscreenChatContainerRef.current.scrollTo({
+            top: fullscreenChatContainerRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
+      }, 150);
+    }
+  }, [isFullscreen]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,6 +138,70 @@ function LiveChatMonitor({
     } catch (e) {
       console.error(e);
       toast.error('Erro ao apagar mensagem');
+    }
+  };
+
+  const handleToggleCorrect = async (m: any) => {
+    const nextState = !m.isCorrect;
+    try {
+      await setDoc(doc(db, "live_premix_chat", m.id), {
+        isCorrect: nextState,
+        markedAt: nextState ? serverTimestamp() : null,
+      }, { merge: true });
+
+      if (nextState) {
+        toast.success(`🎉 Resposta de ${m.userName || 'Convidado'} marcada como CERTA! Efeito e confetes disparados no App!`);
+      } else {
+        toast.info("Marcação de resposta certa removida");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Erro ao marcar resposta");
+    }
+  };
+
+  const handlePinWinner = async (m: any) => {
+    const winnerName = m.userName || 'Convidado';
+    const formatted = `🏆 VENCEDOR(A) · ${winnerName}: "${m.text}"`;
+    try {
+      await setDoc(doc(db, "configs", "live_premix"), {
+        pinnedMessage: formatted,
+        pinnedAt: serverTimestamp(),
+      }, { merge: true });
+      toast.success(`🎉 Resposta de ${winnerName} fixada! Confetes lançados no App!`);
+      if (onPinMessage) onPinMessage(formatted);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao fixar resposta');
+    }
+  };
+
+  const handleUnpin = async () => {
+    try {
+      await setDoc(doc(db, "configs", "live_premix"), {
+        pinnedMessage: '',
+        pinnedAt: null,
+      }, { merge: true });
+      toast.success('Mensagem desafixada com sucesso!');
+      if (onPinMessage) onPinMessage('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao desafixar mensagem');
+    }
+  };
+
+  const handleClearChat = async () => {
+    if (!window.confirm("Deseja realmente limpar todo o histórico do chat da Live?")) return;
+    setIsClearing(true);
+    try {
+      const snap = await getDocs(query(collection(db, "live_premix_chat"), limit(300)));
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      toast.success("Histórico do chat da live limpo com sucesso!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro ao limpar histórico do chat");
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -134,6 +242,17 @@ function LiveChatMonitor({
             <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30 bg-emerald-500/10 font-black px-3 py-1">
               {messages.length} mensagens
             </Badge>
+            <Button
+              onClick={handleClearChat}
+              disabled={isClearing}
+              variant="outline"
+              size="sm"
+              className="bg-red-950/40 hover:bg-red-900/60 text-red-300 border-red-800/60 flex items-center gap-1.5 font-bold"
+              title="Apagar mensagens antigas do chat"
+            >
+              <Trash2 className="w-4 h-4 text-red-400" />
+              {isClearing ? 'Limpando...' : 'Limpar Chat'}
+            </Button>
             <Button
               onClick={() => setIsFullscreen(false)}
               variant="outline"
@@ -193,32 +312,84 @@ function LiveChatMonitor({
               <span>Host / Moderador Ativo</span>
             </div>
 
-            <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-2">
+            {/* Mensagem Fixada no Topo (Modo Studio) */}
+            {currentPinnedMessage && (
+              <div className="flex-none flex items-center justify-between p-3 bg-gradient-to-r from-amber-500/25 via-emerald-500/15 to-gray-900 border-b border-amber-500/40 gap-3">
+                <div className="flex items-center gap-2 overflow-hidden flex-1">
+                  <span className="text-amber-400 font-black text-xs flex items-center gap-1 shrink-0 bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 rounded-md">
+                    <Pin className="w-3.5 h-3.5 rotate-45" /> FIXADO
+                  </span>
+                  <span className="text-white font-extrabold text-sm truncate">
+                    {currentPinnedMessage}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  onClick={handleUnpin}
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs text-red-400 hover:text-red-300 border-red-500/40 bg-red-950/40 hover:bg-red-900/60 font-bold shrink-0"
+                >
+                  Desafixar
+                </Button>
+              </div>
+            )}
+
+            <div ref={fullscreenChatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-2">
               {messages.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-gray-500 text-xs">
                   Nenhuma mensagem no chat no momento.
                 </div>
               ) : (
                 messages.map((m) => (
-                  <div key={m.id} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-gray-950/80 border border-gray-800/80 hover:border-gray-700 transition-colors group">
+                  <div
+                    key={m.id}
+                    className={`flex items-start justify-between gap-3 p-3 rounded-xl transition-all group ${
+                      m.isCorrect
+                        ? 'bg-emerald-950/70 border-2 border-emerald-500 shadow-lg shadow-emerald-500/20'
+                        : 'bg-gray-950/80 border border-gray-800/80 hover:border-gray-700'
+                    }`}
+                  >
                     <div className="text-sm leading-relaxed flex-1">
-                      <span className={`font-bold mr-2 ${m.role === 'host' ? 'text-red-400 font-black' : 'text-emerald-400'}`}>
-                        {m.userName || 'Convidado'}
-                        {m.role === 'host' && (
-                          <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
-                            HOST
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        <span className={`font-bold ${m.role === 'host' ? 'text-red-400 font-black' : 'text-emerald-400'}`}>
+                          {m.userName || 'Convidado'}
+                          {m.role === 'host' && (
+                            <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
+                              HOST
+                            </span>
+                          )}
+                          :
+                        </span>
+                        {m.isCorrect && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-white shadow-sm">
+                            <CheckCircle2 className="w-3 h-3" /> RESPOSTA CERTA! 🏆
                           </span>
                         )}
-                        :
+                      </div>
+                      <span className={`${m.isCorrect ? 'text-emerald-200 font-bold text-base' : 'text-gray-200'}`}>
+                        {m.text}
                       </span>
-                      <span className="text-gray-200">{m.text}</span>
                     </div>
-                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
-                        onClick={() => onPinMessage(m.text)}
-                        title="Fixar mensagem no topo do chat"
-                        className="p-1.5 hover:bg-gray-800 text-amber-400 rounded-lg transition-colors"
+                        onClick={() => handleToggleCorrect(m)}
+                        title={m.isCorrect ? "Desmarcar resposta correta" : "Marcar como Resposta Certa! ✅"}
+                        className={`p-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                          m.isCorrect
+                            ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-md shadow-emerald-500/30'
+                            : 'hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        {m.isCorrect ? 'Certo! 🏆' : 'Certo?'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePinWinner(m)}
+                        title={`Fixar resposta de ${m.userName || 'Convidado'} como vencedor(a) 🏆`}
+                        className="p-1.5 hover:bg-gray-800 text-amber-400 hover:text-amber-300 rounded-lg transition-transform active:scale-95"
                       >
                         <Pin className="w-4 h-4" />
                       </button>
@@ -234,7 +405,6 @@ function LiveChatMonitor({
                   </div>
                 ))
               )}
-              <div ref={chatEndRef} />
             </div>
 
             <form onSubmit={handleSendMessage} className="flex-none p-3 bg-gray-900 border-t border-gray-800 flex items-center gap-2">
@@ -270,10 +440,22 @@ function LiveChatMonitor({
           </Badge>
           <Button
             type="button"
+            onClick={handleClearChat}
+            disabled={isClearing}
+            variant="outline"
+            size="sm"
+            className="text-xs font-bold gap-1 text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50"
+            title="Limpar histórico de mensagens"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {isClearing ? 'Limpando...' : 'Limpar'}
+          </Button>
+          <Button
+            type="button"
             onClick={() => setIsFullscreen(true)}
             variant="outline"
             size="sm"
-            className="text-xs font-bold gap-1 text-gray-700 hover:text-emerald-700"
+            className="text-xs font-bold gap-1 text-foreground hover:text-emerald-500"
           >
             <Maximize2 className="w-3.5 h-3.5" />
             Expandir Studio (Tela Cheia)
@@ -281,33 +463,85 @@ function LiveChatMonitor({
         </div>
       </div>
 
+      {/* Mensagem Fixada no Topo (Modo Normal) */}
+      {currentPinnedMessage && (
+        <div className="flex items-center justify-between p-2.5 px-3 bg-amber-500/15 border border-amber-500/30 rounded-xl gap-2 text-xs">
+          <div className="flex items-center gap-2 overflow-hidden flex-1">
+            <span className="text-amber-500 font-black flex items-center gap-1 shrink-0 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md text-[10px]">
+              <Pin className="w-3 h-3 rotate-45" /> FIXADO
+            </span>
+            <span className="text-foreground font-bold truncate">
+              {currentPinnedMessage}
+            </span>
+          </div>
+          <Button
+            type="button"
+            onClick={handleUnpin}
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px] text-red-500 hover:text-red-600 hover:bg-red-500/10 font-bold shrink-0"
+          >
+            Desafixar
+          </Button>
+        </div>
+      )}
+
       {/* Caixa do Chat com Rolagem */}
-      <div className="bg-gray-950 text-white rounded-xl p-4 h-72 overflow-y-auto space-y-2 border border-gray-800">
+      <div className="bg-secondary/30 text-foreground rounded-xl p-4 h-72 overflow-y-auto space-y-2 border border-border">
         {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-gray-500 text-xs">
+          <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             Nenhuma mensagem no chat no momento.
           </div>
         ) : (
           messages.map((m) => (
-            <div key={m.id} className="flex items-start justify-between gap-2 group hover:bg-gray-900/80 p-2 rounded-lg transition-colors border border-transparent hover:border-gray-800">
+            <div
+              key={m.id}
+              className={`flex items-start justify-between gap-2 p-2.5 rounded-lg transition-all border ${
+                m.isCorrect
+                  ? 'bg-emerald-500/15 border-emerald-500/60 shadow-sm'
+                  : 'hover:bg-secondary/60 border-transparent hover:border-border'
+              }`}
+            >
               <div className="text-xs leading-relaxed flex-1">
-                <span className={`font-bold mr-1.5 ${m.role === 'host' ? 'text-red-400 font-extrabold' : 'text-emerald-400'}`}>
-                  {m.userName || 'Convidado'}
-                  {m.role === 'host' && (
-                    <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
-                      HOST
+                <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                  <span className={`font-bold ${m.role === 'host' ? 'text-red-500 font-extrabold' : 'text-emerald-500'}`}>
+                    {m.userName || 'Convidado'}
+                    {m.role === 'host' && (
+                      <span className="ml-1 px-1.5 py-0.5 text-[9px] bg-red-600 text-white rounded font-black tracking-wider">
+                        HOST
+                      </span>
+                    )}
+                    :
+                  </span>
+                  {m.isCorrect && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-500 text-white">
+                      <CheckCircle2 className="w-2.5 h-2.5" /> CERTO! 🏆
                     </span>
                   )}
-                  :
+                </div>
+                <span className={`${m.isCorrect ? 'text-foreground font-bold' : 'text-foreground'}`}>
+                  {m.text}
                 </span>
-                <span className="text-gray-200">{m.text}</span>
               </div>
-              <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
                 <button
                   type="button"
-                  onClick={() => onPinMessage(m.text)}
-                  title="Fixar mensagem no topo do chat"
-                  className="p-1.5 hover:bg-gray-800 text-amber-400 rounded transition-colors"
+                  onClick={() => handleToggleCorrect(m)}
+                  title={m.isCorrect ? "Desmarcar resposta correta" : "Marcar como Resposta Certa! ✅"}
+                  className={`p-1 px-2 rounded text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                    m.isCorrect
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : 'hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {m.isCorrect ? 'Certo!' : 'Certo?'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePinWinner(m)}
+                  title={`Fixar resposta de ${m.userName || 'Convidado'} como vencedor(a) 🏆`}
+                  className="p-1.5 hover:bg-secondary text-amber-500 hover:text-amber-600 rounded transition-transform active:scale-95"
                 >
                   <Pin className="w-3.5 h-3.5" />
                 </button>
@@ -315,7 +549,7 @@ function LiveChatMonitor({
                   type="button"
                   onClick={() => handleDelete(m.id)}
                   title="Apagar mensagem"
-                  className="p-1.5 hover:bg-gray-800 text-red-400 rounded transition-colors"
+                  className="p-1.5 hover:bg-secondary text-red-500 rounded transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -323,7 +557,6 @@ function LiveChatMonitor({
             </div>
           ))
         )}
-        <div ref={chatEndRef} />
       </div>
 
       {/* Input para Enviar Mensagem como HOST */}
@@ -894,11 +1127,11 @@ export default function Settings() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.4 }}
           >
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <Settings2 className="w-8 h-8 text-blue-600" />
+            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+              <Settings2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
               Configurações
             </h1>
-            <p className="text-gray-600 mt-2">Gerencie suas configurações e equipe</p>
+            <p className="text-muted-foreground mt-2">Gerencie suas configurações e equipe</p>
           </motion.div>
 
             <Button 
@@ -918,15 +1151,15 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className="bg-white shadow-sm border-2 border-red-100">
-            <CardHeader className="bg-red-50/50">
+          <Card className="bg-card shadow-sm border border-red-500/30 text-card-foreground">
+            <CardHeader className="bg-red-500/5 border-b border-border">
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Youtube className="w-5 h-5 text-red-600" />
+                  <Youtube className="w-5 h-5 text-red-600 dark:text-red-400" />
                   Controle da Live Pré-Mix
                 </div>
                 <div className="flex items-center gap-3">
-                  <LabelUI htmlFor="live-toggle" className="text-sm font-medium text-gray-700">
+                  <LabelUI htmlFor="live-toggle" className="text-sm font-medium text-foreground">
                     {liveConfig.isLive ? 'Live no Ar (Ao Vivo)' : 'Live Desativada'}
                   </LabelUI>
                   <Switch 
@@ -942,7 +1175,7 @@ export default function Settings() {
               {/* Informações Básicas */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     ID do Vídeo do YouTube
                   </label>
                   <Input 
@@ -950,12 +1183,12 @@ export default function Settings() {
                     onChange={(e) => setLiveConfig({ ...liveConfig, youtubeVideoId: e.target.value })}
                     placeholder="Ex: jfKfPfyJRdk"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Cole o link ou apenas o código após "v=" no link do YouTube.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     Título da Transmissão
                   </label>
                   <Input 
@@ -967,9 +1200,9 @@ export default function Settings() {
               </div>
 
               {/* Pré-Live & Contagem Regressiva */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     Data e Horário de Início (Contagem Regressiva)
                   </label>
                   <Input 
@@ -979,7 +1212,7 @@ export default function Settings() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
                     URL da Imagem da Capa (Pré-live)
                   </label>
                   <Input 
@@ -991,29 +1224,63 @@ export default function Settings() {
               </div>
 
               {/* Mensagem Fixada no Chat */}
-              <div className="pt-2 border-t border-gray-100">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="pt-2 border-t border-border">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   📌 Mensagem Fixada no Chat
                 </label>
-                <Input 
-                  value={liveConfig.pinnedMessage}
-                  onChange={(e) => setLiveConfig({ ...liveConfig, pinnedMessage: e.target.value })}
-                  placeholder="Ex: Sejam bem-vindos! O sorteio começará em instantes."
-                />
+                <div className="flex gap-2">
+                  <Input 
+                    value={liveConfig.pinnedMessage}
+                    onChange={(e) => setLiveConfig({ ...liveConfig, pinnedMessage: e.target.value })}
+                    placeholder="Ex: Sejam bem-vindos! O sorteio começará em instantes."
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={async () => {
+                      if (!liveConfig.pinnedMessage.trim()) return;
+                      await setDoc(doc(db, "configs", "live_premix"), {
+                        pinnedMessage: liveConfig.pinnedMessage.trim(),
+                        pinnedAt: serverTimestamp(),
+                      }, { merge: true });
+                      toast.success("Mensagem fixada imediatamente no App!");
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                  >
+                    Fixar Agora
+                  </Button>
+                  {liveConfig.pinnedMessage && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={async () => {
+                        await setDoc(doc(db, "configs", "live_premix"), {
+                          pinnedMessage: '',
+                          pinnedAt: null,
+                        }, { merge: true });
+                        setLiveConfig(prev => ({ ...prev, pinnedMessage: '' }));
+                        toast.success("Mensagem desafixada!");
+                      }}
+                      className="border-red-500/30 text-red-500 hover:bg-red-500/10 font-bold"
+                    >
+                      Desafixar
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {/* Banner de Oferta Especial */}
-              <div className="pt-2 border-t border-gray-100 space-y-3">
+              <div className="pt-2 border-t border-border space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-800">
+                  <span className="text-sm font-bold text-foreground">
                     🎁 Banner de Oferta Especial na Live
                   </span>
                   <div className="flex items-center gap-2">
-                    <LabelUI htmlFor="offer-toggle" className="text-xs text-gray-600">
+                    <LabelUI htmlFor="offer-toggle" className="text-xs text-muted-foreground">
                       {liveConfig.offerActive ? 'Ativado' : 'Desativado'}
                     </LabelUI>
                     <Switch 
-                      id="offer-toggle"
+                      id="offer-toggle" 
                       checked={liveConfig.offerActive}
                       onCheckedChange={(val) => setLiveConfig({ ...liveConfig, offerActive: val })}
                     />
@@ -1021,9 +1288,9 @@ export default function Settings() {
                 </div>
 
                 {liveConfig.offerActive && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-foreground mb-1">
                         Título da Oferta
                       </label>
                       <Input 
@@ -1033,7 +1300,7 @@ export default function Settings() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-foreground mb-1">
                         Subtítulo
                       </label>
                       <Input 
@@ -1043,7 +1310,7 @@ export default function Settings() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-foreground mb-1">
                         Texto do Botão
                       </label>
                       <Input 
@@ -1053,7 +1320,7 @@ export default function Settings() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-foreground mb-1">
                         Link de Destino (WhatsApp / Site)
                       </label>
                       <Input 
@@ -1069,9 +1336,9 @@ export default function Settings() {
               {/* Monitor & Moderação de Chat Ao Vivo */}
               <LiveChatMonitor 
                 youtubeVideoId={liveConfig.youtubeVideoId}
+                currentPinnedMessage={liveConfig.pinnedMessage}
                 onPinMessage={(msgText) => {
                   setLiveConfig(prev => ({ ...prev, pinnedMessage: msgText }));
-                  toast.success('Mensagem selecionada para fixar! Clique em Salvar para aplicar.');
                 }}
               />
 
@@ -1082,10 +1349,10 @@ export default function Settings() {
           </Card>
         </motion.div>
 
-        <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex items-center gap-4 bg-card p-4 rounded-xl shadow-sm border border-border text-card-foreground">
           <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Status dos Clientes:</span>
+            <Users className="w-5 h-5 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">Status dos Clientes:</span>
           </div>
           <Select value={clientStatus} onValueChange={(v: 'S' | 'N') => setClientStatus(v)}>
             <SelectTrigger className="w-48 h-9">
@@ -1096,7 +1363,7 @@ export default function Settings() {
               <SelectItem value="N">Inativos</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             {clientStatus === 'S' ? 'Gerencie clientes com contrato ativo' : 'Gerencie clientes com contrato inativo/cancelado'}
           </p>
         </div>
@@ -1107,11 +1374,11 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className="bg-white shadow-sm overflow-hidden border-2 border-blue-100">
-            <CardHeader className="bg-blue-50/50">
+          <Card className="bg-card shadow-sm overflow-hidden border border-blue-500/30 text-card-foreground">
+            <CardHeader className="bg-blue-500/5 border-b border-border">
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-blue-600" />
+                  <Building2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   Agrupamento de Clientes ({clientStatus === 'S' ? 'Ativos' : 'Inativos'}) por Filial
                 </div>
                 {loadingISPFY && (
@@ -1128,34 +1395,34 @@ export default function Settings() {
                     const filialField = detectedFilialField || 'filial_id';
                     const clientesDaFilial = clientes.filter(c => String(c[filialField]) === String(filial.id));
                     return (
-                      <AccordionItem key={filial.id} value={filial.id} className="border-b last:border-0">
-                        <AccordionTrigger className="px-6 py-4 hover:bg-gray-50 flex items-center justify-between">
+                      <AccordionItem key={filial.id} value={filial.id} className="border-b border-border last:border-0">
+                        <AccordionTrigger className="px-6 py-4 hover:bg-secondary/40 flex items-center justify-between">
                           <div className="flex items-center gap-3 text-left">
-                            <span className="font-bold text-gray-900">
+                            <span className="font-bold text-foreground">
                               {filial.nome_fantasia || filial.razao} 
                             </span>
-                            <Badge variant="outline" className="bg-blue-50">
+                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
                               {clientesDaFilial.length} clientes
                             </Badge>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="bg-gray-50/50 px-6 py-4">
+                        <AccordionContent className="bg-secondary/20 px-6 py-4">
                           {clientesDaFilial.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               {clientesDaFilial.map((cliente) => (
-                                <div key={cliente.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                                    <User className="w-4 h-4 text-blue-600" />
+                                <div key={cliente.id} className="bg-card p-3 rounded-lg border border-border shadow-sm flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+                                    <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">{cliente.razao || cliente.nome}</p>
-                                    <p className="text-xs text-gray-500">ID: {cliente.id}</p>
+                                    <p className="text-sm font-medium text-foreground truncate">{cliente.razao || cliente.nome}</p>
+                                    <p className="text-xs text-muted-foreground">ID: {cliente.id}</p>
                                   </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <p className="text-center py-4 text-gray-500 text-sm italic">Nenhum cliente vinculado a esta filial.</p>
+                            <p className="text-center py-4 text-muted-foreground text-sm italic">Nenhum cliente vinculado a esta filial.</p>
                           )}
                         </AccordionContent>
                       </AccordionItem>
@@ -1163,7 +1430,7 @@ export default function Settings() {
                   })}
                 </Accordion>
               ) : (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-muted-foreground">
                   <Building2 className="w-12 h-12 mx-auto mb-3 opacity-20" />
                   <p>Clique em "Sincronizar ISPFY" para carregar os grupos por filial</p>
                 </div>
@@ -1178,17 +1445,17 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <Card className="bg-white shadow-sm border-2 border-orange-100 overflow-hidden">
-            <CardHeader className="bg-orange-50/50">
+          <Card className="bg-card shadow-sm border border-orange-500/30 overflow-hidden text-card-foreground">
+            <CardHeader className="bg-orange-500/5 border-b border-border">
               <CardTitle className="flex items-center gap-2">
-                <ArrowRightLeft className="w-5 h-5 text-orange-600" />
+                <ArrowRightLeft className="w-5 h-5 text-orange-600 dark:text-orange-400" />
                 Troca em Massa de Filial ({clientStatus === 'S' ? 'Clientes Ativos' : 'Clientes Inativos'})
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Filial de Origem</label>
+                  <label className="text-sm font-medium text-foreground">Filial de Origem</label>
                   <Select value={sourceFilialId} onValueChange={setSourceFilialId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione a origem" />
@@ -1202,13 +1469,13 @@ export default function Settings() {
                 </div>
 
                 <div className="flex justify-center pb-2">
-                  <div className="bg-orange-100 p-2 rounded-full">
-                    <ArrowRightLeft className="w-5 h-5 text-orange-600" />
+                  <div className="bg-orange-500/10 p-2 rounded-full">
+                    <ArrowRightLeft className="w-5 h-5 text-orange-600 dark:text-orange-400" />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Filial de Destino</label>
+                  <label className="text-sm font-medium text-foreground">Filial de Destino</label>
                   <Select value={targetFilialId} onValueChange={setTargetFilialId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione o destino" />
@@ -1225,30 +1492,30 @@ export default function Settings() {
               {isSwapping ? (
                 <div className="mt-8 space-y-4">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium text-gray-700">Processando...</span>
-                    <span className="text-blue-600 font-bold">{swapProgress.current} / {swapProgress.total}</span>
+                    <span className="font-medium text-foreground">Processando...</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">{swapProgress.current} / {swapProgress.total}</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                  <div className="w-full bg-secondary rounded-full h-2.5 overflow-hidden">
                     <motion.div 
-                      className="bg-blue-600 h-2.5"
+                      className="bg-blue-600 dark:bg-blue-500 h-2.5"
                       initial={{ width: 0 }}
                       animate={{ width: `${(swapProgress.current / swapProgress.total) * 100}%` }}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-green-50 p-3 rounded-lg border border-green-100 flex items-center justify-between">
+                    <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/20 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-green-600" />
-                        <span className="text-xs font-medium text-green-800">Sucesso</span>
+                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                        <span className="text-xs font-medium text-green-700 dark:text-green-400">Sucesso</span>
                       </div>
-                      <span className="text-lg font-bold text-green-700">{swapProgress.success}</span>
+                      <span className="text-lg font-bold text-green-700 dark:text-green-400">{swapProgress.success}</span>
                     </div>
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-100 flex items-center justify-between">
+                    <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-red-600" />
-                        <span className="text-xs font-medium text-red-800">Erros</span>
+                        <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                        <span className="text-xs font-medium text-red-700 dark:text-red-400">Erros</span>
                       </div>
-                      <span className="text-lg font-bold text-red-700">{swapProgress.errors}</span>
+                      <span className="text-lg font-bold text-red-700 dark:text-red-400">{swapProgress.errors}</span>
                     </div>
                   </div>
                 </div>
@@ -1257,11 +1524,11 @@ export default function Settings() {
                   <Button 
                     onClick={handleBulkSwap}
                     disabled={!sourceFilialId || !targetFilialId || loadingISPFY}
-                    className="w-full bg-orange-600 hover:bg-orange-700 h-12 text-lg font-bold"
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white h-12 text-lg font-bold"
                   >
                     Iniciar Troca em Massa
                   </Button>
-                  <p className="text-xs text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
+                  <p className="text-xs text-center text-muted-foreground mt-2 flex items-center justify-center gap-1">
                     <AlertTriangle className="w-3 h-3" />
                     Esta operação irá atualizar individualmente cada cliente via API.
                   </p>
@@ -1277,11 +1544,11 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <Card className="bg-white shadow-sm border-2 border-purple-100 overflow-hidden">
-            <CardHeader className="bg-purple-50/50">
+          <Card className="bg-card shadow-sm border border-purple-500/30 overflow-hidden text-card-foreground">
+            <CardHeader className="bg-purple-500/5 border-b border-border">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-purple-600" />
+                  <ShieldCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   Auditoria Financeira: Pago Até vs Última Fatura
                 </CardTitle>
                 <div className="flex items-center gap-2">
@@ -1299,7 +1566,7 @@ export default function Settings() {
                     disabled={loadingAudit || contratos.length === 0}
                     size="sm"
                     variant="outline"
-                    className="border-purple-200 text-purple-700 hover:bg-purple-50 h-8 font-medium"
+                    className="border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 h-8 font-medium"
                   >
                     <FileText className="w-4 h-4 mr-2" />
                     Exportar PDF
@@ -1308,7 +1575,7 @@ export default function Settings() {
                     onClick={fetchAuditData} 
                     disabled={loadingAudit || loadingISPFY}
                     size="sm"
-                    className="bg-purple-600 hover:bg-purple-700 h-8 font-medium"
+                    className="bg-purple-600 hover:bg-purple-700 text-white h-8 font-medium"
                   >
                     {loadingAudit ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
                     Rodar Auditoria
@@ -1320,7 +1587,7 @@ export default function Settings() {
               {contratos.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-50 text-gray-700 uppercase text-xs font-bold border-b">
+                    <thead className="bg-secondary/60 text-foreground uppercase text-xs font-bold border-b border-border">
                       <tr>
                         <th className="px-6 py-3">Cliente</th>
                         <th className="px-6 py-3">Pago Até (Contrato)</th>
@@ -1328,24 +1595,24 @@ export default function Settings() {
                         <th className="px-6 py-3 text-center">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-border">
                       {getAuditResults().map((res) => (
-                        <tr key={res.cliente.id} className="hover:bg-gray-50/80 transition-colors">
+                        <tr key={res.cliente.id} className="hover:bg-secondary/40 transition-colors">
                           <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900 text-sm">{res.cliente.razao || res.cliente.nome}</div>
-                            <div className="text-[10px] text-gray-500">ID: {res.cliente.id}</div>
+                            <div className="font-medium text-foreground text-sm">{res.cliente.razao || res.cliente.nome}</div>
+                            <div className="text-[10px] text-muted-foreground">ID: {res.cliente.id}</div>
                           </td>
-                          <td className="px-6 py-4 font-mono text-xs">
+                          <td className="px-6 py-4 font-mono text-xs text-foreground">
                             {res.pagoAte ? formatDate(res.pagoAte) : 'Sem data'}
                           </td>
-                          <td className="px-6 py-4 font-mono text-xs">
+                          <td className="px-6 py-4 font-mono text-xs text-foreground">
                             {res.vencimentoUltima ? formatDate(res.vencimentoUltima) : 'Nenhuma fatura paga'}
                           </td>
                           <td className="px-6 py-4 text-center">
                             {res.isCorrect ? (
-                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-[10px]">Correto</Badge>
+                              <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 text-[10px]">Correto</Badge>
                             ) : (
-                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-[10px]">Incorreto</Badge>
+                              <Badge variant="outline" className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 text-[10px]">Incorreto</Badge>
                             )}
                           </td>
                         </tr>
@@ -1354,7 +1621,7 @@ export default function Settings() {
                   </table>
                 </div>
               ) : (
-                <div className="p-12 text-center text-gray-500">
+                <div className="p-12 text-center text-muted-foreground">
                   <ShieldCheck className="w-16 h-16 mx-auto mb-4 opacity-10" />
                   <p className="text-lg font-medium">Nenhum dado de auditoria carregado.</p>
                   <p className="text-sm">Clique em "Rodar Auditoria" para comparar os contratos com as faturas.</p>
@@ -1370,20 +1637,20 @@ export default function Settings() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className={`border-2 transition-all duration-300 ${botActive ? 'border-green-500/50 shadow-lg shadow-green-500/5' : 'border-gray-200 shadow-sm'}`}>
+          <Card className={`border-2 transition-all duration-300 ${botActive ? 'border-green-500/50 shadow-lg shadow-green-500/5' : 'border-border shadow-sm'} bg-card text-card-foreground`}>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-lg ${botActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <div className={`p-2 rounded-lg ${botActive ? 'bg-green-500/15 text-green-600 dark:text-green-400' : 'bg-secondary text-muted-foreground'}`}>
                     <Bot className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold">Assistente Virtual (Bot WhatsApp)</h3>
+                    <h3 className="text-lg font-bold text-foreground">Assistente Virtual (Bot WhatsApp)</h3>
                     <p className="text-sm font-normal text-muted-foreground">Controle a ativação do atendimento automático</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 bg-secondary/20 p-2 rounded-full px-4 border">
-                  <span className={`text-xs font-bold uppercase ${botActive ? 'text-green-600' : 'text-gray-500'}`}>
+                <div className="flex items-center gap-3 bg-secondary/30 p-2 rounded-full px-4 border border-border">
+                  <span className={`text-xs font-bold uppercase ${botActive ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
                     {botActive === null ? 'Carregando...' : botActive ? 'Ligado' : 'Desligado'}
                   </span>
                   <Switch 
@@ -1396,21 +1663,21 @@ export default function Settings() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-secondary/10 border border-secondary/20 flex items-start gap-4">
-                  <div className="p-2 rounded-full bg-blue-100 text-blue-600">
+                <div className="p-4 rounded-xl bg-secondary/20 border border-border flex items-start gap-4">
+                  <div className="p-2 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400">
                     <MessageSquare className="w-4 h-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold">Saudação Ativa</p>
+                    <p className="text-sm font-bold text-foreground">Saudação Ativa</p>
                     <p className="text-xs text-muted-foreground italic">"Olá [Nome]! Como posso te ajudar hoje?"</p>
                   </div>
                 </div>
-                <div className="p-4 rounded-xl bg-secondary/10 border border-secondary/20 flex items-start gap-4">
-                  <div className="p-2 rounded-full bg-purple-100 text-purple-600">
+                <div className="p-4 rounded-xl bg-secondary/20 border border-border flex items-start gap-4">
+                  <div className="p-2 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400">
                     <Power className="w-4 h-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold">Comandos de Emergência</p>
+                    <p className="text-sm font-bold text-foreground">Comandos de Emergência</p>
                     <p className="text-xs text-muted-foreground">Use #robo:desligar no WhatsApp para desativar remotamente.</p>
                   </div>
                 </div>
@@ -1425,20 +1692,20 @@ export default function Settings() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className={`border-2 transition-all duration-300 ${maintenanceGlobal ? 'border-red-500/50 shadow-lg shadow-red-500/5' : 'border-gray-200 shadow-sm'}`}>
+          <Card className={`border-2 transition-all duration-300 ${maintenanceGlobal ? 'border-red-500/50 shadow-lg shadow-red-500/5' : 'border-border shadow-sm'} bg-card text-card-foreground`}>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-lg ${maintenanceGlobal ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <div className={`p-2 rounded-lg ${maintenanceGlobal ? 'bg-red-500/15 text-red-600 dark:text-red-400' : 'bg-secondary text-muted-foreground'}`}>
                     <AlertTriangle className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold">Modo de Manutenção</h3>
+                    <h3 className="text-lg font-bold text-foreground">Modo de Manutenção</h3>
                     <p className="text-sm font-normal text-muted-foreground">Bloqueia o acesso ao app AVL durante atualizações</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 bg-secondary/20 p-2 rounded-full px-4 border">
-                  <span className={`text-xs font-bold uppercase ${maintenanceGlobal ? 'text-red-600' : 'text-gray-500'}`}>
+                <div className="flex items-center gap-3 bg-secondary/30 p-2 rounded-full px-4 border border-border">
+                  <span className={`text-xs font-bold uppercase ${maintenanceGlobal ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
                     {loadingMaintenance ? 'Carregando...' : maintenanceGlobal ? 'Ativado (Bloqueado)' : 'Desativado'}
                   </span>
                   <Switch 
@@ -1452,7 +1719,7 @@ export default function Settings() {
             <CardContent>
               <div className="space-y-6">
                 <div>
-                  <label className="text-sm font-bold text-gray-700 mb-2 block">Mensagem para os usuários</label>
+                  <label className="text-sm font-bold text-foreground mb-2 block">Mensagem para os usuários</label>
                   <div className="flex gap-2">
                     <Input 
                       value={maintenanceMessage}
@@ -1468,11 +1735,11 @@ export default function Settings() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-bold text-gray-700 mb-3 block">Desativar Telas Específicas (Bloqueio Parcial)</label>
+                  <label className="text-sm font-bold text-foreground mb-3 block">Desativar Telas Específicas (Bloqueio Parcial)</label>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {availableScreens.map(screen => (
-                      <div key={screen.id} className="flex items-center justify-between p-3 rounded-xl border bg-gray-50">
-                        <span className="text-sm font-medium text-gray-700">{screen.name}</span>
+                      <div key={screen.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-secondary/30">
+                        <span className="text-sm font-medium text-foreground">{screen.name}</span>
                         <Switch 
                           checked={disabledScreens.includes(screen.id)}
                           onCheckedChange={(checked) => handleToggleDisabledScreen(screen.id, checked)}
@@ -1493,7 +1760,7 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <Card className="bg-white shadow-sm">
+          <Card className="bg-card border border-border shadow-sm text-card-foreground">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1506,7 +1773,7 @@ export default function Settings() {
                 >
                   <Button
                     onClick={() => setIsAddingUser(!isAddingUser)}
-                    className="bg-green-600 hover:bg-green-700"
+                    className="bg-green-600 hover:bg-green-700 text-white"
                   >
                     <UserPlus className="w-4 h-4 mr-2" />
                     Adicionar Usuário
@@ -1522,12 +1789,12 @@ export default function Settings() {
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                    className="border border-border rounded-lg p-4 bg-secondary/30"
                   >
                     <div className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             Nome Completo
                           </label>
                           <Input
@@ -1538,7 +1805,7 @@ export default function Settings() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             E-mail
                           </label>
                           <Input
@@ -1552,7 +1819,7 @@ export default function Settings() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             URL da Foto (Avatar)
                           </label>
                           <Input
@@ -1563,7 +1830,7 @@ export default function Settings() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-foreground mb-1">
                             Função
                           </label>
                           <Select value={newUserRole} onValueChange={(value: 'tecnico' | 'atendente') => setNewUserRole(value)}>
@@ -1579,7 +1846,7 @@ export default function Settings() {
                       </div>
                       <div className="flex gap-2">
                         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                          <Button onClick={handleAddUser} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                          <Button onClick={handleAddUser} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
                             Salvar Usuário
                           </Button>
                         </motion.div>
@@ -1613,19 +1880,19 @@ export default function Settings() {
                       animate="visible"
                       exit="exit"
                       layout
-                      className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow"
+                      className="border border-border rounded-lg p-4 bg-card hover:bg-secondary/20 hover:shadow-md transition-all"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4 flex-1">
-                          <Avatar className="w-12 h-12 border">
+                          <Avatar className="w-12 h-12 border border-border">
                             <AvatarImage src={user.avatar} />
-                            <AvatarFallback className="bg-slate-100 text-slate-500 font-bold">
+                            <AvatarFallback className="bg-secondary text-foreground font-bold">
                               {user.name[0]}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-1">
-                              <h4 className="font-bold text-gray-900">{user.name}</h4>
+                              <h4 className="font-bold text-foreground">{user.name}</h4>
                               <Badge className={getRoleBadgeColor(user.role)}>
                                 {user.role === 'tecnico' ? 'Técnico' : 'Atendente'}
                               </Badge>
@@ -1633,7 +1900,7 @@ export default function Settings() {
                                 {user.status === 'ativo' ? 'Ativo' : 'Inativo'}
                               </Badge>
                             </div>
-                            <div className="text-xs text-gray-600 space-y-0.5">
+                            <div className="text-xs text-muted-foreground space-y-0.5">
                               <p><strong>E-mail:</strong> {user.email}</p>
                               <p><strong>Cadastrado em:</strong> {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
                             </div>
@@ -1645,7 +1912,7 @@ export default function Settings() {
                               onClick={() => toggleUserStatus(user.id, user.status)}
                               variant="outline"
                               size="sm"
-                              className={user.status === 'ativo' ? 'text-orange-600 hover:text-orange-700 border-orange-200' : 'text-green-600 hover:text-green-700 border-green-200'}
+                              className={user.status === 'ativo' ? 'text-orange-600 dark:text-orange-400 hover:text-orange-700 border-orange-500/30' : 'text-green-600 dark:text-green-400 hover:text-green-700 border-green-500/30'}
                             >
                               {user.status === 'ativo' ? 'Desativar' : 'Ativar'}
                             </Button>
@@ -1655,7 +1922,7 @@ export default function Settings() {
                               onClick={() => handleDeleteUser(user.id)}
                               variant="ghost"
                               size="sm"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -1671,9 +1938,9 @@ export default function Settings() {
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-center py-8 text-gray-500"
+                  className="text-center py-8 text-muted-foreground"
                 >
-                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
                   <p>Nenhum usuário cadastrado</p>
                   <p className="text-sm">Clique em "Adicionar Usuário" para começar</p>
                 </motion.div>
@@ -1688,7 +1955,7 @@ export default function Settings() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <Card className="bg-white shadow-sm">
+          <Card className="bg-card border border-border shadow-sm text-card-foreground">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1701,7 +1968,7 @@ export default function Settings() {
                 >
                   <Button
                     onClick={() => setIsAdding(!isAdding)}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Nova Mensagem
@@ -1717,11 +1984,11 @@ export default function Settings() {
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                    className="border border-border rounded-lg p-4 bg-secondary/30"
                   >
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Título da Mensagem
                         </label>
                         <Input
@@ -1732,7 +1999,7 @@ export default function Settings() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Conteúdo da Mensagem
                         </label>
                         <Textarea
@@ -1742,7 +2009,7 @@ export default function Settings() {
                           rows={3}
                           className="w-full"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Dica: Use {"{nome}"} para inserir automaticamente o nome do cliente
                         </p>
                       </div>
@@ -1782,17 +2049,17 @@ export default function Settings() {
                       animate="visible"
                       exit="exit"
                       layout
-                      className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow"
+                      className="border border-border rounded-lg p-4 bg-card hover:bg-secondary/20 hover:shadow-md transition-all"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <h4 className="font-medium text-gray-900">{message.title}</h4>
+                            <h4 className="font-medium text-foreground">{message.title}</h4>
                             <Badge variant="secondary" className="text-xs">
                               Personalizada
                             </Badge>
                           </div>
-                          <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded border">
+                          <p className="text-sm text-foreground bg-secondary/40 p-3 rounded border border-border">
                             {message.content}
                           </p>
                         </div>
@@ -1804,7 +2071,7 @@ export default function Settings() {
                             onClick={() => handleDeleteMessage(message.id)}
                             variant="ghost"
                             size="sm"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-2"
+                            className="text-red-500 hover:text-red-600 hover:bg-red-500/10 ml-2"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -1819,9 +2086,9 @@ export default function Settings() {
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-center py-8 text-gray-500"
+                  className="text-center py-8 text-muted-foreground"
                 >
-                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-20" />
                   <p>Nenhuma mensagem personalizada cadastrada</p>
                   <p className="text-sm">Clique em "Nova Mensagem" para começar</p>
                 </motion.div>

@@ -384,18 +384,18 @@ export default function Chat() {
 
   return (
     <PageTransition>
-      <div className="flex h-[calc(100vh-64px)] bg-[#f8fafc] overflow-hidden p-3 gap-3">
+      <div className="flex h-[calc(100vh-72px)] bg-background overflow-hidden p-3 gap-3">
         {/* Coluna Esquerda */}
         <motion.div 
           initial={{ x: -20, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          className="w-80 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+          className="w-80 flex flex-col bg-card rounded-2xl shadow-sm border border-border overflow-hidden"
         >
-          <div className="p-4 border-b border-gray-50 space-y-4">
+          <div className="p-4 border-b border-border/60 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                 Mensagens
-                <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-none px-1.5 h-5 text-[10px]">
+                <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-1.5 h-5 text-[10px] font-semibold">
                   {clients.filter(c => c.unreadCount > 0).length} novas
                 </Badge>
               </h2>
@@ -404,24 +404,24 @@ export default function Chat() {
                   variant="ghost" 
                   size="icon" 
                   title={`IA Global: ${globalAiEnabled ? 'ON' : 'OFF'}`}
-                  className={`h-8 w-8 rounded-full transition-colors ${globalAiEnabled ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`} 
+                  className={`h-8 w-8 rounded-full transition-colors ${globalAiEnabled ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}`} 
                   onClick={() => setGlobalAiEnabled(!globalAiEnabled)}
                 >
                   <Bot className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100" onClick={testNotificationSound}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={testNotificationSound}>
                   <Bell className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100" onClick={() => setShowDebugPanel(!showDebugPanel)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setShowDebugPanel(!showDebugPanel)}>
                   <Bug className="w-4 h-4" />
                 </Button>
               </div>
             </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar conversa..."
-                className="pl-9 h-9 bg-gray-50 border-none rounded-xl text-sm focus-visible:ring-1 focus-visible:ring-blue-100 transition-all"
+                className="pl-9 h-9 bg-secondary/60 border-border rounded-xl text-sm focus-visible:ring-1 focus-visible:ring-primary transition-all text-foreground"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -438,13 +438,13 @@ export default function Chat() {
                   transition={{ delay: index * 0.05 }}
                   onClick={() => handleClientSelect(client)}
                   className={`p-3 rounded-xl cursor-pointer transition-all relative ${
-                    selectedClient?.id === client.id ? "bg-blue-50 shadow-inner" : "hover:bg-gray-50"
+                    selectedClient?.id === client.id ? "bg-primary/15 border border-primary/30 shadow-sm" : "hover:bg-secondary/60"
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <Avatar className="h-11 w-11 border-2 border-white shadow-sm">
-                        <AvatarFallback className="bg-blue-100 text-blue-600 font-bold">
+                      <Avatar className="h-11 w-11 border-2 border-border shadow-sm">
+                        <AvatarFallback className="bg-primary/10 text-primary font-bold">
                           {client.name.substring(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -498,28 +498,28 @@ export default function Chat() {
         </motion.div>
 
         {/* Coluna Central */}
-        <motion.div layout className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative">
+        <motion.div layout className="flex-1 flex flex-col bg-card rounded-2xl shadow-sm border border-border overflow-hidden relative">
           {selectedClient ? (
             <>
-              <div className="p-4 border-b border-gray-50 flex items-center justify-between bg-white/80 backdrop-blur-md z-10">
+              <div className="p-4 border-b border-border/60 flex items-center justify-between bg-card/80 backdrop-blur-md z-10">
                 <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
+                  <Avatar className="h-10 w-10 border-2 border-border shadow-sm">
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-bold">
                       {selectedClient.name.substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <h3 className="font-bold text-gray-800 text-sm">{selectedClient.name}</h3>
+                    <h3 className="font-bold text-foreground text-sm">{selectedClient.name}</h3>
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-medium ${selectedClient.isOnline ? 'text-green-500' : 'text-gray-400'}`}>
+                      <span className={`text-[10px] font-medium ${selectedClient.isOnline ? 'text-green-500' : 'text-muted-foreground'}`}>
                         {selectedClient.isOnline ? 'Online' : 'Offline'}
                       </span>
-                      <span className="text-[10px] text-gray-300">•</span>
-                      <span className="text-[10px] text-gray-400 font-mono">{selectedClient.id}</span>
+                      <span className="text-[10px] text-muted-foreground/60">•</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{selectedClient.id}</span>
                       {selectedClient.protocol && (
                         <>
-                          <span className="text-[10px] text-gray-300">•</span>
-                          <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded">#{selectedClient.protocol}</span>
+                          <span className="text-[10px] text-muted-foreground/60">•</span>
+                          <span className="text-[10px] text-indigo-500 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">#{selectedClient.protocol}</span>
                         </>
                       )}
                     </div>
@@ -531,39 +531,39 @@ export default function Chat() {
                       variant="outline" 
                       size="sm" 
                       onClick={handleGenerateProtocol}
-                      className="h-8 text-[10px] font-bold border-indigo-200 text-indigo-600 hover:bg-indigo-50 gap-1.5 mr-2"
+                      className="h-8 text-[10px] font-bold border-indigo-500/30 text-indigo-500 hover:bg-indigo-500/10 gap-1.5 mr-2"
                     >
                       <Zap className="w-3 h-3" />
                       GERAR PROTOCOLO
                     </Button>
                   )}
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-gray-400"><Phone className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-gray-400"><Video className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-gray-400"><MoreVertical className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"><Phone className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"><Video className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"><MoreVertical className="w-4 h-4" /></Button>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 bg-[#fcfdfe] space-y-4 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto p-6 bg-background/60 dark:bg-card/30 space-y-4 custom-scrollbar">
                 {currentMessages.map((message, index) => (
                   <div key={message.id || index} className={`flex ${message.fromMe ? 'justify-end' : 'justify-start'} ${message.isPrivate ? 'my-2' : ''}`}>
                     <motion.div
                       initial={{ scale: 0.95, opacity: 0, y: 10 }}
                       animate={{ scale: 1, opacity: 1, y: 0 }}
-                      className={`max-w-[75%] rounded-2xl p-3 shadow-sm relative ${
+                      className={`max-w-[75%] rounded-2xl p-3.5 shadow-sm relative ${
                         message.isPrivate 
-                          ? 'bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-lg mx-auto w-full max-w-[90%] shadow-md' 
-                          : (message.fromMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none')
+                          ? 'bg-amber-500/15 border-2 border-amber-500/30 text-amber-500 dark:text-amber-200 rounded-lg mx-auto w-full max-w-[90%] shadow-md' 
+                          : (message.fromMe ? 'bg-primary text-primary-foreground rounded-tr-none shadow-md shadow-primary/20' : 'bg-card text-card-foreground border border-border/80 rounded-tl-none')
                       }`}
                     >
                       {message.isPrivate && (
-                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 uppercase mb-2 border-b border-amber-100 pb-1">
+                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-500 uppercase mb-2 border-b border-amber-500/20 pb-1">
                            <Lock className="w-3 h-3" />
                            Nota Interna (Apenas Equipe)
                          </div>
                        )}
                       {message.mediaType === 'image' && message.mediaUrl && (
                         <div className="space-y-2">
-                          <img src={message.mediaUrl} alt="Mídia" className="max-w-full h-auto rounded-lg cursor-pointer border border-gray-100 shadow-sm" onClick={() => expandImage(message.mediaUrl!)} />
+                          <img src={message.mediaUrl} alt="Mídia" className="max-w-full h-auto rounded-lg cursor-pointer border border-border shadow-sm" onClick={() => expandImage(message.mediaUrl!)} />
                           {message.content && message.content !== '📎 Foto' && (
                             <p className="text-sm leading-relaxed whitespace-pre-wrap opacity-90">{message.content}</p>
                           )}
@@ -571,7 +571,7 @@ export default function Chat() {
                       )}
                       {message.mediaType === 'video' && message.mediaUrl && (
                         <div className="space-y-2">
-                          <video src={message.mediaUrl} controls className="max-w-full h-auto rounded-lg border border-gray-100 shadow-sm" />
+                          <video src={message.mediaUrl} controls className="max-w-full h-auto rounded-lg border border-border shadow-sm" />
                           {message.content && message.content !== '📎 Vídeo' && (
                             <p className="text-sm leading-relaxed whitespace-pre-wrap opacity-90">{message.content}</p>
                           )}
@@ -579,13 +579,13 @@ export default function Chat() {
                       )}
                       {message.mediaType === 'document' && message.mediaUrl && (
                         <div className="space-y-2">
-                          <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors shadow-sm">
-                            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                          <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl border border-border hover:bg-secondary transition-colors shadow-sm">
+                            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
                               <Paperclip className="w-5 h-5" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-gray-800 truncate">Documento Recebido</p>
-                              <p className="text-[10px] text-gray-500">Clique para visualizar/baixar</p>
+                              <p className="text-xs font-bold text-foreground truncate">Documento Recebido</p>
+                              <p className="text-[10px] text-muted-foreground">Clique para visualizar/baixar</p>
                             </div>
                           </a>
                           {message.content && message.content !== '📄 Documento' && (
@@ -595,26 +595,26 @@ export default function Chat() {
                       )}
                       {message.mediaType === 'audio' && message.mediaUrl ? (
                         <div className="space-y-2">
-                          <div className={`flex items-center gap-3 min-w-[240px] p-3 rounded-2xl ${message.fromMe ? 'bg-blue-700/40 backdrop-blur-sm' : 'bg-gray-50'}`}>
+                          <div className={`flex items-center gap-3 min-w-[240px] p-3 rounded-2xl ${message.fromMe ? 'bg-primary/20 backdrop-blur-sm' : 'bg-secondary/50'}`}>
                             <Button 
                               size="icon" 
                               variant="ghost" 
-                              className={`h-12 w-12 rounded-full shadow-md transition-transform active:scale-95 ${message.fromMe ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-blue-600 text-white hover:bg-blue-700'}`} 
+                              className={`h-12 w-12 rounded-full shadow-md transition-transform active:scale-95 ${message.fromMe ? 'bg-card text-primary hover:bg-secondary' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`} 
                               onClick={() => currentPlayingAudio === message.mediaUrl ? stopAudio() : playAudio(message.mediaUrl!)}
                             >
                               {currentPlayingAudio === message.mediaUrl ? <Volume2 className="h-6 w-6 animate-pulse" /> : <Mic className="h-6 w-6" />}
                             </Button>
                             <div className="flex-1 space-y-1.5">
-                               <div className="h-1.5 w-full bg-gray-200/50 rounded-full overflow-hidden">
+                               <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
                                   <motion.div 
-                                    className={`h-full ${message.fromMe ? 'bg-white' : 'bg-blue-600'}`} 
+                                    className={`h-full ${message.fromMe ? 'bg-primary-foreground' : 'bg-primary'}`} 
                                     initial={{ width: 0 }}
                                     animate={{ width: currentPlayingAudio === message.mediaUrl ? '100%' : '0%' }}
                                     transition={{ duration: currentPlayingAudio === message.mediaUrl ? 30 : 0.3, ease: "linear" }}
                                   />
                                </div>
                                <div className="flex justify-between items-center">
-                                 <span className={`text-[10px] font-medium ${message.fromMe ? 'text-blue-100' : 'text-gray-500'}`}>
+                                 <span className={`text-[10px] font-medium ${message.fromMe ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
                                    {currentPlayingAudio === message.mediaUrl ? 'Reproduzindo...' : 'Mensagem de voz'}
                                  </span>
                                  <Volume2 className={`w-3 h-3 ${currentPlayingAudio === message.mediaUrl ? 'opacity-100' : 'opacity-20'}`} />
@@ -631,7 +631,7 @@ export default function Chat() {
                         )
                       )}
 
-                      <div className={`flex items-center gap-1 mt-1 justify-end ${message.fromMe ? 'text-blue-100' : 'text-gray-400'}`}>
+                      <div className={`flex items-center gap-1 mt-1 justify-end ${message.fromMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                         <span className="text-[10px]">{format(message.timestamp, 'HH:mm')}</span>
                         {message.fromMe && <CheckCheck className="w-3 h-3" />}
                         {message.source === 'whatsapp' && <span className="text-[8px] font-bold ml-1">WA</span>}
@@ -642,28 +642,28 @@ export default function Chat() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div className="p-4 bg-white border-t border-gray-50">
-                <div className="flex items-end gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100 focus-within:border-blue-200 focus-within:bg-white transition-all shadow-inner">
+              <div className="p-4 bg-card border-t border-border/60">
+                <div className="flex items-end gap-2 bg-secondary/40 p-2 rounded-2xl border border-border focus-within:border-primary/50 focus-within:bg-secondary/60 transition-all shadow-inner">
                   <Button 
                      variant="ghost" 
                      size="icon" 
-                     className={`h-10 w-10 transition-colors ${isPrivateMode ? 'text-amber-500 bg-amber-50 hover:bg-amber-100' : 'text-gray-400 hover:text-blue-500'}`} 
+                     className={`h-10 w-10 transition-colors ${isPrivateMode ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20' : 'text-muted-foreground hover:text-foreground'}`} 
                      onClick={() => setIsPrivateMode(!isPrivateMode)}
                      title={isPrivateMode ? "Modo Nota Interna Ativo" : "Alternar para Nota Interna"}
                    >
                      {isPrivateMode ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
                    </Button>
-                  <Button variant="ghost" size="icon" className="h-10 w-10 text-gray-400 hover:text-blue-500" onClick={() => setShowMediaModal(true)}><Paperclip className="w-5 h-5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground" onClick={() => setShowMediaModal(true)}><Paperclip className="w-5 h-5" /></Button>
                   <textarea
                     placeholder={isPrivateMode ? "Escreva uma nota interna..." : "Escreva uma mensagem..."}
-                    className={`flex-1 bg-transparent border-none focus:ring-0 text-sm py-2.5 resize-none max-h-32 transition-colors ${isPrivateMode ? 'placeholder:text-amber-400 text-amber-900' : ''}`}
+                    className={`flex-1 bg-transparent border-none focus:ring-0 text-sm py-2.5 resize-none max-h-32 transition-colors text-foreground placeholder:text-muted-foreground ${isPrivateMode ? 'placeholder:text-amber-500/60 text-amber-500' : ''}`}
                     rows={1}
                     value={newMessage}
                     onChange={(e) => { setNewMessage(e.target.value); e.target.style.height = 'inherit'; e.target.style.height = `${e.target.scrollHeight}px`; }}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                   />
                   <Button 
-                     className={`h-10 w-10 rounded-xl shadow-md transition-all active:scale-95 ${isPrivateMode ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`} 
+                     className={`h-10 w-10 rounded-xl shadow-md transition-all active:scale-95 ${isPrivateMode ? 'bg-amber-500 hover:bg-amber-600' : 'bg-primary hover:bg-primary/90'} text-primary-foreground`} 
                      onClick={() => handleSendMessage()} 
                      disabled={!newMessage.trim()}
                    >
@@ -674,10 +674,10 @@ export default function Chat() {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-12">
-              <div className="p-8 bg-white rounded-3xl shadow-xl border border-gray-100 max-w-sm">
-                <MessageSquare className="w-12 h-12 text-blue-500 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-gray-800">Selecione uma conversa</h3>
-                <p className="text-sm text-gray-500 mt-2">Escolha um cliente na lista lateral para iniciar o atendimento.</p>
+              <div className="p-8 bg-card rounded-3xl shadow-xl border border-border max-w-sm text-card-foreground">
+                <MessageSquare className="w-12 h-12 text-primary mx-auto mb-4" />
+                <h3 className="text-xl font-bold text-foreground">Selecione uma conversa</h3>
+                <p className="text-sm text-muted-foreground mt-2">Escolha um cliente na lista lateral para iniciar o atendimento.</p>
               </div>
             </div>
           )}
@@ -712,14 +712,14 @@ export default function Chat() {
 
         {showMediaModal && (
           <motion.div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowMediaModal(false)}>
-            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl">
-              <h4 className="text-lg font-bold text-gray-800 mb-6 text-center">Anexar Mídia</h4>
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} onClick={(e) => e.stopPropagation()} className="bg-card text-card-foreground border border-border rounded-3xl p-6 w-full max-w-xs shadow-2xl">
+              <h4 className="text-lg font-bold text-foreground mb-6 text-center">Anexar Mídia</h4>
               <div className="grid gap-3">
                 <Button onClick={() => document.getElementById('photo-input-modal')?.click()} className="w-full h-14 rounded-2xl gap-3 font-bold" variant="outline"><Camera className="w-5 h-5 text-blue-500" /> Enviar Foto</Button>
                 <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" id="photo-input-modal" />
-                <Button onClick={() => { setShowMediaModal(false); startRecording(); }} className="w-full h-14 rounded-2xl gap-3 font-bold bg-red-50 text-red-600 border-red-100 hover:bg-red-100" variant="outline"><Mic className="w-5 h-5" /> Gravar Áudio</Button>
+                <Button onClick={() => { setShowMediaModal(false); startRecording(); }} className="w-full h-14 rounded-2xl gap-3 font-bold bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20" variant="outline"><Mic className="w-5 h-5" /> Gravar Áudio</Button>
               </div>
-              <Button onClick={() => setShowMediaModal(false)} className="w-full mt-6 text-gray-400" variant="ghost">Cancelar</Button>
+              <Button onClick={() => setShowMediaModal(false)} className="w-full mt-6 text-muted-foreground hover:text-foreground" variant="ghost">Cancelar</Button>
             </motion.div>
           </motion.div>
         )}
