@@ -5,7 +5,7 @@ import {
   MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
   Settings, Gift, Package, Wrench, Map, Film, Tv,
   Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download, Calendar,
-  ClipboardList, ShieldCheck,
+  ClipboardList, ShieldCheck, Clock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -44,6 +44,7 @@ const ispfyMenuItems = [
   { title: "Relatório DICI",       url: "/ispfy/dici",        icon: FileSpreadsheet },
   { title: "Exportar Clientes",    url: "/ispfy/exportar-ativos", icon: Download },
   { title: "Vencimentos em Massa", url: "/ispfy/vencimentos",     icon: Calendar },
+  { title: "🤖 Robô de Carência",  url: "/ispfy/carencia",        icon: Clock },
 ];
 
 const containerVariants = {

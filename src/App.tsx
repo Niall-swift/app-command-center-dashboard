@@ -41,6 +41,7 @@ import ISPFYActiveClientsExport from "./pages/ISPFYActiveClientsExport";
 import ISPFYVencimentos from "./pages/ISPFYVencimentos";
 import ISPFYNovaOS from "./pages/ISPFYNovaOS";
 import ISPFYAuditoria from "./pages/ISPFYAuditoria";
+import ISPFYCarencia from "./pages/ISPFYCarencia";
 import Notifications from "./pages/Notifications";
 import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
 import NotFound from "./pages/NotFound";
@@ -75,6 +76,7 @@ function AnimatedRoutes() {
         <Route path="/ispfy/exportar-ativos" element={<ISPFYActiveClientsExport />} />
         <Route path="/ispfy/vencimentos" element={<ISPFYVencimentos />} />
         <Route path="/ispfy/nova-os" element={<ISPFYNovaOS />} />
+        <Route path="/ispfy/carencia" element={<ISPFYCarencia />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
         <Route path="/rewards-management" element={<RewardsManagement />} />

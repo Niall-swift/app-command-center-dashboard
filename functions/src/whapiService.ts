@@ -260,4 +260,39 @@ export class WhapiService {
       };
     }
   }
+
+  /**
+   * Envia comprovante como IMAGEM (base64 PNG) via Z-API /send-image.
+   * @param phone Telefone do destinatario
+   * @param imageBase64 Data URI: "data:image/png;base64,..."
+   * @param caption Legenda exibida abaixo da imagem (opcional)
+   */
+  async sendPaymentReceiptImage(
+    phone: string,
+    imageBase64: string,
+    caption?: string
+  ): Promise<WhapiResponse> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(phone);
+      const payload = {
+        phone: formattedPhone,
+        image: imageBase64,
+        caption: caption || "",
+      };
+      console.log(`[whapiService] Enviando comprovante como imagem para ${formattedPhone}...`);
+      const response = await this.client.post("/send-image", payload);
+      console.log("[whapiService] Imagem de comprovante enviada:", response.data);
+      return {
+        sent: true,
+        id: response.data?.messageId || response.data?.id,
+        message: "Comprovante (imagem) enviado com sucesso",
+      };
+    } catch (error) {
+      console.error("[whapiService] Erro ao enviar imagem de comprovante:", error);
+      if (axios.isAxiosError(error)) {
+        return { sent: false, error: error.response?.data?.message || error.message };
+      }
+      return { sent: false, error: "Erro desconhecido ao enviar imagem" };
+    }
+  }
 }

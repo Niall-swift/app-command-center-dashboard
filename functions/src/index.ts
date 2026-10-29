@@ -5,6 +5,7 @@ import { IXCBackendService } from "./ixcService";
 import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
 import { WhapiService } from "./whapiService";
+import { generateRaffleTicketImage } from "./receiptGenerator";
 import axios from "axios";
 import * as https from "https";
 
@@ -1938,15 +1939,21 @@ export const asaasWebhook = functions.https.onRequest(async (req, res) => {
 
       console.log(`✅ Transação concluída com sucesso! Bilhetes gerados: ${ticketNumbers.join(", ")}`);
 
-      try {
-        const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
-        const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
-        
-        if (whapiApiKey && paymentData.clientPhone) {
+            try {
+        const whapiApiKey =
+          process.env.WHAPI_KEY ||
+          process.env.WHAPI_API_KEY ||
+          process.env.ZAPI_CLIENT_TOKEN ||
+          "Fa64a52f41c274de0847cf445392dbeedS";
+        const whapiBaseUrl =
+          process.env.WHAPI_BASE_URL ||
+          "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+
+        if (paymentData.clientPhone) {
           const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
           const ticketListStr = ticketNumbers.join(", ");
-          const clientNameFirst = paymentData.clientName.split(" ")[0];
-          
+          const clientNameFirst = (paymentData.clientName || "Cliente").split(" ")[0];
+
           const text = `✅ *Olá, ${clientNameFirst}!*
 
 Seu pagamento para o sorteio *${paymentData.raffleTitle}* foi confirmado com sucesso! 🎉
@@ -1958,10 +1965,38 @@ Seus números da sorte são:
 Boa sorte! 🍀
 _AVL Telecom_`;
 
-          await whapiService.sendCustomMessage(paymentData.clientPhone, text);
-          console.log(`💬 WhatsApp de confirmação enviado para ${paymentData.clientPhone}`);
+          let enviadoComImagem = false;
+          try {
+            const ticketImageBase64 = await generateRaffleTicketImage({
+              clientName: paymentData.clientName || "Cliente",
+              raffleTitle: paymentData.raffleTitle || "Sorteio AVL",
+              ticketQuantity,
+              ticketNumbers,
+            });
+
+            if (ticketImageBase64) {
+              const imgResult = await whapiService.sendPaymentReceiptImage(
+                paymentData.clientPhone,
+                ticketImageBase64,
+                text
+              );
+              if (imgResult.sent) {
+                enviadoComImagem = true;
+                console.log(`🎟️ Imagem do bilhete da sorte enviada com sucesso para ${paymentData.clientPhone}`);
+              } else {
+                console.warn(`⚠️ Envio de imagem falhou (${imgResult.error}), tentando texto puro...`);
+              }
+            }
+          } catch (canvasErr: any) {
+            console.warn("⚠️ Falha ao gerar imagem do bilhete:", canvasErr.message);
+          }
+
+          if (!enviadoComImagem) {
+            await whapiService.sendCustomMessage(paymentData.clientPhone, text);
+            console.log(`💬 WhatsApp de confirmação em texto enviado para ${paymentData.clientPhone}`);
+          }
         } else {
-          console.warn("⚠️ WHAPI_KEY ou Telefone do cliente não encontrado. Ignorando notificação.");
+          console.warn("⚠️ Telefone do cliente não encontrado para o pagamento do sorteio.");
         }
       } catch (waErr) {
         console.error("❌ Erro ao enviar notificação de WhatsApp:", waErr);
@@ -2046,3 +2081,5 @@ export {
 } from "./apiProxy";
 
 export * from "./ispfyPaymentMonitor";
+
+export * from './ispfyCarenciaMonitor';

@@ -22,7 +22,8 @@ import type {
   ISPFYAuditCancelledContract,
   ISPFYAuditDeletedRecord,
   ISPFYAuditSummary,
-  ISPFYAuditData
+  ISPFYAuditData,
+  ISPFYCarenciaItem
 } from '@/types/ispfy';
 
 // =====================================================================
@@ -650,6 +651,87 @@ class ISPFYService {
       return { success: true, message: 'Contrato atualizado com sucesso!' };
     } catch (error: any) {
       return { success: false, message: error.response?.data?.message || 'Erro ao atualizar contrato.' };
+    }
+  }
+
+  async getCarenciaContracts(): Promise<ISPFYCarenciaItem[]> {
+    try {
+      const response = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: 'data_final_carencia:NOT:null',
+        limit: 300,
+      });
+      const rows = this.getRows(response);
+      const carenciaContracts = rows.filter((c) => !!c.data_final_carencia);
+      const results: ISPFYCarenciaItem[] = [];
+
+      for (const c of carenciaContracts) {
+        let clientName = 'Cliente';
+        let clientPhone = '';
+        let clientCpfCnpj = '';
+
+        if (c.id_cliente) {
+          try {
+            const cliResp = await this.makeRequest<ISPFYClienteData>('/cliente', {
+              filter: `id:EQ:${c.id_cliente}`,
+              limit: 1,
+            });
+            const client = this.getRows(cliResp)[0];
+            if (client) {
+              clientName = client.nome_razao || client.nome || 'Cliente';
+              clientCpfCnpj = client.cpf_cnpj || client.cnpj_cpf || '';
+              clientPhone = client.fone_whatsapp || client.fone_celular || '';
+            }
+
+            if (!clientPhone) {
+              const contResp = await this.makeRequest<any>('/cliente/contato', {
+                filter: `id_cliente:EQ:${c.id_cliente}`,
+                limit: 5,
+              });
+              const contatos = this.getRows(contResp);
+              const validContato = contatos.find((ct) => ct.contato && ct.pode_enviar_mensagem !== 'n');
+              if (validContato) {
+                clientPhone = validContato.contato;
+              }
+            }
+          } catch (e) {
+            console.warn(`Erro ao enriquecer cliente ${c.id_cliente}:`, e);
+          }
+        }
+
+        results.push({
+          contratoId: String(c.id),
+          clienteId: String(c.id_cliente || ''),
+          clienteNome: clientName,
+          clienteTelefone: clientPhone,
+          clienteCpfCnpj: clientCpfCnpj,
+          dataFinalCarencia: c.data_final_carencia || '',
+          dataUltimaCarencia: c.data_ultima_carencia || '',
+          statusContrato: c.status_contrato,
+          statusInternet: c.status_internet,
+          valorMensal: c.valor_mensal || c.valor,
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Erro ao buscar contratos em carência:', error);
+      return [];
+    }
+  }
+
+  async setContratoCarencia(
+    idContrato: string,
+    dataFinalCarencia: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+      const response = await this.updateContrato(idContrato, {
+        data_final_carencia: dataFinalCarencia,
+        data_ultima_carencia: today,
+      });
+      return response;
+    } catch (error: any) {
+      return { success: false, message: error.message || 'Erro ao aplicar carência' };
     }
   }
 

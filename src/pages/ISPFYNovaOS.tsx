@@ -6,7 +6,7 @@ import {
   ClipboardList, ChevronRight, Radio, Wifi, WifiOff,
   Zap, Wrench, HelpCircle, Cable, Monitor, RotateCcw, MessageSquare,
   Settings, Edit3, Sliders, Check, RefreshCw, Eye, Sparkles, Layers,
-  Lock, Key, Globe, CheckCheck,
+  Lock, Key, Globe, CheckCheck, PlusCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,6 +47,7 @@ const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
 
 // ─── Tipos de problema predefinidos ──────────────────────────────────────────
 const PROBLEMS = [
+  { id: 'instalacao', label: 'Nova Instalação', icon: PlusCircle, color: 'emerald' },
   { id: 'sem_sinal', label: 'Sem Sinal / Internet', icon: WifiOff, color: 'red' },
   { id: 'lentidao', label: 'Lentidão / Queda de Velocidade', icon: Zap, color: 'orange' },
   { id: 'intermitencia', label: 'Conexão Intermitente', icon: Radio, color: 'yellow' },
@@ -59,6 +60,7 @@ const PROBLEMS = [
 ];
 
 const colorMap: Record<string, { chip: string; chipSelected: string }> = {
+  emerald:{ chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelected: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
   red:    { chip: 'border-red-500/20 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/15',    chipSelected: 'border-red-500 text-red-700 dark:text-red-300 bg-red-500/20 shadow-red-500/20' },
   orange: { chip: 'border-orange-500/20 text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/15', chipSelected: 'border-orange-500 text-orange-700 dark:text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
   yellow: { chip: 'border-amber-500/20 text-amber-600 dark:text-yellow-400 bg-amber-500/10 hover:bg-amber-500/15', chipSelected: 'border-amber-500 text-amber-700 dark:text-yellow-300 bg-amber-500/20 shadow-amber-500/20' },
@@ -84,6 +86,7 @@ export const DEFAULT_OS_TEMPLATE =
 📞 *Contato:* {telefone}
 📶 *Plano:* {plano}
 {logins}
+{wifi}
 {problemas}
 📌 *Assunto:* {assunto}
 ⚡ *Prioridade:* {prioridade}
@@ -104,6 +107,9 @@ const TEMPLATE_VARIABLES = [
   { tag: '{logins}', label: 'PPPoE (Login/Senha)', desc: 'Credenciais completas' },
   { tag: '{pppoe}', label: 'Usuário PPPoE', desc: 'Apenas login' },
   { tag: '{senha}', label: 'Senha PPPoE', desc: 'Apenas senha' },
+  { tag: '{wifi}', label: 'Wi-Fi (Nome/Senha)', desc: 'Dados da rede Wi-Fi definidos' },
+  { tag: '{wifi_nome}', label: 'Nome do Wi-Fi (SSID)', desc: 'Nome da rede Wi-Fi' },
+  { tag: '{wifi_senha}', label: 'Senha do Wi-Fi', desc: 'Senha da rede Wi-Fi' },
   { tag: '{problemas}', label: 'Problemas', desc: 'Lista de problemas selecionados' },
   { tag: '{assunto}', label: 'Assunto', desc: 'Assunto do chamado' },
   { tag: '{prioridade}', label: 'Prioridade', desc: 'Baixa, Normal, Alta, Crítica' },
@@ -184,6 +190,8 @@ const ISPFYNovaOS: React.FC = () => {
   const [priority, setPriority] = useState('N');
   const [observation, setObservation] = useState('');
   const [referencePoint, setReferencePoint] = useState('');
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
 
   // Estado da criação
   const [creating, setCreating] = useState(false);
@@ -413,6 +421,12 @@ const ISPFYNovaOS: React.FC = () => {
     if (clientPlan.trim()) {
       desc += `\nPlano: ${clientPlan.trim()}`;
     }
+    if (wifiSsid.trim() || wifiPassword.trim()) {
+      const wifiParts: string[] = [];
+      if (wifiSsid.trim()) wifiParts.push(`Wi-Fi: ${wifiSsid.trim()}`);
+      if (wifiPassword.trim()) wifiParts.push(`Senha: ${wifiPassword.trim()}`);
+      desc += `\n${wifiParts.join(' | ')}`;
+    }
     if (referencePoint.trim()) {
       desc += `\nPonto de referência: ${referencePoint.trim()}`;
     }
@@ -449,6 +463,14 @@ const ISPFYNovaOS: React.FC = () => {
         .join('\n');
     }
 
+    let wifiText = '';
+    if (wifiSsid.trim() || wifiPassword.trim()) {
+      const wifiLines: string[] = [];
+      if (wifiSsid.trim()) wifiLines.push(`📶 *Rede Wi-Fi:* ${wifiSsid.trim()}`);
+      if (wifiPassword.trim()) wifiLines.push(`🔒 *Senha Wi-Fi:* ${wifiPassword.trim()}`);
+      wifiText = wifiLines.join('\n');
+    }
+
     const problemLabels = selectedProblems.map(pid =>
       PROBLEMS.find(p => p.id === pid)?.label || pid
     );
@@ -471,6 +493,18 @@ const ISPFYNovaOS: React.FC = () => {
         .replace(/{numero_os}/g, tid);
     }
 
+    if (text.includes('{wifi}')) {
+      text = text.replace(/{wifi}/g, wifiText);
+    } else if (wifiText) {
+      if (text.includes('{problemas}')) {
+        text = text.replace('{problemas}', `${wifiText}\n{problemas}`);
+      } else if (text.includes('{assunto}')) {
+        text = text.replace('{assunto}', `${wifiText}\n{assunto}`);
+      } else {
+        text = `${text}\n${wifiText}`;
+      }
+    }
+
     text = text
       .replace(/{data_hoje}/g, formattedDate)
       .replace(/{cliente}/g, name)
@@ -479,6 +513,8 @@ const ISPFYNovaOS: React.FC = () => {
       .replace(/{logins}/g, loginsText)
       .replace(/{pppoe}/g, pppoeUser)
       .replace(/{senha}/g, pppoePass)
+      .replace(/{wifi_nome}/g, wifiSsid.trim())
+      .replace(/{wifi_senha}/g, wifiPassword.trim())
       .replace(/{problemas}/g, problemsText)
       .replace(/{assunto}/g, subjectLabel || 'Não informado')
       .replace(/{prioridade}/g, priorityLabel)
@@ -507,6 +543,8 @@ const ISPFYNovaOS: React.FC = () => {
     subjectLabel,
     referencePoint,
     observation,
+    wifiSsid,
+    wifiPassword,
     osTemplate,
     addr,
     mapsLink,
@@ -556,6 +594,8 @@ const ISPFYNovaOS: React.FC = () => {
           address: addr,
           referencePoint,
           observation,
+          wifiSsid: wifiSsid.trim() || undefined,
+          wifiPassword: wifiPassword.trim() || undefined,
           whatsappSent: !!(sendToGroupOnCreate && selectedGroupPhone),
           whatsappGroup: groupName,
           fullMessage: '', // preenchido logo abaixo
@@ -641,6 +681,8 @@ const ISPFYNovaOS: React.FC = () => {
     setPriority('N');
     setObservation('');
     setReferencePoint('');
+    setWifiSsid('');
+    setWifiPassword('');
     setCreated(false);
     setCreatedTicketId('');
     setCreatedDailyFormatted(null);
@@ -819,6 +861,14 @@ const ISPFYNovaOS: React.FC = () => {
                     <div className="flex justify-between items-start px-4 py-3 gap-3">
                       <span className="text-muted-foreground shrink-0">Endereço</span>
                       <span className="text-foreground text-right">{addr}</span>
+                    </div>
+                  )}
+                  {(wifiSsid.trim() || wifiPassword.trim()) && (
+                    <div className="flex justify-between items-center px-4 py-3">
+                      <span className="text-muted-foreground">Wi-Fi (Instalação)</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">
+                        {wifiSsid.trim() ? `Rede: ${wifiSsid.trim()}` : ''} {wifiPassword.trim() ? `| Senha: ${wifiPassword.trim()}` : ''}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1119,6 +1169,37 @@ const ISPFYNovaOS: React.FC = () => {
                               value={addr}
                             />
                           )}
+                        </div>
+
+                        {/* 📶 Configuração de Wi-Fi (Instalação / Troca de Roteador) */}
+                        <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
+                          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Wifi className="w-3.5 h-3.5 text-emerald-500" /> Rede Wi-Fi (Instalação / Roteador)
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                                Nome da Rede Wi-Fi (SSID)
+                              </Label>
+                              <Input
+                                value={wifiSsid}
+                                onChange={e => setWifiSsid(e.target.value)}
+                                placeholder="Ex: AVL_FIBRA_CLIENTE"
+                                className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                                Senha do Wi-Fi
+                              </Label>
+                              <Input
+                                value={wifiPassword}
+                                onChange={e => setWifiPassword(e.target.value)}
+                                placeholder="Ex: @senha1234"
+                                className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500 font-mono"
+                              />
+                            </div>
+                          </div>
                         </div>
 
                         {/* Ponto de Referência */}

@@ -220,6 +220,12 @@ export const DailyOSModal: React.FC<DailyOSModalProps> = ({
                             {order.plan}
                           </span>
                         )}
+                        {(order.wifiSsid || order.wifiPassword) && (
+                          <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-mono text-[11px] bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                            <Wifi className="w-3 h-3 text-emerald-500" />
+                            {order.wifiSsid ? `SSID: ${order.wifiSsid}` : ''} {order.wifiPassword ? `| Senha: ${order.wifiPassword}` : ''}
+                          </span>
+                        )}
                       </div>
 
                       {order.address && (

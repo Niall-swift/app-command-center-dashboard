@@ -87,11 +87,32 @@ export interface ISPFYContratoData {
   data_fim?: string;
   data_adesao?: string;
   data_rescisao?: string;
+  dia_vencimento?: string;
+  data_final_carencia?: string;
+  data_ultima_carencia?: string;
+  dias_para_bloqueio?: string | null;
   id_plano?: string;
   plano?: string;
   velocidade_download?: string;
   velocidade_upload?: string;
   [key: string]: any;
+}
+
+export interface ISPFYCarenciaItem {
+  contratoId: string;
+  clienteId: string;
+  clienteNome: string;
+  clienteTelefone: string;
+  clienteCpfCnpj?: string;
+  dataFinalCarencia: string;
+  dataUltimaCarencia?: string;
+  statusContrato?: string;
+  statusInternet?: string;
+  valorMensal?: string;
+  notificado?: boolean;
+  notificadoEm?: string;
+  notificacaoId?: string;
+  mensagemErro?: string;
 }
 
 // Tipos para Faturas/Contas a Receber
@@ -413,6 +434,8 @@ export interface DailyOSOrder {
   address?: string;                // Endereço completo
   referencePoint?: string;         // Ponto de referência
   observation?: string;            // Observação técnica
+  wifiSsid?: string;               // Nome da rede Wi-Fi (SSID)
+  wifiPassword?: string;           // Senha da rede Wi-Fi
   createdAt: string;               // ISO Timestamp da abertura
   timeStr: string;                 // Hora formatada (ex: "14:32")
   dateStr: string;                 // Data YYYY-MM-DD

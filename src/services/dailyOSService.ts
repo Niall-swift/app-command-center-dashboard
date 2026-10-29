@@ -167,6 +167,8 @@ class DailyOSService {
       address?: string;
       referencePoint?: string;
       observation?: string;
+      wifiSsid?: string;
+      wifiPassword?: string;
       whatsappSent?: boolean;
       whatsappGroup?: string;
       fullMessage?: string;
@@ -196,6 +198,8 @@ class DailyOSService {
       address: orderInput.address,
       referencePoint: orderInput.referencePoint,
       observation: orderInput.observation,
+      wifiSsid: orderInput.wifiSsid,
+      wifiPassword: orderInput.wifiPassword,
       createdAt: now.toISOString(),
       timeStr,
       dateStr,

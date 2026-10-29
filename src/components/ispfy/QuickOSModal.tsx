@@ -98,6 +98,8 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   const [priority, setPriority] = useState('N');
   const [message, setMessage] = useState('');
   const [clientPlan, setClientPlan] = useState('');
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
   const [creating, setCreating] = useState(false);
 
   // ── Etapa 3: sucesso & Envio WhatsApp ───────────────────────────────────────
@@ -160,6 +162,8 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       setSubjectLabel('');
       setPriority('N');
       setMessage('');
+      setWifiSsid('');
+      setWifiPassword('');
       setCreatedTicketId('');
       setSentGroupSuccess(null);
     }
@@ -285,7 +289,16 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
         id_cliente: selectedClient.id,
         id_assunto: selectedSubject,
         prioridade: priority,
-        mensagem: message,
+        mensagem: (() => {
+          let ticketMsg = message;
+          if (wifiSsid.trim() || wifiPassword.trim()) {
+            const wifiParts: string[] = [];
+            if (wifiSsid.trim()) wifiParts.push(`Wi-Fi: ${wifiSsid.trim()}`);
+            if (wifiPassword.trim()) wifiParts.push(`Senha: ${wifiPassword.trim()}`);
+            ticketMsg = `${ticketMsg}\n${wifiParts.join(' | ')}`;
+          }
+          return ticketMsg;
+        })(),
       });
       if (result.success) {
         const tid = result.id ?? '';
@@ -304,6 +317,8 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
           priority,
           address: clientCity(selectedClient),
           observation: message,
+          wifiSsid: wifiSsid.trim() || undefined,
+          wifiPassword: wifiPassword.trim() || undefined,
           whatsappSent: !!(sendToGroupOnCreate && selectedGroupPhone),
           whatsappGroup: groupName,
           fullMessage: buildGroupOSText(tid, formattedNextDailyNumber),
@@ -350,6 +365,8 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       `👤 *Cliente:* ${clientN}\n` +
       `📞 *Contato:* ${clientP}\n` +
       (clientPlan ? `📶 *Plano:* ${clientPlan}\n` : '') +
+      (wifiSsid.trim() ? `📶 *Rede Wi-Fi:* ${wifiSsid.trim()}\n` : '') +
+      (wifiPassword.trim() ? `🔒 *Senha Wi-Fi:* ${wifiPassword.trim()}\n` : '') +
       `📌 *Assunto:* ${subjectLabel}\n` +
       `⚡ *Prioridade:* ${priorityLabel}\n` +
       (addr ? `📍 *Endereço/Região:* ${addr}\n` : '') +
@@ -634,6 +651,33 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                   />
                 </div>
 
+                {/* Wi-Fi SSID e Senha */}
+                <div className="p-3 rounded-xl bg-secondary/40 border border-border space-y-2 text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                    <Wifi className="w-3.5 h-3.5 text-emerald-500" /> Rede Wi-Fi (Instalação / Troca)
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Nome da Rede (SSID)</Label>
+                      <Input
+                        value={wifiSsid}
+                        onChange={e => setWifiSsid(e.target.value)}
+                        placeholder="Ex: AVL_FIBRA_CLIENTE"
+                        className="bg-background border-input text-foreground h-8 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Senha do Wi-Fi</Label>
+                      <Input
+                        value={wifiPassword}
+                        onChange={e => setWifiPassword(e.target.value)}
+                        placeholder="Ex: @senha1234"
+                        className="bg-background border-input text-foreground h-8 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Assunto */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-foreground">
@@ -802,6 +846,14 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                       {PRIORITY_LABELS[priority]?.label}
                     </Badge>
                   </div>
+                  {(wifiSsid.trim() || wifiPassword.trim()) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground font-medium">Wi-Fi</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 text-xs font-mono font-medium">
+                        {wifiSsid.trim() ? `Rede: ${wifiSsid.trim()}` : ''} {wifiPassword.trim() ? `| Senha: ${wifiPassword.trim()}` : ''}
+                      </span>
+                    </div>
+                  )}
                   {clientPhone(selectedClient!) && (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground font-medium">WhatsApp</span>

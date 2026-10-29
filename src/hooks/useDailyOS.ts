@@ -21,6 +21,8 @@ export interface UseDailyOSReturn {
     address?: string;
     referencePoint?: string;
     observation?: string;
+    wifiSsid?: string;
+    wifiPassword?: string;
     whatsappSent?: boolean;
     whatsappGroup?: string;
     fullMessage?: string;

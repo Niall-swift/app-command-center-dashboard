@@ -421,6 +421,25 @@ export function calculateDaysRemaining(vencimento: string): number {
   return diff < 0 ? Math.abs(diff) : 0;
 }
 
+export const templateCarencia: MessageTemplate = {
+  id: 'carencia_1',
+  name: 'Carência – Fatura Agendada + Pre-Mix',
+  subject: 'Aviso de Carência Concedida',
+  body: `Olá, *{{nome}}*! Tudo bem? 📶
+
+Passando para confirmar que a sua fatura/conexão foi agendada em *carência até o dia {{data_carencia}}*. 📅
+
+⚠️ *Aviso Importante:*
+Lembramos que se passar dessa data limite, o sistema realiza o bloqueio automático e *não será possível agendar novamente*.
+
+📲 *Fique em Dia e Concorra a Prêmios:*
+Baixe o aplicativo da *AVL Telecom*, mantenha suas faturas sempre em dia e concorra a vários prêmios incríveis nos sorteios do *Pré-Mix*! 🎁🍀
+
+_Caso tenha dúvidas ou já tenha efetuado o pagamento, entre em contato com nosso atendimento._
+_Att, Equipe AVL Telecom_`,
+  variables: ['nome', 'data_carencia'],
+};
+
 // Exportação dos arrays originais (compatibilidade com quem importar diretamente)
 export const messageTemplates: MessageTemplate[] = [
   ...templatesFaturaVencida,
@@ -429,4 +448,5 @@ export const messageTemplates: MessageTemplate[] = [
   ...templatesBloqueados,
   templateWarmup,
   templatePremixWelcome,
+  templateCarencia,
 ];
