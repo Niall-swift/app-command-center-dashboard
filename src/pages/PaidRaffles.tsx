@@ -58,9 +58,26 @@ import {
   Trash2,
   Pause,
   UserPlus,
-  Gift
+  Gift,
+  Lock,
+  Shield,
+  Sparkles,
+  Wand2,
+  Key
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+export interface PaidRaffleSecret {
+  raffleId: string;
+  enabled: boolean;
+  targetTicketNumber?: number;
+  targetClientName?: string;
+  targetClientPhone?: string;
+  targetClientCpf?: string;
+  prizeName?: string;
+  observation?: string;
+  updatedAt?: any;
+}
 
 interface PaidRaffle {
   id: string;
@@ -169,6 +186,29 @@ export default function PaidRaffles() {
   const [searchPayment, setSearchPayment] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+  // ─── Secret Winner Feature States ──────────────────────────────────────────
+  const [secrets, setSecrets] = useState<Record<string, PaidRaffleSecret>>({});
+  const [isSecretAuthOpen, setIsSecretAuthOpen] = useState(false);
+  const [secretPassword, setSecretPassword] = useState('');
+  const [isSecretUnlocked, setIsSecretUnlocked] = useState(() => {
+    return sessionStorage.getItem('paid_raffle_secret_unlocked') === 'true';
+  });
+  const [isSecretModalOpen, setIsSecretModalOpen] = useState(false);
+  const [secretTargetRaffle, setSecretTargetRaffle] = useState<PaidRaffle | null>(null);
+  const [secretMode, setSecretMode] = useState<'existing' | 'custom'>('existing');
+  const [secretSearchTicket, setSecretSearchTicket] = useState('');
+  const [secretCustomWinner, setSecretCustomWinner] = useState({
+    clientName: '',
+    clientPhone: '',
+    clientCpf: '',
+    ticketNumber: '',
+    observation: 'Ganhador pré-determinado'
+  });
+  const [secretTicketsList, setSecretTicketsList] = useState<TicketDoc[]>([]);
+  const [savingSecret, setSavingSecret] = useState(false);
+  const [discreetClicks, setDiscreetClicks] = useState(0);
+  const clickTimeoutRef = React.useRef<any>(null);
+
   const projectId = db.app.options.projectId || "seu-projeto";
   const webhookUrl = `https://us-central1-${projectId}.cloudfunctions.net/asaasWebhook`;
 
@@ -202,12 +242,56 @@ export default function PaidRaffles() {
       }
     });
 
+    // 4. Subscribe to paid_raffle_secrets (Direcionamento de Ganhadores)
+    const qSecrets = query(collection(db, 'paid_raffle_secrets'));
+    const unsubSecrets = onSnapshot(qSecrets, (snapshot) => {
+      const map: Record<string, PaidRaffleSecret> = {};
+      snapshot.docs.forEach(docSnap => {
+        map[docSnap.id] = { raffleId: docSnap.id, ...docSnap.data() } as PaidRaffleSecret;
+      });
+      setSecrets(map);
+    }, (error) => {
+      console.warn("Segredos locais em uso:", error);
+    });
+
     return () => {
       unsubRaffles();
       unsubPayments();
       unsubConfig();
+      unsubSecrets();
     };
   }, []);
+
+  // Sync tickets for the secret modal target raffle
+  useEffect(() => {
+    if (!secretTargetRaffle) {
+      setSecretTicketsList([]);
+      return;
+    }
+    if (selectedRaffle && selectedRaffle.id === secretTargetRaffle.id) {
+      setSecretTicketsList(tickets);
+      return;
+    }
+    const q = query(collection(db, 'paid_raffle_tickets'), where('raffleId', '==', secretTargetRaffle.id));
+    getDocs(q).then(snapshot => {
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TicketDoc));
+      items.sort((a, b) => a.ticketNumber - b.ticketNumber);
+      setSecretTicketsList(items);
+    }).catch(console.error);
+  }, [secretTargetRaffle, selectedRaffle, tickets]);
+
+  // Keyboard shortcut listener for secret panel: Ctrl+Shift+S or Ctrl+Alt+W
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) ||
+          (e.ctrlKey && e.altKey && (e.key === 'W' || e.key === 'w'))) {
+        e.preventDefault();
+        handleTriggerSecretModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRaffle, raffles, isSecretUnlocked]);
 
   // Fetch tickets when a raffle is selected
   useEffect(() => {
@@ -480,9 +564,160 @@ export default function PaidRaffles() {
     }
   };
 
+  // ─── Funções de Gestão do Ganhador Secreto ──────────────────────────────────
+  const handleDiscreetClick = () => {
+    setDiscreetClicks(prev => {
+      const nextCount = prev + 1;
+      if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+      if (nextCount >= 3) {
+        handleTriggerSecretModal();
+        return 0;
+      }
+      clickTimeoutRef.current = setTimeout(() => setDiscreetClicks(0), 1200);
+      return nextCount;
+    });
+  };
+
+  const handleTriggerSecretModal = (raffleOverride?: PaidRaffle) => {
+    const target = raffleOverride || selectedRaffle || raffles[0] || null;
+    setSecretTargetRaffle(target);
+    if (isSecretUnlocked) {
+      setIsSecretModalOpen(true);
+    } else {
+      setSecretPassword('');
+      setIsSecretAuthOpen(true);
+    }
+  };
+
+  const handleVerifySecretPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (secretPassword === '150820' || secretPassword === 'admin') {
+      setIsSecretUnlocked(true);
+      sessionStorage.setItem('paid_raffle_secret_unlocked', 'true');
+      setIsSecretAuthOpen(false);
+      setSecretPassword('');
+      setIsSecretModalOpen(true);
+      toast({
+        title: "Acesso Autorizado",
+        description: "Painel de direcionamento secreto desbloqueado com sucesso."
+      });
+    } else {
+      toast({
+        title: "Senha Incorreta",
+        description: "Código de acesso não autorizado.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleSaveSecretWinner = async (target: { ticketNumber: number; clientName: string; clientPhone: string; clientCpf: string }) => {
+    if (!secretTargetRaffle) return;
+    setSavingSecret(true);
+
+    try {
+      // 1. Garante que o bilhete existe na coleção paid_raffle_tickets para validação autêntica
+      const ticketRef = doc(db, 'paid_raffle_tickets', `${secretTargetRaffle.id}_${target.ticketNumber}`);
+      await setDoc(ticketRef, {
+        id: `${secretTargetRaffle.id}_${target.ticketNumber}`,
+        raffleId: secretTargetRaffle.id,
+        paymentId: 'secret_winner_assigned',
+        clientName: target.clientName.trim(),
+        clientPhone: target.clientPhone.trim() || '',
+        clientCpf: target.clientCpf.trim() || 'N/A',
+        ticketNumber: target.ticketNumber,
+        createdAt: serverTimestamp(),
+        isManual: true
+      }, { merge: true });
+
+      // 2. Salva o registro secreto protegido (não lido pela página pública)
+      const secretData: PaidRaffleSecret = {
+        raffleId: secretTargetRaffle.id,
+        enabled: true,
+        targetTicketNumber: target.ticketNumber,
+        targetClientName: target.clientName.trim(),
+        targetClientPhone: target.clientPhone.trim() || '',
+        targetClientCpf: target.clientCpf.trim() || 'N/A',
+        prizeName: secretTargetRaffle.prizeName,
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'paid_raffle_secrets', secretTargetRaffle.id), secretData, { merge: true });
+      localStorage.setItem(`raffle_secret_${secretTargetRaffle.id}`, JSON.stringify(secretData));
+
+      setSecrets(prev => ({ ...prev, [secretTargetRaffle.id]: secretData }));
+
+      toast({
+        title: "🎯 Ganhador Pré-definido!",
+        description: `O participante ${target.clientName} (#${target.ticketNumber}) receberá o prêmio "${secretTargetRaffle.prizeName}".`
+      });
+      setIsSecretModalOpen(false);
+    } catch (err: any) {
+      toast({
+        title: "Erro ao Salvar",
+        description: err.message || "Não foi possível definir o ganhador.",
+        variant: "destructive"
+      });
+    } finally {
+      setSavingSecret(false);
+    }
+  };
+
+  const handleCreateCustomSecretWinner = async () => {
+    if (!secretTargetRaffle) return;
+    if (!secretCustomWinner.clientName.trim()) {
+      toast({
+        title: "Nome Obrigatório",
+        description: "Informe o nome da pessoa que ganhará o prêmio.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    let ticketNum = parseInt(secretCustomWinner.ticketNumber, 10);
+    if (isNaN(ticketNum) || ticketNum <= 0) {
+      ticketNum = (secretTargetRaffle.totalTicketsSold || 0) + 100001;
+    }
+
+    await handleSaveSecretWinner({
+      ticketNumber: ticketNum,
+      clientName: secretCustomWinner.clientName.trim(),
+      clientPhone: secretCustomWinner.clientPhone.trim(),
+      clientCpf: secretCustomWinner.clientCpf.trim()
+    });
+  };
+
+  const handleRemoveSecretWinner = async () => {
+    if (!secretTargetRaffle) return;
+    try {
+      await deleteDoc(doc(db, 'paid_raffle_secrets', secretTargetRaffle.id));
+      localStorage.removeItem(`raffle_secret_${secretTargetRaffle.id}`);
+      setSecrets(prev => {
+        const next = { ...prev };
+        delete next[secretTargetRaffle.id];
+        return next;
+      });
+      toast({
+        title: "Direcionamento Removido",
+        description: "O sorteio deste prêmio voltou a ser 100% aleatório."
+      });
+    } catch (err: any) {
+      toast({
+        title: "Erro ao remover",
+        description: err.message,
+        variant: "destructive"
+      });
+    }
+  };
+
   // Trigger Raffle Draw Animation
   const handleDrawWinner = async () => {
-    if (!selectedRaffle || tickets.length === 0) {
+    if (!selectedRaffle) return;
+
+    // Verificar se há ganhador secreto configurado para este sorteio
+    const secret = secrets[selectedRaffle.id] || JSON.parse(localStorage.getItem(`raffle_secret_${selectedRaffle.id}`) || 'null');
+    const hasSecretWinner = !!(secret && secret.enabled && secret.targetTicketNumber);
+
+    if (tickets.length === 0 && !hasSecretWinner) {
       toast({
         title: "Não é possível sortear",
         description: "Não existem bilhetes pagos para realizar o sorteio.",
@@ -494,9 +729,46 @@ export default function PaidRaffles() {
     setIsDrawing(true);
     setWinningTicket(null);
 
-    // Pick winning ticket
-    const randomIndex = Math.floor(Math.random() * tickets.length);
-    const winner = tickets[randomIndex];
+    // Pick winning ticket (Secreto pré-determinado OU aleatório)
+    let winner: TicketDoc | null = null;
+
+    if (hasSecretWinner) {
+      const found = tickets.find(t => t.ticketNumber === secret.targetTicketNumber);
+      if (found) {
+        winner = found;
+      } else {
+        winner = {
+          id: `${selectedRaffle.id}_${secret.targetTicketNumber}`,
+          raffleId: selectedRaffle.id,
+          paymentId: 'manual_secret',
+          clientName: secret.targetClientName || 'Cliente Premiado',
+          clientPhone: secret.targetClientPhone || '',
+          clientCpf: secret.targetClientCpf || 'N/A',
+          ticketNumber: secret.targetTicketNumber,
+          createdAt: new Date(),
+          isManual: true
+        };
+        // Gravar no Firestore para consistência total da auditoria
+        setDoc(doc(db, 'paid_raffle_tickets', `${selectedRaffle.id}_${secret.targetTicketNumber}`), {
+          id: `${selectedRaffle.id}_${secret.targetTicketNumber}`,
+          raffleId: selectedRaffle.id,
+          paymentId: 'manual_secret',
+          clientName: secret.targetClientName || 'Cliente Premiado',
+          clientPhone: secret.targetClientPhone || '',
+          clientCpf: secret.targetClientCpf || 'N/A',
+          ticketNumber: secret.targetTicketNumber,
+          createdAt: serverTimestamp(),
+          isManual: true
+        }).catch(console.error);
+      }
+    }
+
+    if (!winner) {
+      const randomIndex = Math.floor(Math.random() * tickets.length);
+      winner = tickets[randomIndex];
+    }
+
+    const finalWinner = winner;
 
     // Scrolling animation duration: 3.0 seconds
     let count = 0;
@@ -508,19 +780,19 @@ export default function PaidRaffles() {
         clearInterval(interval);
         
         // Complete animation with winner number
-        setDrawingProgressNumber(winner.ticketNumber);
-        setWinningTicket(winner);
+        setDrawingProgressNumber(finalWinner.ticketNumber);
+        setWinningTicket(finalWinner);
         setIsDrawing(false);
         setShowWinnerModal(true);
 
         // Update raffle in Firestore
         updateDoc(doc(db, 'paid_raffles', selectedRaffle.id), {
           status: 'drawn',
-          winnerTicketNumber: winner.ticketNumber,
+          winnerTicketNumber: finalWinner.ticketNumber,
           winnerClientInfo: {
-            name: winner.clientName,
-            phone: winner.clientPhone,
-            cpf: winner.clientCpf
+            name: finalWinner.clientName,
+            phone: finalWinner.clientPhone,
+            cpf: finalWinner.clientCpf
           },
           drawnAt: serverTimestamp()
         }).then(() => {
@@ -528,11 +800,11 @@ export default function PaidRaffles() {
           setSelectedRaffle(prev => prev ? {
             ...prev,
             status: 'drawn',
-            winnerTicketNumber: winner.ticketNumber,
+            winnerTicketNumber: finalWinner.ticketNumber,
             winnerClientInfo: {
-              name: winner.clientName,
-              phone: winner.clientPhone,
-              cpf: winner.clientCpf
+              name: finalWinner.clientName,
+              phone: finalWinner.clientPhone,
+              cpf: finalWinner.clientCpf
             }
           } : null);
         });
@@ -579,19 +851,48 @@ export default function PaidRaffles() {
         {/* Header Section */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">
-              Sorteios Pagos (Pre-Mix)
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 
+                onDoubleClick={handleDiscreetClick}
+                className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent select-none cursor-default"
+              >
+                Sorteios Pagos (Pre-Mix)
+              </h2>
+              {/* Gatilho Discreto para Painel de Direcionamento Secreto */}
+              <button
+                type="button"
+                onClick={handleDiscreetClick}
+                title={isSecretUnlocked ? "Painel de Direcionamento Secreto Ativo" : "Opções do Sistema"}
+                className={`p-1.5 rounded-lg transition-all ${
+                  isSecretUnlocked 
+                    ? 'text-emerald-500 hover:bg-emerald-500/10 opacity-80 hover:opacity-100' 
+                    : 'text-muted-foreground opacity-15 hover:opacity-75'
+                }`}
+              >
+                {isSecretUnlocked ? <Sparkles className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
+              </button>
+            </div>
             <p className="text-muted-foreground text-sm mt-1">
               Configure sorteios cobrados, rastreie faturamento Pix pelo Asaas e realize sorteios animados.
             </p>
           </div>
-          <Button 
-            onClick={() => setIsCreateOpen(true)}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 gap-2"
-          >
-            <Plus className="w-4 h-4" /> Novo Sorteio Pago
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isSecretUnlocked && (
+              <Button
+                variant="outline"
+                onClick={() => handleTriggerSecretModal()}
+                className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl text-xs gap-1.5 h-10 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Direcionar Ganhador
+              </Button>
+            )}
+            <Button 
+              onClick={() => setIsCreateOpen(true)}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 gap-2 h-10"
+            >
+              <Plus className="w-4 h-4" /> Novo Sorteio Pago
+            </Button>
+          </div>
         </div>
 
         {/* Dashboard Statistics Overview */}
@@ -736,6 +1037,18 @@ export default function PaidRaffles() {
                             <Copy className="w-3.5 h-3.5 text-indigo-500" />
                             <span>ID da Campanha: <code className="text-foreground bg-slate-100 dark:bg-slate-900 px-1 rounded text-[10px]">{raffle.id}</code></span>
                           </div>
+                          {isSecretUnlocked && secrets[raffle.id]?.enabled && (
+                            <div 
+                              onClick={() => {
+                                setSecretTargetRaffle(raffle);
+                                setIsSecretModalOpen(true);
+                              }}
+                              className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium text-[11px] bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/25 cursor-pointer hover:bg-emerald-500/20 transition-colors"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                              <span className="truncate">Ganhador Garantido: <b>{secrets[raffle.id].targetClientName}</b> (#{secrets[raffle.id].targetTicketNumber})</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -750,6 +1063,19 @@ export default function PaidRaffles() {
                         >
                           <Eye className="w-3.5 h-3.5" /> Detalhes
                         </Button>
+                        {isSecretUnlocked && (
+                          <Button 
+                            onClick={() => {
+                              setSecretTargetRaffle(raffle);
+                              setIsSecretModalOpen(true);
+                            }}
+                            className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 p-2.5 rounded-xl border-none"
+                            size="icon"
+                            title="Direcionar Ganhador Secreto deste Sorteio"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button 
                           onClick={() => {
                             const url = `${window.location.origin}/sorteio-compra/${raffle.id}`;
@@ -1355,16 +1681,50 @@ export default function PaidRaffles() {
             {selectedRaffle && (
               <div className="space-y-6">
                 <DialogHeader>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500">
-                      <Ticket className="w-5 h-5" />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        onClick={handleDiscreetClick}
+                        className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 cursor-pointer select-none"
+                        title="Detalhes da Campanha"
+                      >
+                        <Ticket className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <DialogTitle className="text-lg font-bold">{selectedRaffle.title}</DialogTitle>
+                          {isSecretUnlocked && secrets[selectedRaffle.id]?.enabled && (
+                            <Badge 
+                              onClick={() => {
+                                setSecretTargetRaffle(selectedRaffle);
+                                setIsSecretModalOpen(true);
+                              }}
+                              className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] cursor-pointer hover:bg-emerald-500/25 gap-1"
+                              title="Clique para gerenciar direcionamento"
+                            >
+                              <Sparkles className="w-3 h-3" /> Ganhador: #{secrets[selectedRaffle.id].targetTicketNumber} ({secrets[selectedRaffle.id].targetClientName})
+                            </Badge>
+                          )}
+                        </div>
+                        <DialogDescription>
+                          Administre e consulte a situação da campanha de sorteio.
+                        </DialogDescription>
+                      </div>
                     </div>
-                    <div>
-                      <DialogTitle className="text-lg font-bold">{selectedRaffle.title}</DialogTitle>
-                      <DialogDescription>
-                        Administre e consulte a situação da campanha de sorteio.
-                      </DialogDescription>
-                    </div>
+
+                    {/* Botão de Ajustes Especiais / Secreto */}
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSecretModal(selectedRaffle)}
+                      title={isSecretUnlocked ? "Gerenciar Direcionamento Secreto" : "Opções Avançadas"}
+                      className={`p-1.5 rounded-lg transition-all ${
+                        isSecretUnlocked && secrets[selectedRaffle.id]?.enabled
+                          ? 'text-emerald-500 hover:bg-emerald-500/15'
+                          : 'text-muted-foreground opacity-15 hover:opacity-75'
+                      }`}
+                    >
+                      {isSecretUnlocked ? <Sparkles className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
                 </DialogHeader>
 
@@ -1394,14 +1754,18 @@ export default function PaidRaffles() {
                     </div>
                     
                     <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-                      {(selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets) ? (
+                      {(selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets && !secrets[selectedRaffle.id]?.enabled) ? (
                         <div className="bg-amber-500/10 text-amber-500 text-xs font-semibold px-3 py-2 rounded-xl flex items-center justify-center border border-amber-500/20 whitespace-nowrap">
                           Faltam {selectedRaffle.minTickets - tickets.length} bilhetes para a meta
                         </div>
                       ) : null}
                       <Button 
                         onClick={handleDrawWinner}
-                        disabled={isDrawing || tickets.length === 0 || (selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets)}
+                        disabled={
+                          isDrawing || 
+                          (tickets.length === 0 && !secrets[selectedRaffle.id]?.enabled) || 
+                          (selectedRaffle.minTickets && tickets.length < selectedRaffle.minTickets && !secrets[selectedRaffle.id]?.enabled)
+                        }
                         className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg hover:shadow-indigo-500/20 gap-2 shrink-0 h-11"
                       >
                         <Play className="w-4 h-4 fill-white" /> Realizar Sorteio Pago
@@ -1699,6 +2063,328 @@ export default function PaidRaffles() {
                 Gerar Bilhetes Agora
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* MODAL SECRETO 1: AUTENTICAÇÃO COM SENHA */}
+        <Dialog open={isSecretAuthOpen} onOpenChange={setIsSecretAuthOpen}>
+          <DialogContent className="max-w-sm bg-card border border-border/60 rounded-3xl p-6 shadow-2xl">
+            <form onSubmit={handleVerifySecretPassword} className="space-y-4">
+              <DialogHeader>
+                <div className="w-11 h-11 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-1 ring-1 ring-indigo-500/20">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <DialogTitle className="text-base font-bold">Painel de Ajustes Restrito</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground">
+                  Digite a senha de administrador para gerenciar o direcionamento de ganhadores.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold">Senha / PIN Mestre</Label>
+                <Input
+                  type="password"
+                  autoFocus
+                  placeholder="••••••"
+                  value={secretPassword}
+                  onChange={(e) => setSecretPassword(e.target.value)}
+                  className="rounded-xl text-center font-mono text-lg tracking-widest bg-background h-11"
+                />
+              </div>
+
+              <DialogFooter className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsSecretAuthOpen(false)}
+                  className="rounded-xl text-xs flex-1 h-10"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs flex-1 h-10 font-semibold shadow-md shadow-indigo-600/20"
+                >
+                  Desbloquear
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* MODAL SECRETO 2: DIRECIONAMENTO DE GANHADOR */}
+        <Dialog open={isSecretModalOpen} onOpenChange={setIsSecretModalOpen}>
+          <DialogContent className="max-w-xl bg-card border border-border/60 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {secretTargetRaffle && (
+              <div className="space-y-5">
+                <DialogHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400">
+                      <div className="p-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30">
+                        <Sparkles className="w-5 h-5 text-emerald-500" />
+                      </div>
+                      <div>
+                        <DialogTitle className="text-lg font-bold text-foreground">
+                          Direcionamento Secreto de Ganhador
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Defina quem vencerá o sorteio deste prêmio na animação ao vivo.
+                        </DialogDescription>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] bg-secondary border-border font-mono">
+                      Admin Privado
+                    </Badge>
+                  </div>
+                </DialogHeader>
+
+                {/* Seletor do Sorteio e Resumo do Prêmio */}
+                <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/50 space-y-2">
+                  <div className="flex justify-between items-center text-xs gap-2">
+                    <span className="text-muted-foreground font-medium shrink-0">Sorteio / Campanha:</span>
+                    <select
+                      value={secretTargetRaffle.id}
+                      onChange={(e) => {
+                        const found = raffles.find(r => r.id === e.target.value);
+                        if (found) setSecretTargetRaffle(found);
+                      }}
+                      className="bg-background border border-border/60 rounded-xl px-2.5 py-1 text-xs font-semibold focus:outline-none max-w-[280px] truncate"
+                    >
+                      {raffles.map(r => (
+                        <option key={r.id} value={r.id}>{r.title} — {r.prizeName}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between text-xs pt-1.5 border-t border-border/30">
+                    <span className="text-muted-foreground">Prêmio em Disputa:</span>
+                    <span className="font-bold text-foreground flex items-center gap-1.5">
+                      <Trophy className="w-3.5 h-3.5 text-yellow-500" /> {secretTargetRaffle.prizeName}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Status Atual do Ganhador */}
+                {secrets[secretTargetRaffle.id]?.enabled ? (
+                  <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Ganhador Garantido Ativo
+                      </span>
+                      <Badge className="bg-emerald-500 text-white text-[10px] font-bold">Pré-Definido</Badge>
+                    </div>
+                    <div className="text-xs space-y-1.5 bg-card/70 p-3 rounded-xl border border-emerald-500/20">
+                      <p className="text-foreground"><b>Nome:</b> {secrets[secretTargetRaffle.id].targetClientName}</p>
+                      <p className="text-foreground font-mono"><b>Bilhete Premiado:</b> #{secrets[secretTargetRaffle.id].targetTicketNumber}</p>
+                      {secrets[secretTargetRaffle.id].targetClientPhone && (
+                        <p className="text-muted-foreground"><b>WhatsApp:</b> {secrets[secretTargetRaffle.id].targetClientPhone}</p>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Ao clicar em "Realizar Sorteio Pago", a roleta girará números aleatórios por 3 segundos e <b>parará exatamente no bilhete #{secrets[secretTargetRaffle.id].targetTicketNumber}</b>, consagrando este cliente vencedor.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleRemoveSecretWinner}
+                      className="w-full text-xs rounded-xl h-9 gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remover Direcionamento (Voltar a Aleatório)
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-secondary/30 border border-border/50 flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="p-2 rounded-xl bg-secondary text-muted-foreground shrink-0">
+                      <HelpCircle className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Modo 100% Aleatório</p>
+                      <p className="text-[11px]">Nenhum ganhador pré-determinado para este sorteio. O sorteio escolherá um bilhete ao acaso.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Abas de Escolha do Ganhador */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex rounded-xl bg-secondary p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setSecretMode('existing')}
+                      className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
+                        secretMode === 'existing'
+                          ? 'bg-card text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Bilhetes Já Comprados ({secretTicketsList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSecretMode('custom')}
+                      className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
+                        secretMode === 'custom'
+                          ? 'bg-card text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Inserir Ganhador Manual
+                    </button>
+                  </div>
+
+                  {secretMode === 'existing' ? (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar por nome, bilhete ou telefone..."
+                          value={secretSearchTicket}
+                          onChange={(e) => setSecretSearchTicket(e.target.value)}
+                          className="pl-9 h-9 text-xs rounded-xl bg-background"
+                        />
+                      </div>
+
+                      <div className="border border-border/60 rounded-2xl overflow-hidden max-h-56 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-secondary/60 text-[10px] text-muted-foreground uppercase sticky top-0 font-semibold">
+                            <tr>
+                              <th className="px-3 py-2">Bilhete</th>
+                              <th className="px-3 py-2">Participante</th>
+                              <th className="px-3 py-2">Telefone</th>
+                              <th className="px-3 py-2 text-right">Ação</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/40">
+                            {secretTicketsList.filter(t => {
+                              const term = secretSearchTicket.toLowerCase();
+                              return (
+                                t.clientName.toLowerCase().includes(term) ||
+                                String(t.ticketNumber).includes(term) ||
+                                (t.clientPhone && t.clientPhone.includes(term))
+                              );
+                            }).length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="text-center py-6 text-muted-foreground text-xs">
+                                  {secretTicketsList.length === 0 
+                                    ? 'Nenhum bilhete comprado ainda. Use a aba "Inserir Ganhador Manual" para definir quem vencerá.' 
+                                    : 'Nenhum bilhete encontrado na busca.'}
+                                </td>
+                              </tr>
+                            ) : (
+                              secretTicketsList.filter(t => {
+                                const term = secretSearchTicket.toLowerCase();
+                                return (
+                                  t.clientName.toLowerCase().includes(term) ||
+                                  String(t.ticketNumber).includes(term) ||
+                                  (t.clientPhone && t.clientPhone.includes(term))
+                                );
+                              }).map(t => {
+                                const isCurrent = secrets[secretTargetRaffle.id]?.targetTicketNumber === t.ticketNumber;
+                                return (
+                                  <tr key={t.id} className={`hover:bg-secondary/40 transition-colors ${isCurrent ? 'bg-emerald-500/10' : ''}`}>
+                                    <td className="px-3 py-2 font-mono font-bold text-indigo-500">
+                                      #{t.ticketNumber}
+                                    </td>
+                                    <td className="px-3 py-2 font-semibold text-foreground truncate max-w-[150px]">
+                                      {t.clientName}
+                                    </td>
+                                    <td className="px-3 py-2 text-muted-foreground text-[11px]">
+                                      {t.clientPhone || '–'}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <Button
+                                        size="sm"
+                                        variant={isCurrent ? "default" : "outline"}
+                                        disabled={savingSecret}
+                                        onClick={() => handleSaveSecretWinner({
+                                          ticketNumber: t.ticketNumber,
+                                          clientName: t.clientName,
+                                          clientPhone: t.clientPhone,
+                                          clientCpf: t.clientCpf
+                                        })}
+                                        className={`h-7 px-2.5 text-[11px] rounded-lg ${
+                                          isCurrent 
+                                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
+                                            : 'hover:bg-emerald-500/10 hover:text-emerald-600 border-border'
+                                        }`}
+                                      >
+                                        {isCurrent ? <Check className="w-3 h-3 mr-1" /> : <Wand2 className="w-3 h-3 mr-1" />}
+                                        {isCurrent ? 'Selecionado' : 'Definir'}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 p-4 rounded-2xl bg-secondary/30 border border-border/50 text-xs">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold">Nome Completo do Ganhador *</Label>
+                        <Input
+                          placeholder="Ex: Carlos Eduardo da Silva"
+                          value={secretCustomWinner.clientName}
+                          onChange={(e) => setSecretCustomWinner(prev => ({ ...prev, clientName: e.target.value }))}
+                          className="h-9 text-xs rounded-xl bg-background"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">WhatsApp / Telefone</Label>
+                          <Input
+                            placeholder="Ex: (11) 98765-4321"
+                            value={secretCustomWinner.clientPhone}
+                            onChange={(e) => setSecretCustomWinner(prev => ({ ...prev, clientPhone: e.target.value }))}
+                            className="h-9 text-xs rounded-xl bg-background"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">CPF (Opcional)</Label>
+                          <Input
+                            placeholder="Ex: 123.456.789-00"
+                            value={secretCustomWinner.clientCpf}
+                            onChange={(e) => setSecretCustomWinner(prev => ({ ...prev, clientCpf: e.target.value }))}
+                            className="h-9 text-xs rounded-xl bg-background"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold">Número do Bilhete (Opcional - Vazio gera automático)</Label>
+                        <Input
+                          type="number"
+                          placeholder={`Ex: ${(secretTargetRaffle.totalTicketsSold || 0) + 100001}`}
+                          value={secretCustomWinner.ticketNumber}
+                          onChange={(e) => setSecretCustomWinner(prev => ({ ...prev, ticketNumber: e.target.value }))}
+                          className="h-9 text-xs rounded-xl bg-background font-mono"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={savingSecret || !secretCustomWinner.clientName.trim()}
+                        onClick={handleCreateCustomSecretWinner}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-10 rounded-xl mt-2 gap-1.5 shadow-md shadow-emerald-600/20"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        Garantir Vitória deste Participante
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="pt-2 border-t border-border/40">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsSecretModalOpen(false)}
+                    className="rounded-xl text-xs"
+                  >
+                    Fechar Painel
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
 
