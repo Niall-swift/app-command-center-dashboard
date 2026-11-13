@@ -7,6 +7,7 @@ import { useTheme } from 'next-themes';
 import { Sun, Moon, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'react-router-dom';
+import { GlobalNetworkAlertPill } from './GlobalNetworkAlertPill';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -78,7 +79,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Monitor Global de Conexões ISPFY em Tempo Real */}
+              <GlobalNetworkAlertPill />
+
               {/* Botão de Alternância de Tema com Indicador Visual */}
               <Button
                 variant="outline"

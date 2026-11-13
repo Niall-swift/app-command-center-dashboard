@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
+import { NetworkMonitorProvider } from "./contexts/NetworkMonitorContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -117,14 +118,16 @@ function AppContent() {
 
   return (
     <ProtectedRoute>
-      <DashboardLayout>
-        <ErrorBoundary>
-          <Suspense fallback={<PageLoader />}>
-            <AppContentWithRouterFix />
-          </Suspense>
-        </ErrorBoundary>
-      </DashboardLayout>
-      <QuickOSFab />
+      <NetworkMonitorProvider>
+        <DashboardLayout>
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <AppContentWithRouterFix />
+            </Suspense>
+          </ErrorBoundary>
+        </DashboardLayout>
+        <QuickOSFab />
+      </NetworkMonitorProvider>
     </ProtectedRoute>
   );
 }
@@ -139,7 +142,7 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <Toaster />
-        <Sonner />
+        <Sonner position="top-right" richColors closeButton />
         <AuthProvider>
           <ChatNotificationProvider>
             <BrowserRouter>

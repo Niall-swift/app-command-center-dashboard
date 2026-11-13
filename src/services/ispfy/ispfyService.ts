@@ -26,9 +26,14 @@ import type {
   ISPFYCarenciaItem,
   ISPFYClientRegionRecord,
   ISPFYClientsByRegionResult,
-  ISPFYLivePointStatus
+  ISPFYLivePointStatus,
+  ISPFYOverdueAnalyticsResult
 } from '@/types/ispfy';
 import { syncAndDetectDeletedClients } from './auditSnapshotService';
+import {
+  buildOverdueAnalytics,
+  getTodayLocalIsoDate,
+} from './overdueHelpers';
 import {
   EMPTY_BAIRRO_KEY,
   EMPTY_BAIRRO_LABEL,
@@ -116,6 +121,17 @@ class ISPFYService {
   private regionCache: {
     fetchedAt: number;
     data: ISPFYClientsByRegionResult;
+  } | null = null;
+  private regionMetadataCache: {
+    fetchedAt: number;
+    allClientes: ISPFYClienteData[];
+    allContatos: any[];
+    allPontoPlanos: any[];
+    allPlanos: ISPFYPlanoData[];
+  } | null = null;
+  private overdueCache: {
+    fetchedAt: number;
+    data: ISPFYOverdueAnalyticsResult;
   } | null = null;
 
   constructor() {
@@ -2623,11 +2639,19 @@ class ISPFYService {
       }).catch(() => [] as any[]),
     ]);
 
-    // Atualiza também o cache da auditoria caso a tela seja trocada em seguida
+    // Atualiza também os caches compartilhados (auditoria e metadados para polling em tempo real)
+    const now = Date.now();
     this.auditBaseCache = {
-      fetchedAt: Date.now(),
+      fetchedAt: now,
       clientes: allClientes,
       contratos: allContratos,
+    };
+    this.regionMetadataCache = {
+      fetchedAt: now,
+      allClientes,
+      allContatos,
+      allPontoPlanos,
+      allPlanos,
     };
 
     onProgress?.('Resolvendo cidades, planos e normalizando bairros e ruas...');
@@ -2636,6 +2660,152 @@ class ISPFYService {
       ...allClientes,
       ...allPontos.map((pt) => ({ id_cidade: pt?.id_cidade } as ISPFYClienteData)),
     ]);
+
+    const result = this.buildRegionResultFromDatasets({
+      allClientes,
+      allContratos,
+      allPontos,
+      allContatos,
+      allPontoPlanos,
+      allPlanos,
+      onlineSessoes,
+    });
+
+    this.regionCache = {
+      fetchedAt: Date.now(),
+      data: result,
+    };
+
+    onProgress?.('Monitoramento por bairro e rua carregado!');
+    return result;
+  }
+
+  /**
+   * Poll rápido em tempo real para o monitor global de quedas:
+   * reusa metadados cadastrais em cache (10 min) e consulta apenas contratos, pontos e sessões online.
+   */
+  async pollRealtimeConnectionStatus(): Promise<ISPFYClientsByRegionResult> {
+    const metadata = this.regionMetadataCache;
+    if (!metadata || Date.now() - metadata.fetchedAt > 10 * 60 * 1000) {
+      return this.getClientsByRegionAndStatus(undefined, true);
+    }
+
+    const [allContratos, allPontos, onlineSessoes] = await Promise.all([
+      this.fetchAllWithUnlimitedFallback<ISPFYContratoData>('/cliente/contrato', {
+        sort: 'id:ASC',
+      }),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contrato/ponto', {
+        sort: 'id:ASC',
+      }),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contrato/ponto/sessoes', {
+        filter: 'status:EQ:online',
+      }).catch(() => [] as any[]),
+    ]);
+
+    this.auditBaseCache = {
+      fetchedAt: Date.now(),
+      clientes: metadata.allClientes,
+      contratos: allContratos,
+    };
+
+    const result = this.buildRegionResultFromDatasets({
+      allClientes: metadata.allClientes,
+      allContratos,
+      allPontos,
+      allContatos: metadata.allContatos,
+      allPontoPlanos: metadata.allPontoPlanos,
+      allPlanos: metadata.allPlanos,
+      onlineSessoes,
+    });
+
+    this.regionCache = {
+      fetchedAt: Date.now(),
+      data: result,
+    };
+
+    return result;
+  }
+
+  /**
+   * Carrega cobranças em aberto vencidas e agrega clientes em atraso por dia e data de vencimento.
+   */
+  async getOverdueByDueDateSummary(
+    regionRecords?: ISPFYClientRegionRecord[],
+    forceRefresh = false
+  ): Promise<ISPFYOverdueAnalyticsResult> {
+    if (
+      !forceRefresh &&
+      this.overdueCache &&
+      Date.now() - this.overdueCache.fetchedAt < 60 * 1000
+    ) {
+      return this.overdueCache.data;
+    }
+
+    const todayIso = getTodayLocalIsoDate();
+    const cachedContratos =
+      !forceRefresh &&
+      this.auditBaseCache &&
+      Date.now() - this.auditBaseCache.fetchedAt < 3 * 60 * 1000
+        ? this.auditBaseCache.contratos
+        : null;
+
+    const [cobrancas, contratos] = await Promise.all([
+      this.fetchAllWithUnlimitedFallback<ISPFYFaturaData>(
+        '/cliente/contrato/cobranca',
+        {
+          filter: andFilters(
+            buildFilter('status', 'EQ', 'aberto'),
+            buildFilter('data_vencimento', 'LT', todayIso)
+          ),
+          sort: 'data_vencimento:ASC',
+        }
+      ),
+      cachedContratos
+        ? Promise.resolve(cachedContratos)
+        : this.fetchAllWithUnlimitedFallback<ISPFYContratoData>(
+            '/cliente/contrato',
+            { sort: 'id:ASC' }
+          ),
+    ]);
+
+    const result = buildOverdueAnalytics({
+      cobrancas,
+      contratos,
+      clientes:
+        this.auditBaseCache?.clientes || this.regionMetadataCache?.allClientes,
+      regionRecords: regionRecords || this.regionCache?.data.records,
+      todayIso,
+    });
+
+    this.overdueCache = {
+      fetchedAt: Date.now(),
+      data: result,
+    };
+
+    return result;
+  }
+
+  /**
+   * Constrói o snapshot estruturado de pontos/bairros/ruas a partir dos datasets brutos.
+   */
+  private buildRegionResultFromDatasets(params: {
+    allClientes: ISPFYClienteData[];
+    allContratos: ISPFYContratoData[];
+    allPontos: any[];
+    allContatos: any[];
+    allPontoPlanos: any[];
+    allPlanos: ISPFYPlanoData[];
+    onlineSessoes: any[];
+  }): ISPFYClientsByRegionResult {
+    const {
+      allClientes,
+      allContratos,
+      allPontos,
+      allContatos,
+      allPontoPlanos,
+      allPlanos,
+      onlineSessoes,
+    } = params;
 
     const clientById = new Map<string, ISPFYClienteData>();
     allClientes.forEach((c) => {
@@ -2871,12 +3041,6 @@ class ISPFYService {
       },
     };
 
-    this.regionCache = {
-      fetchedAt: Date.now(),
-      data: result,
-    };
-
-    onProgress?.('Monitoramento por bairro e rua carregado!');
     return result;
   }
 

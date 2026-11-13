@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Card,
@@ -51,6 +51,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
+import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import {
   aggregateRegionSummaries,
@@ -136,12 +137,21 @@ function formatMB(kbytes?: number): string {
 
 export default function ISPFYClientesRegiao() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const {
+    regionData: globalRegionData,
+    loadingRegion: globalLoadingRegion,
+    refreshConnections: globalRefreshConnections,
+  } = useNetworkMonitor();
 
-  const [loading, setLoading] = useState<boolean>(true);
+  const [manualRefreshing, setManualRefreshing] = useState<boolean>(false);
   const [progressMsg, setProgressMsg] = useState<string>(
     'Carregando clientes e conexões do ISPFY...'
   );
-  const [data, setData] = useState<ISPFYClientsByRegionResult | null>(null);
+  const [data, setData] = useState<ISPFYClientsByRegionResult | null>(
+    globalRegionData
+  );
+  const loading = manualRefreshing || (!data && globalLoadingRegion);
 
   // Filtros
   const [selectedBairro, setSelectedBairro] = useState<string>('ALL');
@@ -154,18 +164,51 @@ export default function ISPFYClientesRegiao() {
   const [page, setPage] = useState<number>(1);
   const [checkingClientId, setCheckingClientId] = useState<string | null>(null);
 
+  // Sincroniza query params (?status=DESCONECTADO&bairro=FIGUEIRAS&search=...)
+  useEffect(() => {
+    const paramStatus = searchParams.get('status')?.toUpperCase();
+    const paramBairro = searchParams.get('bairro');
+    const paramSearch = searchParams.get('search');
+
+    if (
+      paramStatus === 'ALL' ||
+      paramStatus === 'OK' ||
+      paramStatus === 'DESCONECTADO' ||
+      paramStatus === 'BLOQUEADO' ||
+      paramStatus === 'INATIVO'
+    ) {
+      setStatusFilter(paramStatus);
+      if (paramStatus === 'INATIVO') setIncludeInactive(true);
+      setPage(1);
+    }
+
+    if (paramBairro) {
+      setSelectedBairro(paramBairro);
+      setSelectedStreetComposite('ALL');
+      setPage(1);
+    }
+
+    if (paramSearch !== null) {
+      setSearchTerm(paramSearch);
+      setPage(1);
+    }
+  }, [searchParams]);
+
+  // Aproveita em tempo real o snapshot mantido pelo monitor global sem recarregar do zero
+  useEffect(() => {
+    if (globalRegionData) {
+      setData(globalRegionData);
+    }
+  }, [globalRegionData]);
+
   const loadData = async (forceRefresh = false) => {
-    setLoading(true);
-    setProgressMsg('Consultando base de clientes e status PPPoE no ISPFY...');
+    setManualRefreshing(true);
+    setProgressMsg('Atualizando base de clientes e status PPPoE no ISPFY...');
     try {
-      const result = await ispfyService.getClientsByRegionAndStatus(
-        (msg) => setProgressMsg(msg),
-        forceRefresh
-      );
-      setData(result);
-      toast.success(
-        `${result.totals.totalAtivos} pontos ativos carregados (${result.bairros.length} bairros)!`
-      );
+      await globalRefreshConnections(forceRefresh);
+      if (forceRefresh) {
+        toast.success('Conexões e endereços atualizados ao vivo do ISPFY!');
+      }
     } catch (error: any) {
       console.error('Erro ao carregar clientes por bairro/rua:', error);
       toast.error(
@@ -173,13 +216,9 @@ export default function ISPFYClientesRegiao() {
           (error?.message || 'Falha de comunicação')
       );
     } finally {
-      setLoading(false);
+      setManualRefreshing(false);
     }
   };
-
-  useEffect(() => {
-    loadData(false);
-  }, []);
 
   // Ao mudar o bairro, limpa a seleção de rua se ela não pertence ao bairro escolhido
   const handleSelectBairro = (bairroKey: string) => {

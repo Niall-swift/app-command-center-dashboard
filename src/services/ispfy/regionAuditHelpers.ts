@@ -1,6 +1,7 @@
 import type {
   ISPFYClientRegionRecord,
   ISPFYConnectionHealthStatus,
+  ISPFYConnectionTransitionEvent,
   ISPFYRegionGroupSummary,
   ISPFYStreetGroupSummary,
 } from '@/types/ispfy';
@@ -378,5 +379,80 @@ export function aggregateRegionSummaries(records: ISPFYClientRegionRecord[]): {
       inativos: totalsAcc.inativos,
     },
   };
+}
+
+/**
+ * Compara o estado anterior e atual de todos os pontos para detectar em tempo real
+ * clientes que acabaram de ficar sem internet (ok -> desconectado) ou voltaram online.
+ */
+export function detectConnectionTransitions(
+  prevRecords: ISPFYClientRegionRecord[],
+  nextRecords: ISPFYClientRegionRecord[],
+  occurredAt: string = new Date().toISOString()
+): {
+  dropped: ISPFYConnectionTransitionEvent[];
+  reconnected: ISPFYConnectionTransitionEvent[];
+} {
+  if (prevRecords.length === 0 || nextRecords.length === 0) {
+    return { dropped: [], reconnected: [] };
+  }
+
+  const prevByPonto = new Map<string, ISPFYClientRegionRecord>();
+  for (const rec of prevRecords) {
+    if (rec.pontoId) prevByPonto.set(rec.pontoId, rec);
+  }
+
+  const dropped: ISPFYConnectionTransitionEvent[] = [];
+  const reconnected: ISPFYConnectionTransitionEvent[] = [];
+
+  for (const curr of nextRecords) {
+    if (!curr.pontoId) continue;
+    const prev = prevByPonto.get(curr.pontoId);
+    if (!prev) continue;
+
+    // Queda real: estava com internet OK e ficou desconectado (sem bloqueio e sem cancelamento)
+    if (prev.connectionHealth === 'ok' && curr.connectionHealth === 'desconectado') {
+      dropped.push({
+        id: `drop_${curr.pontoId}_${occurredAt}`,
+        type: 'dropped',
+        occurredAt,
+        pontoId: curr.pontoId,
+        clienteId: curr.clienteId,
+        contratoId: curr.contratoId,
+        nome: curr.nome,
+        telefone: curr.telefone,
+        bairroKey: curr.bairroKey,
+        bairroLabel: curr.bairroLabel,
+        ruaLabel: curr.ruaLabel,
+        enderecoCompleto: curr.enderecoCompleto,
+        plano: curr.plano,
+        usuarioPppoe: curr.usuarioPppoe,
+        ultimoLogin: curr.ultimoLogin,
+      });
+    } else if (
+      prev.connectionHealth === 'desconectado' &&
+      curr.connectionHealth === 'ok'
+    ) {
+      reconnected.push({
+        id: `reconn_${curr.pontoId}_${occurredAt}`,
+        type: 'reconnected',
+        occurredAt,
+        pontoId: curr.pontoId,
+        clienteId: curr.clienteId,
+        contratoId: curr.contratoId,
+        nome: curr.nome,
+        telefone: curr.telefone,
+        bairroKey: curr.bairroKey,
+        bairroLabel: curr.bairroLabel,
+        ruaLabel: curr.ruaLabel,
+        enderecoCompleto: curr.enderecoCompleto,
+        plano: curr.plano,
+        usuarioPppoe: curr.usuarioPppoe,
+        ultimoLogin: curr.ultimoLogin,
+      });
+    }
+  }
+
+  return { dropped, reconnected };
 }
 

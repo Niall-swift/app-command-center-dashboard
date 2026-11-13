@@ -568,6 +568,81 @@ export interface ISPFYLivePointStatus {
   downloadMesKbytes?: number;
 }
 
+export type ISPFYConnectionTransitionType = 'dropped' | 'reconnected';
+
+export interface ISPFYConnectionTransitionEvent {
+  id: string;
+  type: ISPFYConnectionTransitionType;
+  occurredAt: string;
+  pontoId: string;
+  clienteId: string;
+  contratoId: string;
+  nome: string;
+  telefone: string;
+  bairroKey: string;
+  bairroLabel: string;
+  ruaLabel: string;
+  enderecoCompleto: string;
+  plano: string;
+  usuarioPppoe: string;
+  ultimoLogin: string;
+}
+
+export interface ISPFYOverdueClientItem {
+  clienteId: string;
+  contratoId: string;
+  nome: string;
+  telefone: string;
+  bairro: string;
+  rua: string;
+  diaVencimento: string;
+  diaVencimentoLabel: string;
+  isBlocked: boolean;
+  connectionHealth: ISPFYConnectionHealthStatus;
+  faturasEmAtraso: number;
+  valorTotalAtraso: number;
+  vencimentoMaisAntigo: string;
+  vencimentoMaisRecente: string;
+  diasMaxAtraso: number;
+}
+
+export interface ISPFYOverdueDueDayGroup {
+  diaVencimento: string;
+  label: string;
+  totalBaseAtiva: number;
+  clientesEmAtraso: number;
+  clientesAtrasoLiberados: number;
+  clientesAtrasoBloqueados: number;
+  faturasEmAtraso: number;
+  valorTotalAtraso: number;
+  taxaInadimplencia: number;
+}
+
+export interface ISPFYOverdueExactDateGroup {
+  dataVencimento: string;
+  label: string;
+  clientesEmAtraso: number;
+  clientesAtrasoLiberados: number;
+  clientesAtrasoBloqueados: number;
+  faturasEmAtraso: number;
+  valorTotalAtraso: number;
+}
+
+export interface ISPFYOverdueAnalyticsResult {
+  fetchedAt: string;
+  totalClientesEmAtraso: number;
+  totalClientesAtrasoLiberados: number;
+  totalClientesAtrasoBloqueados: number;
+  totalFaturasEmAtraso: number;
+  valorTotalAtraso: number;
+  totalBaseAtiva: number;
+  taxaGeralInadimplencia: number;
+  porDiaVencimento: ISPFYOverdueDueDayGroup[];
+  porDataVencimento: ISPFYOverdueExactDateGroup[];
+  clientes: ISPFYOverdueClientItem[];
+}
+
+
 
 
 
