@@ -3,7 +3,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
-  Settings, Gift, Package, Wrench, Map, Film, Tv,
+  Settings, Gift, Package, Wrench, Map, MapPin, Film, Tv,
   Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download, Calendar,
   ClipboardList, ShieldCheck, Clock,
 } from 'lucide-react';
@@ -39,6 +39,7 @@ const ispfyMenuItems = [
   { title: "🆕 Nova O.S.",           url: "/ispfy/nova-os",        icon: ClipboardList },
   { title: "Consulta de Clientes", url: "/ispfy/consulta",   icon: Users },
   { title: "Auditoria de Clientes", url: "/ispfy/auditoria",  icon: ShieldCheck },
+  { title: "Clientes por Bairro/Rua", url: "/ispfy/regiao", icon: MapPin },
   { title: "Financeiro",           url: "/ispfy/financeiro",  icon: DollarSign },
   { title: "Tickets de Suporte",   url: "/ispfy/tickets",     icon: Ticket },
   { title: "Relatório DICI",       url: "/ispfy/dici",        icon: FileSpreadsheet },

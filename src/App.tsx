@@ -1,4 +1,4 @@
-
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,44 +13,55 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import QuickOSFab from "./components/ispfy/QuickOSFab";
-import Dashboard from "./pages/Dashboard";
-import Chat from "./pages/Chat";
-import Requests from "./pages/Requests";
-import Analytics from "./pages/Analytics";
-import Bots from "./pages/Bots";
-import Settings from "./pages/Settings";
-import Raffle from "./pages/Raffle";
-import PaidRaffles from "./pages/PaidRaffles";
-import PublicPaidRaffle from "./pages/PublicPaidRaffle";
-import TechnicalSupport from "./pages/TechnicalSupport";
-import NetworkMap from "./pages/NetworkMap";
-import Movies from "./pages/Movies";
-import Series from "./pages/Series";
-import ISPFYConsulta from "./pages/ISPFYConsulta";
-import ISPFYFinanceiro from "./pages/ISPFYFinanceiro";
-import ISPFYTickets from "./pages/ISPFYTickets";
-import WhatsAppBulkSender from "./pages/WhatsAppBulkSender";
-import RewardsManagement from "./pages/RewardsManagement";
-import RedemptionOrders from "./pages/RedemptionOrders";
-import Rewards from "./pages/Rewards";
-import Leaderboard from "./pages/Leaderboard";
-import MyReferrals from "./pages/MyReferrals";
-import ISPFYClientDetails from "./pages/ISPFYClientDetails";
-import ISPFYDici from "./pages/ISPFYDici";
-import ISPFYActiveClientsExport from "./pages/ISPFYActiveClientsExport";
-import ISPFYVencimentos from "./pages/ISPFYVencimentos";
-import ISPFYNovaOS from "./pages/ISPFYNovaOS";
-import ISPFYAuditoria from "./pages/ISPFYAuditoria";
-import ISPFYCarencia from "./pages/ISPFYCarencia";
-import Notifications from "./pages/Notifications";
-import AVLPlayAnalytics from "./pages/AVLPlayAnalytics";
-import NotFound from "./pages/NotFound";
+
+// Code-splitting por rota para reduzir o bundle inicial e acelerar o carregamento do PWA
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Chat = lazy(() => import("./pages/Chat"));
+const Requests = lazy(() => import("./pages/Requests"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Bots = lazy(() => import("./pages/Bots"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Raffle = lazy(() => import("./pages/Raffle"));
+const PaidRaffles = lazy(() => import("./pages/PaidRaffles"));
+const PublicPaidRaffle = lazy(() => import("./pages/PublicPaidRaffle"));
+const TechnicalSupport = lazy(() => import("./pages/TechnicalSupport"));
+const NetworkMap = lazy(() => import("./pages/NetworkMap"));
+const Movies = lazy(() => import("./pages/Movies"));
+const Series = lazy(() => import("./pages/Series"));
+const ISPFYConsulta = lazy(() => import("./pages/ISPFYConsulta"));
+const ISPFYFinanceiro = lazy(() => import("./pages/ISPFYFinanceiro"));
+const ISPFYTickets = lazy(() => import("./pages/ISPFYTickets"));
+const WhatsAppBulkSender = lazy(() => import("./pages/WhatsAppBulkSender"));
+const RewardsManagement = lazy(() => import("./pages/RewardsManagement"));
+const RedemptionOrders = lazy(() => import("./pages/RedemptionOrders"));
+const ISPFYClientDetails = lazy(() => import("./pages/ISPFYClientDetails"));
+const ISPFYDici = lazy(() => import("./pages/ISPFYDici"));
+const ISPFYActiveClientsExport = lazy(() => import("./pages/ISPFYActiveClientsExport"));
+const ISPFYVencimentos = lazy(() => import("./pages/ISPFYVencimentos"));
+const ISPFYNovaOS = lazy(() => import("./pages/ISPFYNovaOS"));
+const ISPFYAuditoria = lazy(() => import("./pages/ISPFYAuditoria"));
+const ISPFYClientesRegiao = lazy(() => import("./pages/ISPFYClientesRegiao"));
+const ISPFYCarencia = lazy(() => import("./pages/ISPFYCarencia"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const AVLPlayAnalytics = lazy(() => import("./pages/AVLPlayAnalytics"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
+function PageLoader() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+        <p className="mt-2 text-sm text-muted-foreground">Carregando módulo...</p>
+      </div>
+    </div>
+  );
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
-  
+
   return (
     <AnimatePresence mode="wait" initial={false}>
       <Routes location={location} key={location.pathname}>
@@ -69,6 +80,7 @@ function AnimatedRoutes() {
         <Route path="/network-map" element={<NetworkMap />} />
         <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
         <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
+        <Route path="/ispfy/regiao" element={<ISPFYClientesRegiao />} />
         <Route path="/ispfy/cliente/:id" element={<ISPFYClientDetails />} />
         <Route path="/ispfy/financeiro" element={<ISPFYFinanceiro />} />
         <Route path="/ispfy/tickets" element={<ISPFYTickets />} />
@@ -94,9 +106,11 @@ function AppContent() {
   if (isPublicRoute) {
     return (
       <ErrorBoundary>
-        <Routes>
-          <Route path="/sorteio-compra/:id" element={<PublicPaidRaffle />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/sorteio-compra/:id" element={<PublicPaidRaffle />} />
+          </Routes>
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -105,7 +119,9 @@ function AppContent() {
     <ProtectedRoute>
       <DashboardLayout>
         <ErrorBoundary>
-          <AppContentWithRouterFix />
+          <Suspense fallback={<PageLoader />}>
+            <AppContentWithRouterFix />
+          </Suspense>
         </ErrorBoundary>
       </DashboardLayout>
       <QuickOSFab />

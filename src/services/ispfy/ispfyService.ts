@@ -23,8 +23,23 @@ import type {
   ISPFYAuditDeletedRecord,
   ISPFYAuditSummary,
   ISPFYAuditData,
-  ISPFYCarenciaItem
+  ISPFYCarenciaItem,
+  ISPFYClientRegionRecord,
+  ISPFYClientsByRegionResult,
+  ISPFYLivePointStatus
 } from '@/types/ispfy';
+import { syncAndDetectDeletedClients } from './auditSnapshotService';
+import {
+  EMPTY_BAIRRO_KEY,
+  EMPTY_BAIRRO_LABEL,
+  EMPTY_STREET_KEY,
+  EMPTY_STREET_LABEL,
+  aggregateRegionSummaries,
+  classifyPointConnectionHealth,
+  normalizeBairroKey,
+  normalizeStreetKey,
+  pickBestVariantLabel,
+} from './regionAuditHelpers';
 
 // =====================================================================
 // Tipos e interfaces para a API ISPFY real (GET /api/object/*)
@@ -87,20 +102,28 @@ function andFilters(...filters: string[]): string {
 // =====================================================================
 
 class ISPFYService {
+  private static readonly FALLBACK_PROXY_HOST =
+    'https://us-central1-avl-telecom.cloudfunctions.net/ispfyProxy';
   private client: AxiosInstance;
   private token: string;
   private cachedPlanos: ISPFYPlanoData[] | null = null;
+  private cachedCidadesMap = new Map<string, string>();
+  private auditBaseCache: {
+    fetchedAt: number;
+    clientes: ISPFYClienteData[];
+    contratos: ISPFYContratoData[];
+  } | null = null;
+  private regionCache: {
+    fetchedAt: number;
+    data: ISPFYClientsByRegionResult;
+  } | null = null;
 
   constructor() {
-    const host = import.meta.env.VITE_ISPFY_HOST;
+    const host =
+      import.meta.env.VITE_ISPFY_HOST || ISPFYService.FALLBACK_PROXY_HOST;
     const token = import.meta.env.VITE_ISPFY_TOKEN;
 
-    if (!host) {
-      throw new Error('Configuração ISPFY incompleta. Verifique VITE_ISPFY_HOST no arquivo .env.local');
-    }
-
-    // Cliente axios com baseURL apontando para o proxy Vite (/api/ispfy)
-    // que redireciona para https://coopertecisp.com.br:8043
+    // Cliente axios apontando para o proxy (/api/ispfy ou Cloud Function ispfyProxy)
     this.client = axios.create({
       baseURL: host,
       timeout: 120000,
@@ -213,6 +236,17 @@ class ISPFYService {
           `/api/object${endpoint}`,
           { params: queryParams }
         );
+        if (
+          typeof response.data === 'string' &&
+          (response.data as string).trim().startsWith('<')
+        ) {
+          if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
+            console.warn('[ISPFY Proxy] Resposta HTML recebida; alternando para Cloud Function ispfyProxy.');
+            this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
+            continue;
+          }
+          throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
+        }
         return response.data;
       } catch (error: any) {
         if (error.response) {
@@ -1805,112 +1839,587 @@ class ISPFYService {
   // AUDITORIA DE CLIENTES (Cadastrados, Cancelados e Excluídos do Mês)
   // =====================================================================
 
+  private async fetchAllWithUnlimitedFallback<T>(
+    endpoint: string,
+    params: ISPFYQueryParams = {}
+  ): Promise<T[]> {
+    try {
+      const response = await this.makeRequest<T>(endpoint, {
+        ...params,
+        limit: -1,
+        pagination: 'FALSE',
+      });
+      return this.getRows(response);
+    } catch (err) {
+      console.warn(
+        `[Auditoria] Fallback paginado em ${endpoint} após falha de limit=-1:`,
+        err
+      );
+      const all: T[] = [];
+      let offset = 0;
+      while (true) {
+        const pageResp = await this.makeRequest<T>(endpoint, {
+          ...params,
+          limit: 300,
+          offset,
+        });
+        const rows = this.getRows(pageResp);
+        all.push(...rows);
+        if (rows.length < 300 || rows.length === 0) break;
+        offset += 300;
+      }
+      return all;
+    }
+  }
+
+  private async fetchByIds<T>(
+    endpoint: string,
+    filterField: string,
+    ids: string[],
+    sort?: string
+  ): Promise<T[]> {
+    const uniqueIds = Array.from(
+      new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))
+    );
+    if (uniqueIds.length === 0) return [];
+
+    const chunkSize = 150;
+    const allRows: T[] = [];
+
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize);
+      try {
+        const rows = await this.fetchAllWithUnlimitedFallback<T>(endpoint, {
+          filter: `${filterField}:IN:${chunk.join(',')}`,
+          ...(sort ? { sort } : {}),
+        });
+        allRows.push(...rows);
+      } catch (err) {
+        console.warn(
+          `[Auditoria] Erro ao buscar lote ${endpoint} (${filterField}:IN):`,
+          err
+        );
+      }
+    }
+
+    return allRows;
+  }
+
+  private pickBestPhoneFromContatos(
+    client: ISPFYClienteData | undefined,
+    contatos: any[]
+  ): string {
+    const candidates: { phone: string; score: number }[] = [];
+
+    for (const c of contatos) {
+      const raw = String(
+        c?.contato || c?.valor || c?.numero || c?.telefone || c?.fone || c?.celular || ''
+      ).trim();
+      if (!raw || raw.includes('@')) continue;
+
+      const digits = raw.replace(/\D/g, '');
+      if (digits.length < 8) continue;
+
+      const tipo = String(c?.tipo || c?.descricao || '').toLowerCase();
+      if (tipo.includes('email')) continue;
+
+      let score = 1;
+      if (tipo.includes('whats')) score += 4;
+      else if (tipo.includes('cel')) score += 3;
+      if (String(c?.principal || '').toLowerCase() === 's') score += 2;
+      if (digits.length >= 11 && digits[2] === '9') score += 1;
+      if (String(c?.ativo || 's').toLowerCase() === 'n') score -= 3;
+
+      candidates.push({ phone: raw, score });
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.score - a.score);
+      return candidates[0].phone;
+    }
+
+    return String(
+      client?.fone_whatsapp ||
+        client?.fone_celular ||
+        client?.telefone_celular ||
+        client?.telefone ||
+        client?.celular ||
+        ''
+    ).trim();
+  }
+
+  private async ensureCitiesCached(clients: ISPFYClienteData[]): Promise<void> {
+    const missingCityIds = Array.from(
+      new Set(
+        clients
+          .map((c) =>
+            String(
+              (c as any)?.endereco_cobranca_id_cidade ||
+                (c as any)?.id_cidade ||
+                ''
+            ).trim()
+          )
+          .filter((id) => id && !this.cachedCidadesMap.has(id))
+      )
+    );
+
+    if (missingCityIds.length === 0) return;
+
+    const cidades = await this.fetchByIds<any>('/cidade', 'id', missingCityIds);
+    for (const city of cidades) {
+      const id = String(city?.id || '').trim();
+      const nome = String(city?.nome || city?.cidade || city?.descricao || '').trim();
+      const uf = String(city?.uf || city?.estado || '').trim();
+      if (id && nome) {
+        this.cachedCidadesMap.set(id, uf ? `${nome}/${uf}` : nome);
+      }
+    }
+  }
+
+  private resolveClientCity(client?: ISPFYClienteData): string {
+    if (!client) return '';
+    const inlineCity = String(client.cidade || '').trim();
+    if (inlineCity && !/^\d+$/.test(inlineCity)) return inlineCity;
+
+    const cityId = String(
+      (client as any)?.endereco_cobranca_id_cidade ||
+        (client as any)?.id_cidade ||
+        inlineCity
+    ).trim();
+    return cityId ? this.cachedCidadesMap.get(cityId) || '' : '';
+  }
+
+  private resolveContractPlanName(
+    contrato: ISPFYContratoData | undefined,
+    pontos: any[],
+    pontoPlanosByPonto: Map<string, any[]>,
+    planoById: Map<string, ISPFYPlanoData>,
+    allPlanos: ISPFYPlanoData[]
+  ): string {
+    const sortedPontos = [...pontos].sort((a, b) => {
+      const aActive = String(a?.ativo ?? a?.status ?? '').toLowerCase() !== 'n' ? 1 : 0;
+      const bActive = String(b?.ativo ?? b?.status ?? '').toLowerCase() !== 'n' ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return Number(b?.id || 0) - Number(a?.id || 0);
+    });
+
+    for (const pt of sortedPontos) {
+      const ptPlanos = pontoPlanosByPonto.get(String(pt?.id || '')) || [];
+      const sortedPtPlanos = [...ptPlanos].sort(
+        (a, b) => Number(b?.id || 0) - Number(a?.id || 0)
+      );
+      for (const pp of sortedPtPlanos) {
+        const planoObj = planoById.get(String(pp?.id_plano || ''));
+        const nomePlano = String(
+          planoObj?.nome || planoObj?.descricao || pp?.descricao || pp?.nome || ''
+        ).trim();
+        if (nomePlano) return nomePlano;
+      }
+    }
+
+    return this.resolveClientPlan(contrato, sortedPontos[0], allPlanos);
+  }
+
+  private computeGapAnalysis(
+    allClientes: ISPFYClienteData[],
+    snapshotDeleted: ISPFYAuditDeletedRecord[],
+    dataInicio: string,
+    dataFim: string
+  ): {
+    excluidosPeriodo: ISPFYAuditDeletedRecord[];
+    lacunasHistoricas: ISPFYAuditDeletedRecord[];
+    maiorIdBase: number;
+  } {
+    const idToClientMap = new Map<number, ISPFYClienteData>();
+    let maxId = 0;
+
+    for (const c of allClientes) {
+      const n = parseInt(String(c.id || ''), 10);
+      if (!isNaN(n) && n > 0) {
+        idToClientMap.set(n, c);
+        if (n > maxId) maxId = n;
+      }
+    }
+
+    const sortedPresentIds = Array.from(idToClientMap.keys()).sort((a, b) => a - b);
+    const snapshotMap = new Map<string, ISPFYAuditDeletedRecord>();
+    snapshotDeleted.forEach((rec) => snapshotMap.set(String(rec.id), rec));
+
+    const lacunasHistoricas: ISPFYAuditDeletedRecord[] = [];
+    const excluidosPeriodo: ISPFYAuditDeletedRecord[] = [];
+    const seenIds = new Set<string>();
+
+    const isInPeriod = (dateStr?: string) => {
+      const d = String(dateStr || '').slice(0, 10);
+      return Boolean(d && d >= dataInicio && d <= dataFim);
+    };
+
+    // Percorre todas as lacunas reais entre 1 e maxId usando os vizinhos globais da base
+    for (let i = 0; i < sortedPresentIds.length; i++) {
+      const currId = sortedPresentIds[i];
+      const prevId = i === 0 ? 0 : sortedPresentIds[i - 1];
+      if (currId - prevId <= 1) continue;
+
+      const prevClient = prevId > 0 ? idToClientMap.get(prevId) : undefined;
+      const nextClient = idToClientMap.get(currId);
+      const prevDate = String(prevClient?.data_cadastro || '').slice(0, 10);
+      const nextDate = String(nextClient?.data_cadastro || '').slice(0, 10);
+
+      const refPrev = prevClient
+        ? {
+            id: String(prevClient.id),
+            nome: prevClient.nome_razao || prevClient.nome || '',
+            data_cadastro: prevClient.data_cadastro || '',
+          }
+        : undefined;
+      const refNext = nextClient
+        ? {
+            id: String(nextClient.id),
+            nome: nextClient.nome_razao || nextClient.nome || '',
+            data_cadastro: nextClient.data_cadastro || '',
+          }
+        : undefined;
+
+      const gapBelongsToPeriod =
+        isInPeriod(prevDate) ||
+        isInPeriod(nextDate) ||
+        Boolean(prevDate && nextDate && prevDate < dataInicio && nextDate > dataFim);
+
+      for (let missingId = currId - 1; missingId > prevId; missingId--) {
+        const missingIdStr = String(missingId);
+        seenIds.add(missingIdStr);
+        const snapRec = snapshotMap.get(missingIdStr);
+
+        const record: ISPFYAuditDeletedRecord = snapRec
+          ? {
+              ...snapRec,
+              referencia_anterior: snapRec.referencia_anterior || refPrev,
+              referencia_posterior: snapRec.referencia_posterior || refNext,
+            }
+          : {
+              id: missingIdStr,
+              tipo: 'gap_sequencial',
+              referencia_anterior: refPrev,
+              referencia_posterior: refNext,
+              provavel_data: nextClient?.data_cadastro || prevClient?.data_cadastro || '',
+              motivo: `ID #${missingIdStr} ausente na base do ISPFY (entre #${refPrev?.id || '?'} ${refPrev?.nome || 'Início da base'} e #${refNext?.id || '?'} ${refNext?.nome || 'ID posterior'}).`,
+            };
+
+        lacunasHistoricas.push(record);
+
+        const snapInPeriod = snapRec
+          ? isInPeriod(snapRec.detectado_em) || isInPeriod(snapRec.provavel_data)
+          : false;
+
+        if (snapInPeriod || gapBelongsToPeriod) {
+          excluidosPeriodo.push(record);
+        }
+      }
+    }
+
+    // Inclui eventual registro de snapshot com ID maior que o maxId atual (ex: último ID recém-excluído)
+    for (const snapRec of snapshotDeleted) {
+      if (seenIds.has(snapRec.id)) continue;
+      lacunasHistoricas.push(snapRec);
+      if (isInPeriod(snapRec.detectado_em) || isInPeriod(snapRec.provavel_data)) {
+        excluidosPeriodo.push(snapRec);
+      }
+    }
+
+    lacunasHistoricas.sort((a, b) => Number(b.id) - Number(a.id));
+    excluidosPeriodo.sort((a, b) => Number(b.id) - Number(a.id));
+
+    return {
+      excluidosPeriodo,
+      lacunasHistoricas,
+      maiorIdBase: maxId,
+    };
+  }
+
   /**
-   * Obtém os dados consolidados de auditoria para um determinado mês e ano:
-   * - Clientes cadastrados no período
-   * - Contratos cancelados / rescindidos no período
-   * - Clientes excluídos ou lacunas de sequência detectadas
+   * Obtém os dados consolidados e reais de auditoria para um determinado mês e ano:
+   * - Clientes cadastrados no período (enriquecidos com plano real, cidade e telefone)
+   * - Contratos rescindidos no período + tickets de remoção de equipamentos (tópico 7)
+   * - Clientes excluídos (snapshot persistente na nuvem + lacunas de sequência globais)
    * - Resumo com saldo líquido, MRR e ranking de atendentes
    */
   async getAuditData(
     ano: number,
     mes: number,
-    onProgress?: (step: string) => void
+    onProgress?: (step: string) => void,
+    forceRefresh = false
   ): Promise<ISPFYAuditData> {
     const pad = (n: number) => String(n).padStart(2, '0');
     const lastDay = new Date(ano, mes, 0).getDate();
     const dataInicio = `${ano}-${pad(mes)}-01`;
     const dataFim = `${ano}-${pad(mes)}-${pad(lastDay)}`;
+    const dateOnly = (val?: string) => String(val || '').slice(0, 10);
 
-    onProgress?.('Buscando clientes cadastrados no mês...');
+    // 1. Base completa de clientes e contratos (sem truncamento de paginação, com cache de 2 min)
+    const cacheValid =
+      !forceRefresh &&
+      this.auditBaseCache &&
+      Date.now() - this.auditBaseCache.fetchedAt < 2 * 60 * 1000;
 
-    // 1. Clientes cadastrados no período
-    const filterCadastro = `data_cadastro:GTE:${dataInicio} [AND] data_cadastro:LTE:${dataFim} 23:59:59`;
-    const respCadastrados = await this.makeRequest<ISPFYClienteData>('/cliente', {
-      filter: filterCadastro,
-      limit: 1000,
-      sort: 'data_cadastro:DESC',
-    });
-    const rawCadastrados = this.getRows(respCadastrados);
+    let allClientes: ISPFYClienteData[];
+    let allContratos: ISPFYContratoData[];
 
-    // 2. Contratos com adesão no período (para vincular plano e mensalidade da nova ativação)
-    onProgress?.('Buscando contratos vinculados aos cadastros...');
-    let rawContratosAdesao: ISPFYContratoData[] = [];
-    try {
-      const respAdesao = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
-        filter: `data_adesao:GTE:${dataInicio} [AND] data_adesao:LTE:${dataFim}`,
-        limit: 1000,
-        sort: 'id:DESC',
-      });
-      rawContratosAdesao = this.getRows(respAdesao);
-    } catch (e) {
-      console.warn('Erro ao buscar contratos de adesão do mês:', e);
+    if (cacheValid && this.auditBaseCache) {
+      allClientes = this.auditBaseCache.clientes;
+      allContratos = this.auditBaseCache.contratos;
+    } else {
+      onProgress?.('Carregando base completa de clientes e contratos do ISPFY...');
+      [allClientes, allContratos] = await Promise.all([
+        this.fetchAllWithUnlimitedFallback<ISPFYClienteData>('/cliente', {
+          sort: 'id:ASC',
+        }),
+        this.fetchAllWithUnlimitedFallback<ISPFYContratoData>('/cliente/contrato', {
+          sort: 'id:DESC',
+        }),
+      ]);
+      this.auditBaseCache = {
+        fetchedAt: Date.now(),
+        clientes: allClientes,
+        contratos: allContratos,
+      };
     }
 
-    const contratosMap = new Map<string, ISPFYContratoData>();
-    rawContratosAdesao.forEach((ct) => {
-      if (ct.id_cliente && !contratosMap.has(String(ct.id_cliente))) {
-        contratosMap.set(String(ct.id_cliente), ct);
-      }
+    const clientById = new Map<string, ISPFYClienteData>();
+    allClientes.forEach((c) => {
+      if (c.id) clientById.set(String(c.id), c);
     });
 
-    // 3. Contratos cancelados / rescindidos no período
-    onProgress?.('Buscando contratos cancelados no mês...');
-    let rawContratosCancelados: ISPFYContratoData[] = [];
-    try {
-      const respRescisao = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
-        filter: `data_rescisao:GTE:${dataInicio} [AND] data_rescisao:LTE:${dataFim}`,
-        limit: 1000,
-        sort: 'data_rescisao:DESC',
-      });
-      rawContratosCancelados = this.getRows(respRescisao);
-    } catch (e) {
-      console.warn('Erro ao buscar contratos cancelados por rescisão:', e);
-    }
+    const contractsByClient = new Map<string, ISPFYContratoData[]>();
+    allContratos.forEach((ct) => {
+      const idCliente = String(ct.id_cliente || '').trim();
+      if (!idCliente) return;
+      const list = contractsByClient.get(idCliente) || [];
+      list.push(ct);
+      contractsByClient.set(idCliente, list);
+    });
 
-    // Também verificar contratos inativos (contrato_ativo:EQ:n)
+    // 2. Filtrar cadastrados e contratos rescindidos no período
+    const rawCadastrados = allClientes
+      .filter((c) => {
+        const d = dateOnly(c.data_cadastro);
+        return Boolean(d && d >= dataInicio && d <= dataFim);
+      })
+      .sort((a, b) =>
+        String(b.data_cadastro || '').localeCompare(String(a.data_cadastro || ''))
+      );
+
+    const rawContratosCancelados = allContratos
+      .filter((ct) => {
+        const d = dateOnly(ct.data_rescisao);
+        return Boolean(d && d >= dataInicio && d <= dataFim);
+      })
+      .sort((a, b) =>
+        String(b.data_rescisao || '').localeCompare(String(a.data_rescisao || ''))
+      );
+
+    // 3. Buscar tickets de remoção de equipamentos (tópico 7) no período
+    onProgress?.('Verificando solicitações e tickets de retirada...');
+    let rawTicketsTopico7: ISPFYTicketData[] = [];
     try {
-      const respInativos = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
-        filter: `contrato_ativo:EQ:n`,
-        limit: 300,
-        sort: 'id:DESC',
-      });
-      const inativos = this.getRows(respInativos);
-      inativos.forEach((ct) => {
-        if (ct.data_rescisao && ct.data_rescisao >= dataInicio && ct.data_rescisao <= dataFim) {
-          if (!rawContratosCancelados.some((r) => String(r.id) === String(ct.id))) {
-            rawContratosCancelados.push(ct);
-          }
+      rawTicketsTopico7 = await this.fetchAllWithUnlimitedFallback<ISPFYTicketData>(
+        '/suporte/ticket',
+        {
+          filter: 'id_topico:EQ:7',
+          sort: 'id:DESC',
         }
-      });
-    } catch (e) {
-      console.warn('Erro ao buscar contratos inativos:', e);
+      );
+    } catch (err) {
+      console.warn('[Auditoria] Erro ao buscar tickets tópico 7 (remoção):', err);
     }
 
-    // 4. Buscar e vincular dados dos clientes cancelados
-    onProgress?.('Identificando clientes cancelados...');
-    const canceladosList: ISPFYAuditCancelledContract[] = [];
-    const clientCache = new Map<string, ISPFYClienteData>();
+    const canceladosClienteSet = new Set(
+      rawContratosCancelados.map((ct) => String(ct.id_cliente || ''))
+    );
+
+    const ticketsPeriodoSemRescisao = rawTicketsTopico7.filter((tk) => {
+      const dt = dateOnly(tk.data_abertura || tk.data_cadastro || '');
+      if (!dt || dt < dataInicio || dt > dataFim) return false;
+      const idCli = String(tk.id_cliente || '');
+      return Boolean(idCli && !canceladosClienteSet.has(idCli));
+    });
+
+    // 4. Sincronizar snapshot persistente na nuvem (Firestore + fallback local) e apurar lacunas globais
+    onProgress?.('Sincronizando snapshot na nuvem e analisando lacunas...');
+    const snapshotResult = await syncAndDetectDeletedClients(allClientes);
+    const { excluidosPeriodo, lacunasHistoricas, maiorIdBase } =
+      this.computeGapAnalysis(
+        allClientes,
+        snapshotResult.deletedRecords,
+        dataInicio,
+        dataFim
+      );
+
+    // 5. Enriquecer em lote apenas os clientes e contratos envolvidos no relatório do período
+    const involvedClientIds = new Set<string>();
+    const involvedContratoIds = new Set<string>();
+
+    const pickPrimaryContract = (idCliente: string): ISPFYContratoData | undefined => {
+      const list = contractsByClient.get(idCliente) || [];
+      if (list.length === 0) return undefined;
+      const sorted = [...list].sort((a, b) => {
+        const aActive = String(a.contrato_ativo || '').toLowerCase() === 's' ? 1 : 0;
+        const bActive = String(b.contrato_ativo || '').toLowerCase() === 's' ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+      return sorted[0];
+    };
+
     rawCadastrados.forEach((c) => {
-      if (c.id) clientCache.set(String(c.id), c);
+      const cid = String(c.id || '');
+      if (!cid) return;
+      involvedClientIds.add(cid);
+      const ct = pickPrimaryContract(cid);
+      if (ct?.id) involvedContratoIds.add(String(ct.id));
     });
 
-    for (const ct of rawContratosCancelados) {
-      const idCliente = String(ct.id_cliente || '');
-      let clientInfo = clientCache.get(idCliente);
-      if (!clientInfo && idCliente) {
-        try {
-          const fetched = await this.getClienteById(idCliente);
-          if (fetched) {
-            clientInfo = fetched;
-            clientCache.set(idCliente, fetched);
-          }
-        } catch {
-          // segue
-        }
-      }
+    rawContratosCancelados.forEach((ct) => {
+      if (ct.id_cliente) involvedClientIds.add(String(ct.id_cliente));
+      if (ct.id) involvedContratoIds.add(String(ct.id));
+    });
 
-      // Calcular tempo em dias como cliente
+    ticketsPeriodoSemRescisao.forEach((tk) => {
+      const cid = String(tk.id_cliente || '');
+      if (!cid) return;
+      involvedClientIds.add(cid);
+      const ct = pickPrimaryContract(cid);
+      if (ct?.id) involvedContratoIds.add(String(ct.id));
+    });
+
+    onProgress?.('Resolvendo planos reais, cidades e telefones de contato...');
+    const involvedClientsArray = Array.from(involvedClientIds)
+      .map((id) => clientById.get(id))
+      .filter((c): c is ISPFYClienteData => Boolean(c));
+
+    const [contatos, pontos, allPlanos] = await Promise.all([
+      this.fetchByIds<any>(
+        '/cliente/contato',
+        'id_cliente',
+        Array.from(involvedClientIds)
+      ),
+      this.fetchByIds<any>(
+        '/cliente/contrato/ponto',
+        'id_contrato',
+        Array.from(involvedContratoIds)
+      ),
+      this.getPlanosAtivos(),
+      this.ensureCitiesCached(involvedClientsArray),
+    ]);
+
+    const pontoIds = pontos
+      .map((p) => String(p?.id || '').trim())
+      .filter(Boolean);
+    const pontoPlanos = await this.fetchByIds<any>(
+      '/cliente/contrato/ponto/planos',
+      'id_ponto',
+      pontoIds
+    );
+
+    const planoById = new Map<string, ISPFYPlanoData>();
+    allPlanos.forEach((p) => {
+      if (p.id) planoById.set(String(p.id), p);
+    });
+
+    const missingPlanoIds = Array.from(
+      new Set(
+        pontoPlanos
+          .map((pp) => String(pp?.id_plano || '').trim())
+          .filter((id) => id && !planoById.has(id))
+      )
+    );
+    if (missingPlanoIds.length > 0) {
+      const extraPlanos = await this.fetchByIds<ISPFYPlanoData>(
+        '/plano',
+        'id',
+        missingPlanoIds
+      );
+      extraPlanos.forEach((p) => {
+        if (p.id) planoById.set(String(p.id), p);
+      });
+    }
+
+    const contatosByClient = new Map<string, any[]>();
+    contatos.forEach((c) => {
+      const cid = String(c?.id_cliente || '').trim();
+      if (!cid) return;
+      const list = contatosByClient.get(cid) || [];
+      list.push(c);
+      contatosByClient.set(cid, list);
+    });
+
+    const pontosByContrato = new Map<string, any[]>();
+    pontos.forEach((p) => {
+      const ctId = String(p?.id_contrato || '').trim();
+      if (!ctId) return;
+      const list = pontosByContrato.get(ctId) || [];
+      list.push(p);
+      pontosByContrato.set(ctId, list);
+    });
+
+    const pontoPlanosByPonto = new Map<string, any[]>();
+    pontoPlanos.forEach((pp) => {
+      const ptId = String(pp?.id_ponto || '').trim();
+      if (!ptId) return;
+      const list = pontoPlanosByPonto.get(ptId) || [];
+      list.push(pp);
+      pontoPlanosByPonto.set(ptId, list);
+    });
+
+    // 6. Montar listas finais enriquecidas
+    onProgress?.('Consolidando auditoria do período...');
+    const countActiveContracts = (idCliente: string): number =>
+      (contractsByClient.get(idCliente) || []).filter(
+        (c) => String(c.contrato_ativo || '').toLowerCase() === 's'
+      ).length;
+
+    let mrrAdicionado = 0;
+    const cadastradosList: ISPFYAuditClient[] = rawCadastrados.map((c) => {
+      const cid = String(c.id || '');
+      const clientContracts = contractsByClient.get(cid) || [];
+      const ct = pickPrimaryContract(cid);
+      const valor = ct?.valor_mensal ? parseFloat(ct.valor_mensal) : 0;
+      if (!isNaN(valor)) mrrAdicionado += valor;
+
+      const planoNome = ct
+        ? this.resolveContractPlanName(
+            ct,
+            pontosByContrato.get(String(ct.id)) || [],
+            pontoPlanosByPonto,
+            planoById,
+            allPlanos
+          )
+        : '';
+
+      return {
+        id: cid,
+        nome_razao: c.nome_razao || c.nome || '',
+        cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '',
+        data_cadastro: c.data_cadastro || '',
+        usuario_cadastrou: c.usuario_cadastrou || 'desconhecido',
+        bairro: c.endereco_cobranca_bairro || c.bairro || '',
+        cidade: this.resolveClientCity(c),
+        rua: c.endereco_cobranca_rua || c.endereco || '',
+        numero: c.endereco_cobranca_numero || '',
+        status_contrato: ct?.status_contrato || (ct ? 'ativo' : 'sem_contrato'),
+        contrato_ativo: ct?.contrato_ativo || (ct ? 's' : 'n'),
+        plano: planoNome || (ct ? '' : 'Sem contrato vinculado'),
+        valor_mensal: ct?.valor_mensal || '0.00',
+        telefone: this.pickBestPhoneFromContatos(c, contatosByClient.get(cid) || []),
+        contrato_id: ct?.id ? String(ct.id) : undefined,
+        data_adesao: ct?.data_adesao || undefined,
+        sem_contrato: clientContracts.length === 0,
+      };
+    });
+
+    const canceladosList: ISPFYAuditCancelledContract[] = rawContratosCancelados.map((ct) => {
+      const idCliente = String(ct.id_cliente || '');
+      const clientInfo = clientById.get(idCliente);
+
       let diasAtivo: number | undefined;
       if (ct.data_adesao && ct.data_rescisao) {
         const d1 = new Date(ct.data_adesao).getTime();
@@ -1920,149 +2429,93 @@ class ISPFYService {
         }
       }
 
-      canceladosList.push({
+      const planoNome = this.resolveContractPlanName(
+        ct,
+        pontosByContrato.get(String(ct.id)) || [],
+        pontoPlanosByPonto,
+        planoById,
+        allPlanos
+      );
+
+      return {
         id: String(ct.id || ''),
         id_cliente: idCliente,
-        nome_cliente: clientInfo?.nome_razao || clientInfo?.nome || `Cliente #${idCliente}`,
+        nome_cliente:
+          clientInfo?.nome_razao || clientInfo?.nome || `Cliente #${idCliente}`,
         cpf_cnpj: clientInfo?.cpf_cnpj || clientInfo?.cnpj_cpf || '',
         data_adesao: ct.data_adesao,
         data_rescisao: ct.data_rescisao || '',
         contrato_ativo: ct.contrato_ativo || 'n',
         status_contrato: ct.status_contrato || 'cancelado',
-        usuario_cadastrou: ct.usuario_cadastrou || clientInfo?.usuario_cadastrou || 'desconhecido',
+        usuario_cadastrou:
+          ct.usuario_cadastrou || clientInfo?.usuario_cadastrou || 'desconhecido',
         valor_mensal: ct.valor_mensal || '0.00',
         dias_ativo: diasAtivo,
         observacoes: ct.observacoes || '',
-        telefone: clientInfo?.fone_celular || clientInfo?.fone_whatsapp || clientInfo?.telefone_celular || '',
-        cidade: clientInfo?.cidade || '',
-      });
-    }
-
-    // 5. Montar lista de cadastrados enriquecidos
-    onProgress?.('Formatando cadastros...');
-    let mrrAdicionado = 0;
-    const cadastradosList: ISPFYAuditClient[] = rawCadastrados.map((c) => {
-      const ct = contratosMap.get(String(c.id));
-      const valor = ct?.valor_mensal ? parseFloat(ct.valor_mensal) : 0;
-      if (!isNaN(valor)) mrrAdicionado += valor;
-
-      return {
-        id: String(c.id || ''),
-        nome_razao: c.nome_razao || c.nome || '',
-        cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '',
-        data_cadastro: c.data_cadastro || '',
-        usuario_cadastrou: c.usuario_cadastrou || 'desconhecido',
-        bairro: c.endereco_cobranca_bairro || c.bairro || '',
-        cidade: c.cidade || '',
-        rua: c.endereco_cobranca_rua || c.endereco || '',
-        numero: c.endereco_cobranca_numero || '',
-        status_contrato: ct?.status_contrato || 'livre',
-        contrato_ativo: ct?.contrato_ativo || 's',
-        plano: ct?.descricao || ct?.plano || '',
-        valor_mensal: ct?.valor_mensal || '0.00',
-        telefone: c.fone_celular || c.fone_whatsapp || c.telefone_celular || c.telefone || '',
+        telefone: this.pickBestPhoneFromContatos(
+          clientInfo,
+          contatosByClient.get(idCliente) || []
+        ),
+        cidade: this.resolveClientCity(clientInfo),
+        bairro: clientInfo?.endereco_cobranca_bairro || clientInfo?.bairro || '',
+        plano: planoNome,
+        contratos_ativos_restantes: countActiveContracts(idCliente),
+        origem: 'rescisao_formal',
       };
     });
 
-    // 6. Detectar clientes excluídos / deletados (Gaps Sequenciais e Snapshot Cache)
-    onProgress?.('Auditando exclusões e lacunas...');
-    const excluidosList: ISPFYAuditDeletedRecord[] = [];
-    const localAuditKey = `ispfy_audit_clients_${ano}_${mes}`;
-    let previousSnapshot: Record<string, any> = {};
-    try {
-      const stored = localStorage.getItem(localAuditKey);
-      if (stored) previousSnapshot = JSON.parse(stored);
-    } catch {
-      // ignora
-    }
+    const ticketsRemocaoList: ISPFYAuditCancelledContract[] =
+      ticketsPeriodoSemRescisao.map((tk) => {
+        const idCliente = String(tk.id_cliente || '');
+        const clientInfo = clientById.get(idCliente);
+        const ct = pickPrimaryContract(idCliente);
+        const tkDate = dateOnly(tk.data_abertura || tk.data_cadastro || '');
+        const planoNome = ct
+          ? this.resolveContractPlanName(
+              ct,
+              pontosByContrato.get(String(ct.id)) || [],
+              pontoPlanosByPonto,
+              planoById,
+              allPlanos
+            )
+          : '';
 
-    // Snapshot check: se um cliente estava no snapshot local e agora não existe na API
-    const currentIdsSet = new Set(rawCadastrados.map((c) => String(c.id)));
-    for (const [id, savedClient] of Object.entries(previousSnapshot)) {
-      if (!currentIdsSet.has(id)) {
-        excluidosList.push({
-          id,
-          tipo: 'snapshot_removido',
-          nome: savedClient.nome_razao || savedClient.nome || 'Cadastro Excluído',
-          cpf_cnpj: savedClient.cpf_cnpj || savedClient.cnpj_cpf || '',
-          usuario_cadastrou: savedClient.usuario_cadastrou || '',
-          provavel_data: savedClient.data_cadastro || '',
-          motivo: 'Registro estava presente no sistema e foi excluído/deletado permanentemente do ISPFY.',
-        });
-      }
-    }
-
-    // Gap check: dentro do range numérico de cadastros do mês
-    if (rawCadastrados.length > 0) {
-      const numericIds = rawCadastrados
-        .map((c) => parseInt(c.id || '', 10))
-        .filter((n) => !isNaN(n))
-        .sort((a, b) => a - b);
-
-      if (numericIds.length > 1) {
-        const minId = numericIds[0];
-        const maxId = numericIds[numericIds.length - 1];
-
-        // Mapear id -> cliente para identificar os vizinhos mais próximos
-        const idToClientMap = new Map<number, ISPFYClienteData>();
-        rawCadastrados.forEach((c) => {
-          const n = parseInt(c.id || '', 10);
-          if (!isNaN(n)) idToClientMap.set(n, c);
-        });
-
-        for (let checkId = minId; checkId <= maxId; checkId++) {
-          if (!currentIdsSet.has(String(checkId)) && !excluidosList.some((e) => e.id === String(checkId))) {
-            // Achar vizinho anterior mais próximo
-            let prevClient: ISPFYClienteData | undefined;
-            for (let p = checkId - 1; p >= minId; p--) {
-              if (idToClientMap.has(p)) {
-                prevClient = idToClientMap.get(p);
-                break;
-              }
-            }
-            // Achar vizinho posterior mais próximo
-            let nextClient: ISPFYClienteData | undefined;
-            for (let n = checkId + 1; n <= maxId; n++) {
-              if (idToClientMap.has(n)) {
-                nextClient = idToClientMap.get(n);
-                break;
-              }
-            }
-
-            const refPrev = prevClient ? { id: String(prevClient.id), nome: prevClient.nome_razao || prevClient.nome || '' } : undefined;
-            const refNext = nextClient ? { id: String(nextClient.id), nome: nextClient.nome_razao || nextClient.nome || '' } : undefined;
-
-            excluidosList.push({
-              id: String(checkId),
-              tipo: 'gap_sequencial',
-              referencia_anterior: refPrev,
-              referencia_posterior: refNext,
-              provavel_data: prevClient?.data_cadastro || nextClient?.data_cadastro || '',
-              motivo: `ID #${checkId} foi excluído da base de dados do ISPFY (lacuna identificada entre ${refPrev?.nome || 'ID anterior'} e ${refNext?.nome || 'ID posterior'}).`,
-            });
-          }
-        }
-      }
-    }
-
-    // Salvar snapshot atualizado para persistência de auditoria
-    try {
-      const newSnapshot: Record<string, any> = {};
-      rawCadastrados.forEach((c) => {
-        if (c.id) {
-          newSnapshot[String(c.id)] = {
-            id: c.id,
-            nome_razao: c.nome_razao || c.nome,
-            cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf,
-            data_cadastro: c.data_cadastro,
-            usuario_cadastrou: c.usuario_cadastrou,
-          };
-        }
+        return {
+          id: ct?.id ? String(ct.id) : `ticket-${tk.id}`,
+          id_cliente: idCliente,
+          nome_cliente:
+            clientInfo?.nome_razao ||
+            clientInfo?.nome ||
+            tk.nome_cliente ||
+            `Cliente #${idCliente}`,
+          cpf_cnpj: clientInfo?.cpf_cnpj || clientInfo?.cnpj_cpf || '',
+          data_adesao: ct?.data_adesao,
+          data_rescisao: tkDate,
+          contrato_ativo: ct?.contrato_ativo || 's',
+          status_contrato: ct?.status_contrato || tk.status || 'ticket_remocao',
+          usuario_cadastrou:
+            tk.usuario_abertura ||
+            clientInfo?.usuario_cadastrou ||
+            'desconhecido',
+          valor_mensal: ct?.valor_mensal || '0.00',
+          observacoes:
+            tk.assunto ||
+            tk.mensagem ||
+            tk.descricao ||
+            'Ticket de remoção de equipamentos em comodato',
+          telefone: this.pickBestPhoneFromContatos(
+            clientInfo,
+            contatosByClient.get(idCliente) || []
+          ),
+          cidade: this.resolveClientCity(clientInfo),
+          bairro: clientInfo?.endereco_cobranca_bairro || clientInfo?.bairro || '',
+          plano: planoNome,
+          contratos_ativos_restantes: countActiveContracts(idCliente),
+          ticket_id: String(tk.id || ''),
+          data_abertura_ticket: tk.data_abertura || tk.data_cadastro || '',
+          origem: 'ticket_remocao',
+        };
       });
-      localStorage.setItem(localAuditKey, JSON.stringify(newSnapshot));
-    } catch {
-      // ignora
-    }
 
     // 7. Calcular métricas e ranking de atendentes
     const rankingMap = new Map<string, number>();
@@ -2083,7 +2536,7 @@ class ISPFYService {
 
     const totalCadastrados = cadastradosList.length;
     const totalCancelados = canceladosList.length;
-    const totalExcluidos = excluidosList.length;
+    const totalExcluidos = excluidosPeriodo.length;
     const saldoLiquido = totalCadastrados - totalCancelados - totalExcluidos;
 
     onProgress?.('Auditoria concluída com sucesso!');
@@ -2097,17 +2550,383 @@ class ISPFYService {
       },
       cadastrados: cadastradosList,
       cancelados: canceladosList,
-      excluidos: excluidosList,
+      ticketsRemocao: ticketsRemocaoList,
+      excluidos: excluidosPeriodo,
+      lacunasHistoricas,
       resumo: {
         totalCadastrados,
         totalCancelados,
         totalExcluidos,
+        totalTicketsRemocao: ticketsRemocaoList.length,
         saldoLiquido,
         mrrPerdido,
         mrrAdicionado,
         rankingAtendentes,
+        totalBaseAtiva: allClientes.length,
+        maiorIdBase: maiorIdBase,
+        totalLacunasBase: lacunasHistoricas.length,
+        snapshotCloudAtivo: snapshotResult.cloudActive,
+        ultimaAtualizacaoSnapshot: snapshotResult.updatedAt,
       },
     };
+  }
+
+  // =====================================================================
+  // MONITORAMENTO POR BAIRRO, RUA E CONEXÃO EM TEMPO REAL
+  // =====================================================================
+
+  /**
+   * Carrega todos os pontos de instalação da base ISPFY enriquecidos com cliente,
+   * contrato, telefone, plano, endereço normalizado (bairro/rua) e status real de conexão.
+   */
+  async getClientsByRegionAndStatus(
+    onProgress?: (step: string) => void,
+    forceRefresh = false
+  ): Promise<ISPFYClientsByRegionResult> {
+    if (
+      !forceRefresh &&
+      this.regionCache &&
+      Date.now() - this.regionCache.fetchedAt < 60 * 1000
+    ) {
+      return this.regionCache.data;
+    }
+
+    onProgress?.('Carregando clientes, contratos e status de conexão no ISPFY...');
+
+    const [
+      allClientes,
+      allContratos,
+      allPontos,
+      allContatos,
+      allPontoPlanos,
+      allPlanos,
+      onlineSessoes,
+    ] = await Promise.all([
+      this.fetchAllWithUnlimitedFallback<ISPFYClienteData>('/cliente', {
+        sort: 'id:ASC',
+      }),
+      this.fetchAllWithUnlimitedFallback<ISPFYContratoData>('/cliente/contrato', {
+        sort: 'id:ASC',
+      }),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contrato/ponto', {
+        sort: 'id:ASC',
+      }),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contato', {
+        sort: 'id:ASC',
+      }).catch(() => [] as any[]),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contrato/ponto/planos', {
+        sort: 'id:ASC',
+      }).catch(() => [] as any[]),
+      this.getPlanosAtivos().catch(() => [] as ISPFYPlanoData[]),
+      this.fetchAllWithUnlimitedFallback<any>('/cliente/contrato/ponto/sessoes', {
+        filter: 'status:EQ:online',
+      }).catch(() => [] as any[]),
+    ]);
+
+    // Atualiza também o cache da auditoria caso a tela seja trocada em seguida
+    this.auditBaseCache = {
+      fetchedAt: Date.now(),
+      clientes: allClientes,
+      contratos: allContratos,
+    };
+
+    onProgress?.('Resolvendo cidades, planos e normalizando bairros e ruas...');
+
+    await this.ensureCitiesCached([
+      ...allClientes,
+      ...allPontos.map((pt) => ({ id_cidade: pt?.id_cidade } as ISPFYClienteData)),
+    ]);
+
+    const clientById = new Map<string, ISPFYClienteData>();
+    allClientes.forEach((c) => {
+      if (c.id) clientById.set(String(c.id), c);
+    });
+
+    const contratoById = new Map<string, ISPFYContratoData>();
+    allContratos.forEach((ct) => {
+      if (ct.id) contratoById.set(String(ct.id), ct);
+    });
+
+    const contatosByClient = new Map<string, any[]>();
+    allContatos.forEach((c) => {
+      const cid = String(c?.id_cliente || '').trim();
+      if (!cid) return;
+      const list = contatosByClient.get(cid) || [];
+      list.push(c);
+      contatosByClient.set(cid, list);
+    });
+
+    const planoById = new Map<string, ISPFYPlanoData>();
+    allPlanos.forEach((p) => {
+      if (p.id) planoById.set(String(p.id), p);
+    });
+
+    const pontoPlanosByPonto = new Map<string, any[]>();
+    allPontoPlanos.forEach((pp) => {
+      const ptId = String(pp?.id_ponto || '').trim();
+      if (!ptId) return;
+      const list = pontoPlanosByPonto.get(ptId) || [];
+      list.push(pp);
+      pontoPlanosByPonto.set(ptId, list);
+    });
+
+    const onlineSessaoByPonto = new Map<string, any>();
+    onlineSessoes.forEach((s) => {
+      const ptId = String(s?.id_ponto || '').trim();
+      if (ptId && String(s?.status || '').toLowerCase() === 'online') {
+        onlineSessaoByPonto.set(ptId, s);
+      }
+    });
+
+    // Passo 1: Normalizar e coletar variantes de escrita por Bairro e Rua (para unificar acentuação/abreviação)
+    const bairroVariants = new Map<string, Map<string, number>>();
+    const streetVariants = new Map<string, Map<string, number>>();
+
+    const prepared = allPontos.map((pt) => {
+      const pontoId = String(pt?.id || '');
+      const contratoId = String(pt?.id_contrato || '');
+      const contrato = contratoById.get(contratoId);
+      const clienteId = String(contrato?.id_cliente || pt?.id_cliente || '');
+      const cliente = clientById.get(clienteId);
+
+      const rawBairro = String(
+        pt?.bairro ||
+          cliente?.endereco_cobranca_bairro ||
+          cliente?.bairro ||
+          ''
+      ).trim();
+      const rawRua = String(
+        pt?.endereco ||
+          cliente?.endereco_cobranca_rua ||
+          cliente?.endereco ||
+          ''
+      ).trim();
+
+      const bairroKey = normalizeBairroKey(rawBairro);
+      const ruaKey = normalizeStreetKey(rawRua);
+
+      if (bairroKey !== EMPTY_BAIRRO_KEY && rawBairro) {
+        const variants = bairroVariants.get(bairroKey) || new Map<string, number>();
+        variants.set(rawBairro, (variants.get(rawBairro) || 0) + 1);
+        bairroVariants.set(bairroKey, variants);
+      }
+
+      const compositeStreetKey = `${bairroKey}::${ruaKey}`;
+      if (ruaKey !== EMPTY_STREET_KEY && rawRua) {
+        const variants = streetVariants.get(compositeStreetKey) || new Map<string, number>();
+        variants.set(rawRua, (variants.get(rawRua) || 0) + 1);
+        streetVariants.set(compositeStreetKey, variants);
+      }
+
+      return { pt, pontoId, contratoId, contrato, clienteId, cliente, bairroKey, ruaKey, rawBairro, rawRua };
+    });
+
+    const canonicalBairroLabel = new Map<string, string>();
+    bairroVariants.forEach((variants, key) => {
+      canonicalBairroLabel.set(key, pickBestVariantLabel(variants, EMPTY_BAIRRO_LABEL));
+    });
+
+    const canonicalStreetLabel = new Map<string, string>();
+    streetVariants.forEach((variants, key) => {
+      canonicalStreetLabel.set(key, pickBestVariantLabel(variants, EMPTY_STREET_LABEL));
+    });
+
+    // Passo 2: Construir lista final enriquecida
+    const records: ISPFYClientRegionRecord[] = prepared.map(
+      ({ pt, pontoId, contratoId, contrato, clienteId, cliente, bairroKey, ruaKey }) => {
+        const bairroLabel =
+          bairroKey === EMPTY_BAIRRO_KEY
+            ? EMPTY_BAIRRO_LABEL
+            : canonicalBairroLabel.get(bairroKey) || EMPTY_BAIRRO_LABEL;
+
+        const ruaLabel =
+          ruaKey === EMPTY_STREET_KEY
+            ? EMPTY_STREET_LABEL
+            : canonicalStreetLabel.get(`${bairroKey}::${ruaKey}`) || EMPTY_STREET_LABEL;
+
+        const numero = String(
+          pt?.numero || cliente?.endereco_cobranca_numero || ''
+        ).trim();
+        const complemento = String(
+          pt?.complemento || cliente?.endereco_cobranca_complemento || ''
+        ).trim();
+        const cleanComplemento =
+          /^(n[aã]o informado|n\/i|-)$/i.test(complemento) ? '' : complemento;
+
+        const cep = String(
+          pt?.cep || cliente?.endereco_cobranca_cep || cliente?.cep || ''
+        ).trim();
+
+        const cidade =
+          this.resolveClientCity({
+            id_cidade: pt?.id_cidade || cliente?.endereco_cobranca_id_cidade,
+            cidade: cliente?.cidade,
+          } as ISPFYClienteData) || '';
+
+        const enderecoBase =
+          ruaKey === EMPTY_STREET_KEY
+            ? ''
+            : numero
+            ? `${ruaLabel}, ${numero}`
+            : ruaLabel;
+        const enderecoCompleto = [enderecoBase, cleanComplemento]
+          .filter(Boolean)
+          .join(' - ');
+
+        const liveSession = onlineSessaoByPonto.get(pontoId);
+        const sessaoConexaoStatus = String(
+          liveSession?.status || pt?.sessao_conexao_status || 'offline'
+        ).toLowerCase();
+
+        const health = classifyPointConnectionHealth({
+          contratoAtivo: contrato?.contrato_ativo,
+          pontoAtivo: pt?.ativo,
+          statusContrato: contrato?.status_contrato,
+          poolSobreposta: pt?.ipv4_wan_pool_sobreposta,
+          sessaoConexaoStatus,
+        });
+
+        const plano =
+          this.resolveContractPlanName(
+            contrato,
+            [pt],
+            pontoPlanosByPonto,
+            planoById,
+            allPlanos
+          ) || '';
+
+        return {
+          pontoId,
+          contratoId,
+          clienteId,
+          nome:
+            String(
+              cliente?.nome_razao ||
+                cliente?.nome ||
+                cliente?.razao ||
+                `Cliente #${clienteId || pontoId}`
+            ).trim(),
+          cpfCnpj: String(cliente?.cpf_cnpj || cliente?.cnpj_cpf || '').trim(),
+          telefone: this.pickBestPhoneFromContatos(
+            cliente,
+            contatosByClient.get(clienteId) || []
+          ),
+          bairroKey,
+          bairroLabel,
+          ruaKey,
+          ruaLabel,
+          numero,
+          complemento: cleanComplemento,
+          cep,
+          cidade,
+          enderecoCompleto: enderecoCompleto || bairroLabel,
+          plano,
+          valorMensal: String(contrato?.valor_mensal || '0.00'),
+          usuarioPppoe: String(pt?.usuario || '').trim(),
+          mac: String(pt?.mac || liveSession?.mac || '').trim(),
+          nas: String(pt?.nas || liveSession?.ipv4_nas || '').trim(),
+          ipAlocado: String(
+            liveSession?.ipv4_wan_endereco_alocado ||
+              pt?.sessao_ipv4_wan_endereco_alocado ||
+              ''
+          ).trim(),
+          ipv6Alocado: String(
+            liveSession?.ipv6_wan_prefixo_alocado ||
+              pt?.sessao_ipv6_wan_prefixo_alocado ||
+              ''
+          ).trim(),
+          bandaContratada: String(pt?.banda_contratada || '').trim(),
+          sessaoConexaoStatus,
+          connectionHealth: health.connectionHealth,
+          isOnline: health.isOnline,
+          isBlocked: health.isBlocked,
+          isContractActive: health.isContractActive,
+          ultimoLogin: String(
+            liveSession?.sessao_login ||
+              pt?.sessao_ultimo_login ||
+              pt?.ultimo_login ||
+              ''
+          ).trim(),
+          ultimoAccounting: String(
+            liveSession?.sessao_ultimo_accounting ||
+              pt?.sessao_ultimo_accounting ||
+              ''
+          ).trim(),
+        };
+      }
+    );
+
+    const activeRecords = records.filter((r) => r.isContractActive);
+    const activeSummary = aggregateRegionSummaries(activeRecords);
+
+    const result: ISPFYClientsByRegionResult = {
+      records,
+      bairros: activeSummary.bairros,
+      ruas: activeSummary.ruas,
+      fetchedAt: new Date().toISOString(),
+      totals: {
+        ...activeSummary.totals,
+        totalPontos: records.length,
+        inativos: records.length - activeRecords.length,
+      },
+    };
+
+    this.regionCache = {
+      fetchedAt: Date.now(),
+      data: result,
+    };
+
+    onProgress?.('Monitoramento por bairro e rua carregado!');
+    return result;
+  }
+
+  /**
+   * Consulta em tempo real os pontos de um cliente específico (/api/tool/assinante/ponto/status).
+   */
+  async getClientLivePointStatuses(
+    idCliente: string
+  ): Promise<ISPFYLivePointStatus[]> {
+    const fetchTool = async () => {
+      const response = await this.client.get<any>('/api/tool/assinante/ponto/status', {
+        params: { id_cliente: idCliente },
+      });
+      if (
+        typeof response.data === 'string' &&
+        response.data.trim().startsWith('<')
+      ) {
+        if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
+          this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
+          const retry = await this.client.get<any>('/api/tool/assinante/ponto/status', {
+            params: { id_cliente: idCliente },
+          });
+          return retry.data;
+        }
+        throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
+      }
+      return response.data;
+    };
+
+    const raw = await fetchTool();
+    const rows = this.getRows<any>(raw);
+    return rows.map((row) => ({
+      idPonto: String(row?.id_ponto || ''),
+      idContrato: String(row?.id_contrato || ''),
+      nomePonto: row?.nome_ponto ? String(row.nome_ponto) : undefined,
+      conexaoStatus: String(row?.conexao_status || 'offline').toLowerCase(),
+      isBlocked: String(row?.bloqueado || '0') === '1',
+      ipWan: row?.ipv4_atual_wan ? String(row.ipv4_atual_wan) : undefined,
+      ipv6Wan: row?.ipv6_atual_wan ? String(row.ipv6_atual_wan) : undefined,
+      ultimoLogin: row?.ultimo_login ? String(row.ultimo_login) : undefined,
+      planoNome: row?.plano_contratado_nome
+        ? String(row.plano_contratado_nome)
+        : undefined,
+      uploadMesKbytes: row?.upload_mes_kbytes
+        ? Number(row.upload_mes_kbytes)
+        : undefined,
+      downloadMesKbytes: row?.download_mes_kbytes
+        ? Number(row.download_mes_kbytes)
+        : undefined,
+    }));
   }
 }
 

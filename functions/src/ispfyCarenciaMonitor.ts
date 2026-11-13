@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import axios from "axios";
 import * as https from "https";
 import { WhapiService } from "./whapiService";
+import { getIspfyConfig, getWhapiConfig } from "./config/env";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -60,20 +61,8 @@ _Att, Equipe AVL Telecom_`;
 export async function processIspfyCarencias(targetDate?: string) {
   console.log("Iniciando monitoramento de carências ISPFY...");
 
-  const ispfyHost =
-    process.env.ISPFY_HOST ||
-    process.env.ISPFY_URL ||
-    "http://avltelecom.ispfycloud.com.br:8020";
-  const ispfyToken =
-    process.env.ISPFY_TOKEN || "815e74b02bc6faa371f29274e3d317e0";
-  const whapiApiKey =
-    process.env.WHAPI_KEY ||
-    process.env.WHAPI_API_KEY ||
-    process.env.ZAPI_CLIENT_TOKEN ||
-    "Fa64a52f41c274de0847cf445392dbeedS";
-  const whapiBaseUrl =
-    process.env.WHAPI_BASE_URL ||
-    "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+  const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
+  const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
 
   const db = admin.firestore();
   const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);

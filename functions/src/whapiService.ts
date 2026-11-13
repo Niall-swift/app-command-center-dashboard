@@ -1,6 +1,7 @@
 import axios, {AxiosInstance} from "axios";
 import {WhapiResponse} from "./types";
 import {premixWelcomeTemplate, fillTemplate, spin} from "./messageTemplates";
+import {buildPaymentTextFallback, ReceiptData} from "./receiptGenerator";
 
 /**
  * Serviço para enviar mensagens via Whapi.Cloud
@@ -8,12 +9,13 @@ import {premixWelcomeTemplate, fillTemplate, spin} from "./messageTemplates";
 export class WhapiService {
   private client: AxiosInstance;
 
-  constructor(apiKey: string, baseURL: string = "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB") {
-    // Para simplificar a transição, ignoramos a apiKey antiga se baseURL não contiver api.z-api.io
-    const finalBaseURL = baseURL.includes('z-api') ? baseURL : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+  constructor(apiKey: string, baseURL: string) {
+    if (!baseURL?.trim()) {
+      throw new Error("WHAPI_BASE_URL não configurada.");
+    }
 
     this.client = axios.create({
-      baseURL: finalBaseURL,
+      baseURL: baseURL.replace(/\/$/, ""),
       timeout: 30000,
       headers: {
         "Content-Type": "application/json",
@@ -186,20 +188,11 @@ export class WhapiService {
   async sendPaymentReceipt(
     name: string,
     phone: string,
-    receiptData: { valor: string; data: string; hora: string; descricao: string }
+    receiptData: ReceiptData
   ): Promise<WhapiResponse> {
     try {
       const formattedPhone = this.formatPhoneNumber(phone);
-      
-      const messageBody = `🧾 *COMPROVANTE DE PAGAMENTO* 🧾\n\n` +
-        `Olá, *${name.split(' ')[0]}*! Recebemos e confirmamos o seu pagamento. Muito obrigado! 🎉\n\n` +
-        `*Detalhes da Baixa:*\n` +
-        `🔹 *Referência:* ${receiptData.descricao}\n` +
-        `💰 *Valor Pago:* ${receiptData.valor}\n` +
-        `📅 *Data do Pagamento:* ${receiptData.data}\n` +
-        `⏰ *Hora do Pagamento:* ${receiptData.hora}\n\n` +
-        `Sua conexão já está garantida. Qualquer dúvida, conte conosco!\n\n` +
-        `_Att, Equipe AVL Telecom_`;
+      const messageBody = buildPaymentTextFallback(name, receiptData);
 
       const payload = {
         phone: formattedPhone,

@@ -365,6 +365,9 @@ export interface ISPFYAuditClient {
   plano?: string;
   valor_mensal?: string;
   telefone?: string;
+  contrato_id?: string;
+  data_adesao?: string;
+  sem_contrato?: boolean;
 }
 
 export interface ISPFYAuditCancelledContract {
@@ -382,17 +385,27 @@ export interface ISPFYAuditCancelledContract {
   observacoes?: string;
   telefone?: string;
   cidade?: string;
+  bairro?: string;
+  plano?: string;
+  contratos_ativos_restantes?: number;
+  ticket_id?: string;
+  data_abertura_ticket?: string;
+  origem?: 'rescisao_formal' | 'ticket_remocao';
 }
 
 export interface ISPFYAuditDeletedRecord {
   id: string;
   provavel_data?: string;
+  detectado_em?: string;
   tipo: 'gap_sequencial' | 'snapshot_removido';
   nome?: string;
   cpf_cnpj?: string;
   usuario_cadastrou?: string;
-  referencia_anterior?: { id: string; nome: string };
-  referencia_posterior?: { id: string; nome: string };
+  telefone?: string;
+  bairro?: string;
+  cidade?: string;
+  referencia_anterior?: { id: string; nome: string; data_cadastro?: string };
+  referencia_posterior?: { id: string; nome: string; data_cadastro?: string };
   motivo: string;
 }
 
@@ -400,10 +413,16 @@ export interface ISPFYAuditSummary {
   totalCadastrados: number;
   totalCancelados: number;
   totalExcluidos: number;
+  totalTicketsRemocao?: number;
   saldoLiquido: number;
   mrrPerdido: number;
   mrrAdicionado: number;
   rankingAtendentes: { usuario: string; cadastros: number }[];
+  totalBaseAtiva?: number;
+  maiorIdBase?: number;
+  totalLacunasBase?: number;
+  snapshotCloudAtivo?: boolean;
+  ultimaAtualizacaoSnapshot?: string;
 }
 
 export interface ISPFYAuditData {
@@ -415,7 +434,9 @@ export interface ISPFYAuditData {
   };
   cadastrados: ISPFYAuditClient[];
   cancelados: ISPFYAuditCancelledContract[];
+  ticketsRemocao?: ISPFYAuditCancelledContract[];
   excluidos: ISPFYAuditDeletedRecord[];
+  lacunasHistoricas?: ISPFYAuditDeletedRecord[];
   resumo: ISPFYAuditSummary;
 }
 
@@ -451,6 +472,102 @@ export interface DailyOSTrackingData {
   orders: DailyOSOrder[];          // Lista segmentada das O.S. de hoje
   lastUpdated?: string;            // ISO Timestamp da última atualização
 }
+
+// ─── Monitoramento por Bairro, Rua e Status de Conexão ──────────────────────────
+export type ISPFYConnectionHealthStatus =
+  | 'ok'
+  | 'desconectado'
+  | 'bloqueado_online'
+  | 'bloqueado_offline'
+  | 'inativo';
+
+export interface ISPFYClientRegionRecord {
+  pontoId: string;
+  contratoId: string;
+  clienteId: string;
+  nome: string;
+  cpfCnpj: string;
+  telefone: string;
+  bairroKey: string;
+  bairroLabel: string;
+  ruaKey: string;
+  ruaLabel: string;
+  numero: string;
+  complemento: string;
+  cep: string;
+  cidade: string;
+  enderecoCompleto: string;
+  plano: string;
+  valorMensal: string;
+  usuarioPppoe: string;
+  mac: string;
+  nas: string;
+  ipAlocado: string;
+  ipv6Alocado: string;
+  bandaContratada: string;
+  sessaoConexaoStatus: string;
+  connectionHealth: ISPFYConnectionHealthStatus;
+  isOnline: boolean;
+  isBlocked: boolean;
+  isContractActive: boolean;
+  ultimoLogin: string;
+  ultimoAccounting: string;
+  uploadMesKbytes?: number;
+  downloadMesKbytes?: number;
+}
+
+export interface ISPFYRegionGroupSummary {
+  key: string;
+  label: string;
+  totalPontos: number;
+  totalClientesUnicos: number;
+  internetOk: number;
+  desconectados: number;
+  bloqueados: number;
+  bloqueadosOnline: number;
+  bloqueadosOffline: number;
+  inativos: number;
+  onlineRate: number;
+}
+
+export interface ISPFYStreetGroupSummary extends ISPFYRegionGroupSummary {
+  bairroKey: string;
+  bairroLabel: string;
+  ruaKey: string;
+}
+
+export interface ISPFYClientsByRegionResult {
+  records: ISPFYClientRegionRecord[];
+  bairros: ISPFYRegionGroupSummary[];
+  ruas: ISPFYStreetGroupSummary[];
+  fetchedAt: string;
+  totals: {
+    totalPontos: number;
+    totalAtivos: number;
+    totalClientesUnicos: number;
+    internetOk: number;
+    desconectados: number;
+    bloqueados: number;
+    bloqueadosOnline: number;
+    bloqueadosOffline: number;
+    inativos: number;
+  };
+}
+
+export interface ISPFYLivePointStatus {
+  idPonto: string;
+  idContrato: string;
+  nomePonto?: string;
+  conexaoStatus: string;
+  isBlocked: boolean;
+  ipWan?: string;
+  ipv6Wan?: string;
+  ultimoLogin?: string;
+  planoNome?: string;
+  uploadMesKbytes?: number;
+  downloadMesKbytes?: number;
+}
+
 
 
 

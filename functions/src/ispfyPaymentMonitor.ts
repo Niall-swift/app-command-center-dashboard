@@ -4,12 +4,197 @@ import axios from "axios";
 import { WhapiService } from "./whapiService";
 import {
   generatePaymentReceiptImage,
-  buildPaymentTextFallback,
+  buildPaymentImageCaption,
+  buildReceiptAuthCode,
   ReceiptData,
 } from "./receiptGenerator";
+import { getIspfyConfig, getWhapiConfig } from "./config/env";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
+}
+
+const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  pix: "PIX",
+  boleto: "Boleto Bancário",
+  carne: "Carnê",
+  cartao: "Cartão",
+  credito: "Cartão de Crédito",
+  debito: "Cartão de Débito",
+  dinheiro: "Dinheiro",
+  transferencia: "Transferência Bancária",
+  ted: "TED",
+  doc: "DOC",
+};
+
+function extractIspfyRows<T = Record<string, any>>(data: any): T[] {
+  if (Array.isArray(data)) return data;
+  return data?.data || data?.rows || [];
+}
+
+async function fetchIspfyObject<T = Record<string, any>>(
+  ispfyHost: string,
+  ispfyToken: string,
+  path: string,
+  params: Record<string, any> = {},
+  timeout = 10000
+): Promise<T[]> {
+  const resp = await axios.get(`${ispfyHost}${path}`, {
+    headers: { Token: ispfyToken },
+    params: { pagination: "FALSE", ...params },
+    timeout,
+  });
+  return extractIspfyRows<T>(resp.data);
+}
+
+async function fetchLookupMap(
+  ispfyHost: string,
+  ispfyToken: string,
+  path: string,
+  formatLabel: (row: Record<string, any>) => string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const rows = await fetchIspfyObject(ispfyHost, ispfyToken, path, {}, 8000);
+    for (const row of rows) {
+      if (row?.id != null) {
+        const label = formatLabel(row).trim();
+        if (label) map.set(String(row.id), label);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`Lookup opcional ${path} indisponivel:`, err?.message || err);
+  }
+  return map;
+}
+
+function formatCityRow(row: Record<string, any>): string {
+  const name = String(row.nome || row.cidade || row.descricao || "").trim();
+  const uf = String(row.uf || row.estado || "").trim();
+  if (!name) return "";
+  return uf && !name.includes("/") ? `${name}/${uf.toUpperCase()}` : name;
+}
+
+function formatCarteiraRow(row: Record<string, any>): string {
+  return String(row.descricao || row.nome || row.carteira || row.titulo || "").trim();
+}
+
+function parseMoney(value: any): number {
+  if (value === null || value === undefined || value === "") return 0;
+  const parsed = Number(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatBrl(amount: number): string {
+  return amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatIsoDateBr(dateStr: any): string | undefined {
+  if (!dateStr) return undefined;
+  const raw = String(dateStr).trim().split(" ")[0];
+  const parts = raw.split("-");
+  if (parts.length !== 3) return raw || undefined;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function buildClientAddress(
+  ponto: Record<string, any> | undefined,
+  cliente: Record<string, any> | undefined,
+  cidadesMap: Map<string, string>
+): string | undefined {
+  const resolveCity = (cityId: any, cityName: any): string => {
+    const mapped = cityId != null ? cidadesMap.get(String(cityId)) : undefined;
+    if (mapped) return mapped;
+    const raw = String(cityName || "").trim();
+    return raw && !/^\d+$/.test(raw) ? raw : "";
+  };
+
+  const candidates = [
+    ponto && {
+      street: ponto.endereco_custom_endereco || ponto.endereco_custom_rua,
+      number: ponto.endereco_custom_numero,
+      complement: ponto.endereco_custom_complemento,
+      neighborhood: ponto.endereco_custom_bairro,
+      city: resolveCity(ponto.endereco_custom_id_cidade, ponto.endereco_custom_cidade),
+      cep: ponto.endereco_custom_cep,
+    },
+    ponto && {
+      street: ponto.endereco || ponto.rua,
+      number: ponto.numero,
+      complement: ponto.complemento,
+      neighborhood: ponto.bairro,
+      city: resolveCity(ponto.id_cidade, ponto.cidade),
+      cep: ponto.cep,
+    },
+    cliente && {
+      street: cliente.endereco_cobranca_rua || cliente.endereco || cliente.rua,
+      number: cliente.endereco_cobranca_numero || cliente.numero,
+      complement: cliente.endereco_cobranca_complemento || cliente.complemento,
+      neighborhood: cliente.endereco_cobranca_bairro || cliente.bairro,
+      city: resolveCity(
+        cliente.endereco_cobranca_id_cidade || cliente.id_cidade,
+        cliente.endereco_cobranca_cidade || cliente.cidade
+      ),
+      cep: cliente.endereco_cobranca_cep || cliente.cep,
+    },
+  ].filter(Boolean) as Array<Record<string, any>>;
+
+  const pick = (key: string): string => {
+    for (const c of candidates) {
+      const val = String(c[key] || "").trim();
+      if (val) return val;
+    }
+    return "";
+  };
+
+  const primary =
+    candidates.find((c) => String(c.street || "").trim()) || candidates[0];
+  if (!primary) return undefined;
+
+  const street = String(primary.street || "").trim();
+  const number = String(primary.number || "").trim();
+  const complement = String(primary.complement || "").trim();
+  const neighborhood = String(primary.neighborhood || "").trim() || pick("neighborhood");
+  const city = String(primary.city || "").trim() || pick("city");
+  const rawCep = (String(primary.cep || "").trim() || pick("cep")).replace(/\D/g, "");
+  const cep =
+    rawCep.length === 8 ? `${rawCep.slice(0, 5)}-${rawCep.slice(5)}` : "";
+
+  const streetLine = [
+    street ? `${street}${number ? `, ${number}` : ""}` : "",
+    complement,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const firstHalf = [streetLine, neighborhood].filter(Boolean).join(", ");
+  const full = [firstHalf, city, cep ? `CEP ${cep}` : ""]
+    .filter(Boolean)
+    .join(" - ");
+
+  return full || undefined;
+}
+
+function resolvePaymentMethod(
+  cobranca: Record<string, any>,
+  carteirasMap: Map<string, string>
+): string {
+  const rawType = String(
+    cobranca.tipo_cobranca || cobranca.forma_pagamento || cobranca.meio_pagamento || ""
+  ).trim();
+  const typeLabel =
+    PAYMENT_TYPE_LABELS[rawType.toLowerCase()] ||
+    (rawType ? rawType.charAt(0).toUpperCase() + rawType.slice(1) : "");
+
+  const carteira =
+    cobranca.id_carteira != null
+      ? carteirasMap.get(String(cobranca.id_carteira)) || ""
+      : "";
+
+  if (typeLabel && carteira && !carteira.toLowerCase().includes(typeLabel.toLowerCase())) {
+    return `${typeLabel} (${carteira})`;
+  }
+  return typeLabel || carteira || "Pagamento Confirmado";
 }
 
 /**
@@ -18,20 +203,8 @@ if (admin.apps.length === 0) {
 export async function processIspfyPayments(customDate?: string) {
   console.log("Iniciando monitoramento de pagamentos ISPFY...");
 
-  const ispfyHost =
-    process.env.ISPFY_HOST ||
-    process.env.ISPFY_URL ||
-    "http://avltelecom.ispfycloud.com.br:8020";
-  const ispfyToken =
-    process.env.ISPFY_TOKEN || "815e74b02bc6faa371f29274e3d317e0";
-  const whapiApiKey =
-    process.env.WHAPI_KEY ||
-    process.env.WHAPI_API_KEY ||
-    process.env.ZAPI_CLIENT_TOKEN ||
-    "Fa64a52f41c274de0847cf445392dbeedS";
-  const whapiBaseUrl =
-    process.env.WHAPI_BASE_URL ||
-    "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+  const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
+  const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
 
   const db = admin.firestore();
   const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
@@ -49,23 +222,17 @@ export async function processIspfyPayments(customDate?: string) {
     console.log(`Buscando pagamentos para a data: ${targetDate}`);
 
     // 2. Buscar faturas pagas no ISPFY
-    const response = await axios.get(
-      `${ispfyHost}/api/object/cliente/contrato/cobranca`,
+    const rawCobrancas = await fetchIspfyObject(
+      ispfyHost,
+      ispfyToken,
+      "/api/object/cliente/contrato/cobranca",
       {
-        headers: { Token: ispfyToken },
-        params: {
-          filter: "status:EQ:pago",
-          sort: "data_pagamento:DESC",
-          limit: 100,
-          pagination: "FALSE",
-        },
-        timeout: 20000,
-      }
+        filter: "status:EQ:pago",
+        sort: "data_pagamento:DESC",
+        limit: 100,
+      },
+      20000
     );
-
-    const rawCobrancas = Array.isArray(response.data)
-      ? response.data
-      : response.data?.data || response.data?.rows || [];
 
     // Filtra apenas as pagas na data alvo
     const cobrancas = rawCobrancas.filter(
@@ -75,6 +242,14 @@ export async function processIspfyPayments(customDate?: string) {
     console.log(
       `${cobrancas.length} cobranca(s) paga(s) em ${targetDate} (de ${rawCobrancas.length} analisadas).`
     );
+
+    const [cidadesMap, carteirasMap] =
+      cobrancas.length > 0
+        ? await Promise.all([
+            fetchLookupMap(ispfyHost, ispfyToken, "/api/object/cidade", formatCityRow),
+            fetchLookupMap(ispfyHost, ispfyToken, "/api/object/carteira", formatCarteiraRow),
+          ])
+        : [new Map<string, string>(), new Map<string, string>()];
 
     for (const cobranca of cobrancas) {
       const cobrancaId = String(cobranca.id);
@@ -94,62 +269,58 @@ export async function processIspfyPayments(customDate?: string) {
         continue;
       }
 
-      // 4. Buscar nome + telefone do cliente
+      // 4. Buscar dados completos do cliente, contrato, contato e ponto de instalacao
       let phone: string | null = null;
       let clientName = "Cliente";
       let id_cliente: string | null = null;
+      let contratoData: Record<string, any> | undefined;
+      let clienteData: Record<string, any> | undefined;
+      let pontoData: Record<string, any> | undefined;
 
       try {
-        // 4.1 Contrato -> id_cliente
-        const contratoResp = await axios.get(
-          `${ispfyHost}/api/object/cliente/contrato`,
-          {
-            headers: { Token: ispfyToken },
-            params: {
-              filter: `id:EQ:${cobranca.id_contrato}`,
-              pagination: "FALSE",
-            },
-            timeout: 10000,
-          }
+        // 4.1 Contrato -> id_cliente e dados do plano
+        const contratos = await fetchIspfyObject(
+          ispfyHost,
+          ispfyToken,
+          "/api/object/cliente/contrato",
+          { filter: `id:EQ:${cobranca.id_contrato}` }
         );
-        const contratos = Array.isArray(contratoResp.data)
-          ? contratoResp.data
-          : contratoResp.data?.data || contratoResp.data?.rows || [];
-        id_cliente = contratos[0]?.id_cliente
-          ? String(contratos[0].id_cliente)
+        contratoData = contratos[0];
+        id_cliente = contratoData?.id_cliente
+          ? String(contratoData.id_cliente)
           : null;
 
-        if (id_cliente) {
-          // 4.2 Cliente -> nome
-          const clientResp = await axios.get(
-            `${ispfyHost}/api/object/cliente`,
-            {
-              headers: { Token: ispfyToken },
-              params: { filter: `id:EQ:${id_cliente}`, pagination: "FALSE" },
-              timeout: 10000,
-            }
+        // 4.2 Ponto de instalacao (nao-fatal se ausente)
+        try {
+          const pontos = await fetchIspfyObject(
+            ispfyHost,
+            ispfyToken,
+            "/api/object/cliente/contrato/ponto",
+            { filter: `id_contrato:EQ:${cobranca.id_contrato}` }
           );
-          const clientes = Array.isArray(clientResp.data)
-            ? clientResp.data
-            : clientResp.data?.data || clientResp.data?.rows || [];
-          clientName =
-            clientes[0]?.nome_razao || clientes[0]?.nome || "Cliente";
+          pontoData = pontos[0];
+        } catch (pontoErr: any) {
+          console.warn(
+            `Ponto de instalacao indisponivel para contrato ${cobranca.id_contrato}:`,
+            pontoErr?.message || pontoErr
+          );
+        }
 
-          // 4.3 Contato -> telefone
-          const contatoResp = await axios.get(
-            `${ispfyHost}/api/object/cliente/contato`,
-            {
-              headers: { Token: ispfyToken },
-              params: {
-                filter: `id_cliente:EQ:${id_cliente}`,
-                pagination: "FALSE",
-              },
-              timeout: 10000,
-            }
-          );
-          const contatos = Array.isArray(contatoResp.data)
-            ? contatoResp.data
-            : contatoResp.data?.data || contatoResp.data?.rows || [];
+        if (id_cliente) {
+          // 4.3 Cliente + Contato em paralelo
+          const [clientes, contatos] = await Promise.all([
+            fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente", {
+              filter: `id:EQ:${id_cliente}`,
+            }),
+            fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente/contato", {
+              filter: `id_cliente:EQ:${id_cliente}`,
+            }),
+          ]);
+
+          clienteData = clientes[0];
+          clientName =
+            clienteData?.nome_razao || clienteData?.nome || clienteData?.razao || "Cliente";
+
           const validContato = contatos.find(
             (c: any) => c.contato && c.pode_enviar_mensagem !== "n"
           );
@@ -179,26 +350,56 @@ export async function processIspfyPayments(customDate?: string) {
         continue;
       }
 
-      // 5. Montar dados do comprovante
-      const valorPago = parseFloat(
-        cobranca.valor_pago || cobranca.valor || "0"
-      ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      // 5. Montar dados completos do comprovante
+      const valorPagoNum = parseMoney(cobranca.valor_pago || cobranca.valor);
+      const valorOriginalNum = parseMoney(cobranca.valor);
+      const descontoNum = parseMoney(cobranca.desconto);
+      const acrescimoNum = parseMoney(cobranca.juros) + parseMoney(cobranca.multa);
+      const hasAdjustment =
+        descontoNum > 0 ||
+        acrescimoNum > 0 ||
+        (valorOriginalNum > 0 && Math.abs(valorOriginalNum - valorPagoNum) > 0.009);
 
       const [datePart, timePart] = (cobranca.data_pagamento || "").split(" ");
-      const dataFormatada = (datePart || "").split("-").reverse().join("/");
+      const dataFormatada = formatIsoDateBr(datePart) || "";
       const horaFormatada = timePart ? timePart.substring(0, 5) : "00:00";
 
-      const receiptData: ReceiptData = {
+      const baseReceiptData: ReceiptData = {
         clientName,
-        valor: valorPago,
+        valor: formatBrl(valorPagoNum),
         data: dataFormatada,
         hora: horaFormatada,
-        descricao: cobranca.descricao || "Mensalidade de Internet",
+        descricao:
+          cobranca.descricao ||
+          cobranca.referencia ||
+          contratoData?.plano ||
+          "Mensalidade de Internet",
         cobrancaId,
+        cpfCnpj:
+          clienteData?.cpf_cnpj ||
+          clienteData?.cnpj_cpf ||
+          clienteData?.cpf ||
+          clienteData?.cnpj ||
+          undefined,
+        telefone: phone,
+        endereco: buildClientAddress(pontoData, clienteData, cidadesMap),
+        plano: contratoData?.plano || contratoData?.descricao || undefined,
+        contratoId: String(cobranca.id_contrato),
+        vencimento: formatIsoDateBr(cobranca.data_vencimento),
+        formaPagamento: resolvePaymentMethod(cobranca, carteirasMap),
+        valorOriginal:
+          hasAdjustment && valorOriginalNum > 0 ? formatBrl(valorOriginalNum) : undefined,
+        desconto: descontoNum > 0 ? formatBrl(descontoNum) : undefined,
+        acrescimo: acrescimoNum > 0 ? formatBrl(acrescimoNum) : undefined,
+        nossoNumero: cobranca.nosso_numero
+          ? String(cobranca.nosso_numero).trim()
+          : undefined,
       };
+      const authCode = buildReceiptAuthCode(baseReceiptData);
+      const receiptData: ReceiptData = { ...baseReceiptData, authCode };
 
       console.log(
-        `Enviando comprovante para ${clientName} (${phone}) - Fatura ${cobrancaId}`
+        `Enviando comprovante para ${clientName} (${phone}) - Fatura ${cobrancaId} [${authCode}]`
       );
 
       // 6. Tenta Canvas -> imagem -> fallback texto
@@ -209,7 +410,7 @@ export async function processIspfyPayments(customDate?: string) {
 
       if (imageBase64) {
         // 6a. Canvas ok -> tenta enviar como imagem via Z-API /send-image
-        const caption = buildPaymentTextFallback(clientName, receiptData);
+        const caption = buildPaymentImageCaption(clientName, receiptData);
         sendResult = await whapiService.sendPaymentReceiptImage(
           phone,
           imageBase64,
@@ -243,6 +444,8 @@ export async function processIspfyPayments(customDate?: string) {
         clienteId: id_cliente || null,
         nome: clientName,
         telefone: phone,
+        endereco: receiptData.endereco || null,
+        authCode,
         valor: receiptData.valor,
         dataPagamento: cobranca.data_pagamento,
         enviadoComoImagem,

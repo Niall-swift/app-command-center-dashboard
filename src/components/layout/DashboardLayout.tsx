@@ -33,6 +33,7 @@ const ROUTE_INFO: Record<string, { title: string; subtitle: string; category?: s
   '/ispfy/nova-os': { title: 'Nova Ordem de Serviço', subtitle: 'Abertura rápida de chamados técnicos no ISPFY', category: 'ISPFY' },
   '/ispfy/consulta': { title: 'Consulta de Clientes', subtitle: 'Busca cadastral completa por CPF, nome ou cidade', category: 'ISPFY' },
   '/ispfy/auditoria': { title: 'Auditoria de Clientes', subtitle: 'Conferência e validação da base cadastral', category: 'ISPFY' },
+  '/ispfy/regiao': { title: 'Clientes por Bairro e Rua', subtitle: 'Segmentação geográfica por bairro/rua e monitoramento de conexão', category: 'ISPFY' },
   '/ispfy/financeiro': { title: 'Financeiro & Caixa', subtitle: 'Fluxo de caixa, inadimplência e contas correntes', category: 'ISPFY' },
   '/ispfy/tickets': { title: 'Chamados & Tickets', subtitle: 'Gestão de O.S. abertas, pendentes e concluídas', category: 'ISPFY' },
   '/ispfy/dici': { title: 'Relatório DICI Anatel', subtitle: 'Geração e exportação regulatória de dados', category: 'ISPFY' },

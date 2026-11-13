@@ -8,6 +8,8 @@ import { WhapiService } from "./whapiService";
 import { generateRaffleTicketImage } from "./receiptGenerator";
 import axios from "axios";
 import * as https from "https";
+import { verifyAuth } from "./config/auth";
+import { getIspfyConfig, getIxcConfig, getWhapiConfig } from "./config/env";
 
 // Inicializar Firebase Admin
 if (admin.apps.length === 0) {
@@ -38,8 +40,15 @@ export const onNewRaffleRegistration = functions.firestore
     }
 
     // Configurações via Firebase Functions Config
-    const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
-    const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
+    let whapiApiKey = "";
+    let whapiBaseUrl = "";
+    try {
+      const cfg = getWhapiConfig();
+      whapiApiKey = cfg.apiKey;
+      whapiBaseUrl = cfg.baseUrl;
+    } catch {
+      whapiApiKey = "";
+    }
 
     if (!whapiApiKey) {
       console.error("❌ WHAPI_KEY / WHAPI_API_KEY não configurado!");
@@ -155,27 +164,22 @@ async function handleAppUninstall(userId: string, token: string, userData: any) 
     const name = userData?.nome || userData?.name || "Cliente";
 
     if (phone) {
-      const whapiApiKey = process.env.WHAPI_KEY || process.env.WHAPI_API_KEY || "";
-      const whapiBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
-      if (whapiApiKey) {
-        const message = `Olá ${name},\n\nIdentificamos que o App AVL Telecom foi removido do seu dispositivo. 😔\n\nPor causa disso, *você não está mais elegível para participar dos sorteios do Pre-mix*. 🎁\n\nPara voltar a concorrer, reinstale o aplicativo e mantenha-o no seu celular!`;
-        
-        let formattedPhone = phone.replace(/\D/g, "");
-        if (!formattedPhone.startsWith("55")) formattedPhone = "55" + formattedPhone;
-        
-        const finalBaseUrl = whapiBaseUrl.includes('z-api') ? whapiBaseUrl : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
-        await axios.post(`${finalBaseUrl}/send-text`, {
-          phone: formattedPhone,
-          message: message
-        }, {
-          headers: {
-            "Content-Type": "application/json"
-          }
-        });
-        console.log(`✅ Aviso de desinstalação enviado com sucesso para ${formattedPhone}`);
-      } else {
-        console.warn("⚠️ WHAPI_KEY não configurada. Não foi possível enviar WhatsApp de desinstalação.");
-      }
+      const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
+      const message = `Olá ${name},\n\nIdentificamos que o App AVL Telecom foi removido do seu dispositivo. 😔\n\nPor causa disso, *você não está mais elegível para participar dos sorteios do Pre-mix*. 🎁\n\nPara voltar a concorrer, reinstale o aplicativo e mantenha-o no seu celular!`;
+
+      let formattedPhone = phone.replace(/\D/g, "");
+      if (!formattedPhone.startsWith("55")) formattedPhone = "55" + formattedPhone;
+
+      await axios.post(`${whapiBaseUrl.replace(/\/$/, "")}/send-text`, {
+        phone: formattedPhone,
+        message: message
+      }, {
+        headers: {
+          "Content-Type": "application/json",
+          "Client-Token": whapiApiKey
+        }
+      });
+      console.log(`✅ Aviso de desinstalação enviado com sucesso para ${formattedPhone}`);
     } else {
       console.log(`ℹ️ Usuário ${userId} não tem telefone salvo. WhatsApp de desinstalação ignorado.`);
     }
@@ -203,7 +207,7 @@ export const checkDueInvoices = functions.pubsub
         return null;
       }
 
-      const IXC_TOKEN = process.env.IXC_TOKEN || "29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94";
+      const { token: IXC_TOKEN } = getIxcConfig();
       const auth = Buffer.from(IXC_TOKEN).toString("base64");
 
       const notifications: Promise<any>[] = [];
@@ -371,7 +375,7 @@ export const testPush = functions.https.onRequest(async (req, res) => {
 
     const token = userData.fcmToken;
     const ixcId = userData.clientId || finalUserId; // Prioriza o campo clientId
-    const IXC_TOKEN = process.env.IXC_TOKEN || "29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94";
+    const { token: IXC_TOKEN } = getIxcConfig();
     const auth = Buffer.from(IXC_TOKEN).toString("base64");
 
     // 2. Consultar IXC API (Busca aberta para diagnóstico)
@@ -596,15 +600,14 @@ export const onDashboardMessageSent = functions.firestore
 
     console.log(`📤 Replicando resposta do painel para: ${chatId}`);
 
-    const whatsappApiKey = process.env.WHAPI_API_KEY || "";
-    const whatsappBaseUrl = process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud";
-    
-    if (!whatsappApiKey) {
-      console.error("❌ WHAPI_API_KEY não configurado no ambiente!");
+    let waService: WhatsAppService;
+    try {
+      const { apiKey: whatsappApiKey, baseUrl: whatsappBaseUrl } = getWhapiConfig();
+      waService = new WhatsAppService(whatsappBaseUrl, whatsappApiKey);
+    } catch (err: any) {
+      console.error("❌ WHAPI não configurado no ambiente:", err.message);
       return null;
     }
-
-    const waService = new WhatsAppService(whatsappBaseUrl, whatsappApiKey);
 
     try {
       // 1. Enviar para WhatsApp
@@ -847,8 +850,10 @@ export const whatsappWebhook = functions.runWith({
     // DEBUG: Log do objeto completo para entender a estrutura de mídia que está chegando
     console.log(`📩 [WHAPI-DEBUG] Mensagem de ${from}:`, JSON.stringify(messageData));
 
-    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
-    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
+    const { host: ixcHost, token: ixcToken } = getIxcConfig();
+    const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
+    const ixcService = new IXCBackendService(ixcHost, ixcToken);
+    const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
     // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
@@ -882,7 +887,7 @@ export const whatsappWebhook = functions.runWith({
       mediaType = 'document';
     }
 
-    if (mediaIdToDownload && !mediaUrl && process.env.WHAPI_API_KEY) {
+    if (mediaIdToDownload && !mediaUrl && whapiApiKey) {
       try {
         console.log(`⏳ Baixando mídia da Whapi... ID: ${mediaIdToDownload}`);
         const mediaBuffer = await waService.downloadMedia(mediaIdToDownload);
@@ -1355,6 +1360,7 @@ export const ixcProxy = functions.https.onRequest(async (req, res) => {
  * 🚀 Função invocável para disparar a verificação de faturas manualmente.
  */
 export const triggerInvoiceCheckManual = functions.https.onCall(async (data, context) => {
+  verifyAuth(context);
   console.log("⏰ Iniciando verificação MANUAL de faturas solicitada pelo Dashboard...");
 
   try {
@@ -1366,7 +1372,7 @@ export const triggerInvoiceCheckManual = functions.https.onCall(async (data, con
       return { success: true, sent: 0, message: "Nenhum usuário com token FCM encontrado." };
     }
 
-    const IXC_TOKEN = process.env.IXC_TOKEN || "";
+    const { token: IXC_TOKEN } = getIxcConfig();
     const auth = Buffer.from(IXC_TOKEN).toString("base64");
 
     const notifications: Promise<any>[] = [];
@@ -1486,6 +1492,7 @@ export const triggerInvoiceCheckManual = functions.https.onCall(async (data, con
  * 🚀 Função invocável para enviar notificações customizadas do Dashboard.
  */
 export const sendCustomNotification = functions.https.onCall(async (data, context) => {
+  verifyAuth(context);
   const { title, body, userId, target } = data;
 
   if (!title || !body) {
@@ -1576,8 +1583,10 @@ export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes
   console.log("⏰ [CRON] Iniciando verificação de faturas pagas...");
   
   try {
-    const ixcService = new IXCBackendService(process.env.IXC_HOST || "", process.env.IXC_TOKEN || "");
-    const waService = new WhatsAppService(process.env.WHAPI_BASE_URL || "https://gate.whapi.cloud", process.env.WHAPI_API_KEY || "");
+    const { host: ixcHost, token: ixcToken } = getIxcConfig();
+    const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
+    const ixcService = new IXCBackendService(ixcHost, ixcToken);
+    const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
     
     const faturasPagas = await ixcService.getFaturasPagasHoje();
     if (faturasPagas.length === 0) {
@@ -1940,14 +1949,7 @@ export const asaasWebhook = functions.https.onRequest(async (req, res) => {
       console.log(`✅ Transação concluída com sucesso! Bilhetes gerados: ${ticketNumbers.join(", ")}`);
 
             try {
-        const whapiApiKey =
-          process.env.WHAPI_KEY ||
-          process.env.WHAPI_API_KEY ||
-          process.env.ZAPI_CLIENT_TOKEN ||
-          "Fa64a52f41c274de0847cf445392dbeedS";
-        const whapiBaseUrl =
-          process.env.WHAPI_BASE_URL ||
-          "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+        const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
 
         if (paymentData.clientPhone) {
           const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
@@ -2032,18 +2034,19 @@ export const ispfyProxy = functions.https.onRequest(async (req, res) => {
   }
 
   // A URL base e o Token devem vir do Environment do Firebase Functions
-  // Fallbacks úteis apenas se não configurado
-  const ISPFY_HOST = process.env.ISPFY_URL || "http://avltelecom.ispfycloud.com.br:8020";
-  const ISPFY_TOKEN = req.headers.token || req.headers.Token || process.env.ISPFY_TOKEN || "815e74b02bc6faa371f29274e3d317e0";
-
-  // O req.path geralmente virá como `/api/object/cliente` ou similar.
-  // Como a cloud function fica em /ispfyProxy, a url final será ISPFY_HOST + req.path
-  let path = req.path;
-  if (path === '/') path = ''; // caso a raiz seja chamada
-
-  const url = `${ISPFY_HOST}${path}`;
+  let url = "";
 
   try {
+    const ispfyConfig = getIspfyConfig();
+    const ISPFY_HOST = ispfyConfig.host;
+    const ISPFY_TOKEN = req.headers.token || req.headers.Token || ispfyConfig.token;
+
+    // O req.path geralmente virá como `/api/object/cliente` ou similar.
+    // Como a cloud function fica em /ispfyProxy, a url final será ISPFY_HOST + req.path
+    let path = req.path;
+    if (path === '/') path = ''; // caso a raiz seja chamada
+
+    url = `${ISPFY_HOST}${path}`;
     console.log(`[ISPFY Proxy] Encaminhando ${req.method} para ${url}`, { query: req.query });
     const response = await axios({
       method: req.method,
@@ -2083,3 +2086,4 @@ export {
 export * from "./ispfyPaymentMonitor";
 
 export * from './ispfyCarenciaMonitor';
+export { aiGenerateCopy, aiChatJosue } from "./aiProxy";

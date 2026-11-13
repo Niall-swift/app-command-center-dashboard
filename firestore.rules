@@ -1,14 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permitir acesso total à collection "chat" e suas subcollections
+    // Coleções internas do painel administrativo: exigem usuário autenticado no Firebase Auth
     match /chat/{document=**} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
-    
-    // Regras específicas para subcollections de mensagens
-    match /chat/{clienteId}/mensagens/{mensagemId} {
-      allow read, write: if true;
+
+    match /paid_raffle_secrets/{secretId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /os_daily_tracking/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /ispfy_audit_snapshots/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Settings: mantém manutenção pública para leitura do app Pre-Mix, mas protege asaas_config (chaves)
+    match /settings/{docId} {
+      allow read: if docId != 'asaas_config' || request.auth != null;
+      allow write: if request.auth != null;
     }
 
     // Regras para Sorteios Pagos (Públicos)
@@ -16,33 +29,30 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;
     }
-    
+
     match /paid_raffle_tickets/{ticketId} {
       allow read: if true; // Permite buscar bilhetes por CPF/whatsapp no cliente
       allow write: if request.auth != null;
     }
-    
+
     match /paid_raffle_payments/{paymentId} {
       allow read: if true; // Permite o cliente escutar a confirmação do pagamento em tempo real
       allow write: if request.auth != null;
     }
 
-    match /paid_raffle_secrets/{secretId} {
-      allow read, write: if true;
-    }
-    
+    // Coleções compatíveis com o aplicativo externo Pre-Mix
     match /users/{document=**} {
       allow read, write: if true;
     }
-    
+
     match /usuariosDoPreMix/{document=**} {
       allow read, write: if true;
     }
-    
+
     match /referralCodes/{document=**} {
       allow read, write: if true;
     }
-    
+
     match /pre_mix_roulette_wins/{document=**} {
       allow read, write: if true;
     }
@@ -50,32 +60,32 @@ service cloud.firestore {
     match /pre_mix_roulette_items/{document=**} {
       allow read, write: if true;
     }
+
     // Content Stats
     match /contentStats/{contentId} {
       allow read: if true;
       allow write: if request.auth != null;
     }
-    
+
     // Active Watchers
     match /activeWatchers/{userId} {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Settings collection
-    match /settings/{document=**} {
-      allow read: if true;
-      allow write: if false; // Somente painel administrativo (admin SDK) tem acesso irrestrito
-    }
 
-    // Rastreamento e contagem diária de Ordens de Serviço (O.S.)
-    match /os_daily_tracking/{document=**} {
-      allow read, write: if true;
-    }
-
-    // Regras padrão para outras collections
-    match /{document=**} {
-      allow read: if true;
+    // Fallback seguro: não sobrescreve coleções internas protegidas (semântica OR das rules)
+    match /{collection}/{document=**} {
+      allow read: if !(collection in [
+        'chat',
+        'paid_raffle_secrets',
+        'os_daily_tracking',
+        'settings',
+        'bot_sessions',
+        'bot_config',
+        'carencia_notified',
+        'notified_payments',
+        'ispfy_audit_snapshots'
+      ]);
       allow write: if request.auth != null;
     }
   }

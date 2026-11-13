@@ -84,15 +84,19 @@ export default function ISPFYAuditoria() {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('ALL');
   const [activeTab, setActiveTab] = useState<string>('overview');
+  const [exclusoesView, setExclusoesView] = useState<'periodo' | 'historico'>('periodo');
 
   // Carregar dados de auditoria
-  const loadAuditData = async (ano: number, mes: number) => {
+  const loadAuditData = async (ano: number, mes: number, forceRefresh = false) => {
     setLoading(true);
     setProgressMsg('Iniciando auditoria no ISPFY...');
     try {
-      const data = await ispfyService.getAuditData(ano, mes, (msg) => {
-        setProgressMsg(msg);
-      });
+      const data = await ispfyService.getAuditData(
+        ano,
+        mes,
+        (msg) => setProgressMsg(msg),
+        forceRefresh
+      );
       setAuditData(data);
       toast.success(`Auditoria de ${MONTH_NAMES[mes - 1]}/${ano} atualizada!`);
     } catch (error: any) {
@@ -122,8 +126,8 @@ export default function ISPFYAuditoria() {
   // Formatar Data
   const formatDate = (dateStr: string = '') => {
     if (!dateStr) return '-';
-    // Se for formato ISO ou YYYY-MM-DD HH:mm:ss
-    const parts = dateStr.split(' ');
+    const cleaned = dateStr.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '');
+    const parts = cleaned.split(' ');
     const datePart = parts[0];
     const timePart = parts[1] || '';
     const [y, m, d] = datePart.split('-');
@@ -133,24 +137,65 @@ export default function ISPFYAuditoria() {
     return dateStr;
   };
 
+  const formatLocation = (bairro?: string, cidade?: string) => {
+    const parts = [bairro?.trim(), cidade?.trim()].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : '-';
+  };
+
+  const openWhatsApp = (telefone?: string) => {
+    const clean = (telefone || '').replace(/\D/g, '');
+    if (!clean) return;
+    const phone = clean.startsWith('55') ? clean : `55${clean}`;
+    window.open(`https://wa.me/${phone}`, '_blank');
+  };
+
   // Copiar para clipboard
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copiado!`);
   };
 
+  const filterCancelledList = (list: ISPFYAuditCancelledContract[]) => {
+    const term = searchTerm.trim().toLowerCase();
+    const searchDigits = searchTerm.replace(/\D/g, '');
+
+    return list.filter((c) => {
+      const matchesSearch =
+        !term ||
+        (c.nome_cliente && c.nome_cliente.toLowerCase().includes(term)) ||
+        (searchDigits.length > 0 && c.cpf_cnpj && c.cpf_cnpj.replace(/\D/g, '').includes(searchDigits)) ||
+        c.id_cliente.includes(term) ||
+        c.id.includes(term) ||
+        (c.ticket_id && c.ticket_id.includes(term)) ||
+        (c.plano && c.plano.toLowerCase().includes(term)) ||
+        (c.cidade && c.cidade.toLowerCase().includes(term)) ||
+        (c.bairro && c.bairro.toLowerCase().includes(term)) ||
+        (c.observacoes && c.observacoes.toLowerCase().includes(term)) ||
+        (c.usuario_cadastrou && c.usuario_cadastrou.toLowerCase().includes(term));
+
+      const matchesUser = selectedUserFilter === 'ALL' || c.usuario_cadastrou === selectedUserFilter;
+      return matchesSearch && matchesUser;
+    });
+  };
+
   // Filtragem de cadastrados
   const filteredCadastrados = useMemo(() => {
     if (!auditData) return [];
-    return auditData.cadastrados.filter(c => {
-      const matchesSearch = 
-        !searchTerm ||
-        c.nome_razao.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.cpf_cnpj.includes(searchTerm.replace(/\D/g, '')) ||
-        c.id.includes(searchTerm) ||
-        (c.bairro && c.bairro.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (c.plano && c.plano.toLowerCase().includes(searchTerm.toLowerCase()));
-      
+    const term = searchTerm.trim().toLowerCase();
+    const searchDigits = searchTerm.replace(/\D/g, '');
+
+    return auditData.cadastrados.filter((c) => {
+      const matchesSearch =
+        !term ||
+        c.nome_razao.toLowerCase().includes(term) ||
+        (searchDigits.length > 0 && c.cpf_cnpj.replace(/\D/g, '').includes(searchDigits)) ||
+        c.id.includes(term) ||
+        (c.telefone && searchDigits.length > 0 && c.telefone.replace(/\D/g, '').includes(searchDigits)) ||
+        (c.bairro && c.bairro.toLowerCase().includes(term)) ||
+        (c.cidade && c.cidade.toLowerCase().includes(term)) ||
+        (c.plano && c.plano.toLowerCase().includes(term)) ||
+        (c.usuario_cadastrou && c.usuario_cadastrou.toLowerCase().includes(term));
+
       const matchesUser = selectedUserFilter === 'ALL' || c.usuario_cadastrou === selectedUserFilter;
       return matchesSearch && matchesUser;
     });
@@ -159,42 +204,50 @@ export default function ISPFYAuditoria() {
   // Filtragem de cancelados
   const filteredCancelados = useMemo(() => {
     if (!auditData) return [];
-    return auditData.cancelados.filter(c => {
-      const matchesSearch = 
-        !searchTerm ||
-        (c.nome_cliente && c.nome_cliente.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (c.cpf_cnpj && c.cpf_cnpj.includes(searchTerm.replace(/\D/g, ''))) ||
-        c.id_cliente.includes(searchTerm) ||
-        c.id.includes(searchTerm) ||
-        (c.usuario_cadastrou && c.usuario_cadastrou.toLowerCase().includes(searchTerm.toLowerCase()));
-      
-      const matchesUser = selectedUserFilter === 'ALL' || c.usuario_cadastrou === selectedUserFilter;
-      return matchesSearch && matchesUser;
-    });
+    return filterCancelledList(auditData.cancelados);
   }, [auditData, searchTerm, selectedUserFilter]);
 
-  // Filtragem de excluídos
+  // Filtragem de tickets de retirada sem rescisão formal
+  const filteredTicketsRemocao = useMemo(() => {
+    if (!auditData?.ticketsRemocao) return [];
+    return filterCancelledList(auditData.ticketsRemocao);
+  }, [auditData, searchTerm, selectedUserFilter]);
+
+  // Filtragem de excluídos (período ou histórico completo da base)
   const filteredExcluidos = useMemo(() => {
     if (!auditData) return [];
-    return auditData.excluidos.filter(e => {
-      if (!searchTerm) return true;
+    const source =
+      exclusoesView === 'historico'
+        ? auditData.lacunasHistoricas || auditData.excluidos
+        : auditData.excluidos;
+
+    const term = searchTerm.trim().toLowerCase();
+    const searchDigits = searchTerm.replace(/\D/g, '');
+
+    return source.filter((e) => {
+      if (!term) return true;
       return (
-        e.id.includes(searchTerm) ||
-        (e.nome && e.nome.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (e.motivo && e.motivo.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (e.cpf_cnpj && e.cpf_cnpj.includes(searchTerm))
+        e.id.includes(term) ||
+        (e.nome && e.nome.toLowerCase().includes(term)) ||
+        (e.motivo && e.motivo.toLowerCase().includes(term)) ||
+        (searchDigits.length > 0 && e.cpf_cnpj && e.cpf_cnpj.replace(/\D/g, '').includes(searchDigits)) ||
+        (e.referencia_anterior?.nome && e.referencia_anterior.nome.toLowerCase().includes(term)) ||
+        (e.referencia_posterior?.nome && e.referencia_posterior.nome.toLowerCase().includes(term))
       );
     });
-  }, [auditData, searchTerm]);
+  }, [auditData, searchTerm, exclusoesView]);
 
   // Lista de todos os atendentes que aparecem nos dados
   const atendentesList = useMemo(() => {
     if (!auditData) return [];
     const setUsers = new Set<string>();
-    auditData.cadastrados.forEach(c => {
+    auditData.cadastrados.forEach((c) => {
       if (c.usuario_cadastrou) setUsers.add(c.usuario_cadastrou);
     });
-    auditData.cancelados.forEach(c => {
+    auditData.cancelados.forEach((c) => {
+      if (c.usuario_cadastrou) setUsers.add(c.usuario_cadastrou);
+    });
+    (auditData.ticketsRemocao || []).forEach((c) => {
       if (c.usuario_cadastrou) setUsers.add(c.usuario_cadastrou);
     });
     return Array.from(setUsers).sort();
@@ -209,26 +262,42 @@ export default function ISPFYAuditoria() {
     csvContent += `Gerado em:;${new Date().toLocaleString('pt-BR')}\n`;
     csvContent += `Total Cadastrados:;${auditData.resumo.totalCadastrados}\n`;
     csvContent += `Total Cancelados/Rescindidos:;${auditData.resumo.totalCancelados}\n`;
-    csvContent += `Total Excluídos/Lacunas:;${auditData.resumo.totalExcluidos}\n`;
+    csvContent += `Tickets de Retirada (Sem Rescisão):;${auditData.resumo.totalTicketsRemocao || 0}\n`;
+    csvContent += `Total Excluídos no Período:;${auditData.resumo.totalExcluidos}\n`;
+    csvContent += `Total Lacunas na Base (1..${auditData.resumo.maiorIdBase || '-'}):;${auditData.resumo.totalLacunasBase ?? auditData.resumo.totalExcluidos}\n`;
     csvContent += `Saldo Líquido:;${auditData.resumo.saldoLiquido}\n\n`;
 
     // Seção 1: Cadastrados
     csvContent += `=== CLIENTES CADASTRADOS NO MÊS (${auditData.cadastrados.length}) ===\n`;
-    csvContent += `ID;Nome / Razão Social;CPF / CNPJ;Data e Hora de Cadastro;Atendente / Usuário;Plano;Valor Mensal (R$);Bairro;Cidade;Telefone\n`;
+    csvContent += `ID;Nome / Razão Social;CPF / CNPJ;Data e Hora de Cadastro;Cadastrado por;Plano;Valor Mensal (R$);Bairro;Cidade;Telefone\n`;
     auditData.cadastrados.forEach(c => {
       csvContent += `${c.id};"${c.nome_razao}";"${formatDocument(c.cpf_cnpj)}";"${c.data_cadastro}";"${c.usuario_cadastrou}";"${c.plano || '-'}";"${c.valor_mensal || '0.00'}";"${c.bairro || '-'}";"${c.cidade || '-'}";"${c.telefone || '-'}"\n`;
     });
 
     csvContent += `\n=== CONTRATOS CANCELADOS / RESCINDIDOS NO MÊS (${auditData.cancelados.length}) ===\n`;
-    csvContent += `ID Contrato;ID Cliente;Nome Cliente;CPF / CNPJ;Data Adesão;Data Rescisão;Dias Ativo;Mensalidade (R$);Atendente;Observações\n`;
+    csvContent += `ID Contrato;ID Cliente;Nome Cliente;CPF / CNPJ;Plano;Cidade;Bairro;Telefone;Data Adesão;Data Rescisão;Dias Ativo;Mensalidade (R$);Contratos Ativos Restantes;Cadastrado por;Observações\n`;
     auditData.cancelados.forEach(c => {
-      csvContent += `${c.id};${c.id_cliente};"${c.nome_cliente || '-'}";"${formatDocument(c.cpf_cnpj || '')}";"${c.data_adesao || '-'}";"${c.data_rescisao}";"${c.dias_ativo || '-' }";"${c.valor_mensal || '0.00'}";"${c.usuario_cadastrou || '-'}";"${c.observacoes?.replace(/\n/g, ' ') || '-'}"\n`;
+      csvContent += `${c.id};${c.id_cliente};"${c.nome_cliente || '-'}";"${formatDocument(c.cpf_cnpj || '')}";"${c.plano || '-'}";"${c.cidade || '-'}";"${c.bairro || '-'}";"${c.telefone || '-'}";"${c.data_adesao || '-'}";"${c.data_rescisao}";"${c.dias_ativo ?? '-'}";"${c.valor_mensal || '0.00'}";"${c.contratos_ativos_restantes ?? 0}";"${c.usuario_cadastrou || '-'}";"${c.observacoes?.replace(/\n/g, ' ') || '-'}"\n`;
     });
 
-    csvContent += `\n=== AUDITORIA DE EXCLUSÕES E LACUNAS DETECTADAS (${auditData.excluidos.length}) ===\n`;
-    csvContent += `ID;Tipo;Nome Prévio;Data Estimada;Motivo / Análise Forense\n`;
-    auditData.excluidos.forEach(e => {
-      csvContent += `${e.id};"${e.tipo}";"${e.nome || 'Desconhecido'}";"${e.provavel_data || '-'}";"${e.motivo.replace(/\n/g, ' ')}"\n`;
+    if (auditData.ticketsRemocao && auditData.ticketsRemocao.length > 0) {
+      csvContent += `\n=== TICKETS DE RETIRADA SEM RESCISÃO FORMAL (${auditData.ticketsRemocao.length}) ===\n`;
+      csvContent += `Ticket;ID Contrato;ID Cliente;Nome Cliente;CPF / CNPJ;Plano;Cidade;Telefone;Data Abertura;Status Contrato;Cadastrado por;Assunto / Observação\n`;
+      auditData.ticketsRemocao.forEach(t => {
+        csvContent += `${t.ticket_id || '-'};${t.id};${t.id_cliente};"${t.nome_cliente || '-'}";"${formatDocument(t.cpf_cnpj || '')}";"${t.plano || '-'}";"${t.cidade || '-'}";"${t.telefone || '-'}";"${t.data_abertura_ticket || t.data_rescisao}";"${t.status_contrato || '-'}";"${t.usuario_cadastrou || '-'}";"${t.observacoes?.replace(/\n/g, ' ') || '-'}"\n`;
+      });
+    }
+
+    const excluidosExport =
+      exclusoesView === 'historico'
+        ? auditData.lacunasHistoricas || auditData.excluidos
+        : auditData.excluidos;
+    csvContent += `\n=== AUDITORIA DE EXCLUSÕES E LACUNAS (${exclusoesView === 'historico' ? 'BASE COMPLETA' : 'PERÍODO'}: ${excluidosExport.length}) ===\n`;
+    csvContent += `ID;Tipo;Nome Prévio;CPF/CNPJ;Data Estimada;Detectado em;Referência Anterior;Referência Posterior;Motivo / Análise Forense\n`;
+    excluidosExport.forEach(e => {
+      const refAnt = e.referencia_anterior ? `#${e.referencia_anterior.id} ${e.referencia_anterior.nome}` : '-';
+      const refPost = e.referencia_posterior ? `#${e.referencia_posterior.id} ${e.referencia_posterior.nome}` : '-';
+      csvContent += `${e.id};"${e.tipo}";"${e.nome || 'Desconhecido'}";"${formatDocument(e.cpf_cnpj || '')}";"${e.provavel_data || '-'}";"${e.detectado_em || '-'}";"${refAnt}";"${refPost}";"${e.motivo.replace(/\n/g, ' ')}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -353,7 +422,7 @@ export default function ISPFYAuditoria() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => loadAuditData(selectedYear, selectedMonth)}
+              onClick={() => loadAuditData(selectedYear, selectedMonth, true)}
               disabled={loading}
               className="bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white text-xs h-9"
             >
@@ -485,16 +554,36 @@ export default function ISPFYAuditoria() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">
-                    {auditData.resumo.totalExcluidos}
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">
+                      {auditData.resumo.totalExcluidos}
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        auditData.resumo.snapshotCloudAtivo
+                          ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
+                          : 'border-amber-500/40 text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {auditData.resumo.snapshotCloudAtivo ? 'Snapshot Nuvem' : 'Snapshot Local'}
+                    </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {auditData.resumo.totalExcluidos === 0 ? (
-                      <span className="text-emerald-600 font-medium">Nenhuma lacuna detectada</span>
+                      <span className="text-emerald-600 font-medium">Nenhuma lacuna detectada no mês</span>
                     ) : (
-                      <span>Registros removidos da base de dados</span>
+                      <span>Registros removidos ou lacunas no período</span>
                     )}
                   </p>
+                  {auditData.resumo.totalBaseAtiva !== undefined && (
+                    <p className="text-[11px] text-muted-foreground mt-1.5 pt-1.5 border-t border-amber-500/15">
+                      Base: <strong>{auditData.resumo.totalBaseAtiva}</strong> ativos (ID #1..#{auditData.resumo.maiorIdBase || '-'}) •{' '}
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">
+                        {auditData.resumo.totalLacunasBase ?? auditData.resumo.totalExcluidos} lacunas históricas
+                      </span>
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -595,11 +684,14 @@ export default function ISPFYAuditoria() {
             </TabsTrigger>
             <TabsTrigger value="cancelados" className="text-xs py-2 px-3 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
               <UserMinus className="w-3.5 h-3.5 mr-1.5 text-rose-500" />
-              Cancelados no Mês ({auditData?.cancelados.length || 0})
+              Cancelados no Mês ({auditData?.cancelados.length || 0}
+              {(auditData?.ticketsRemocao?.length || 0) > 0 && ` + ${auditData?.ticketsRemocao?.length} ret.`})
             </TabsTrigger>
             <TabsTrigger value="excluidos" className="text-xs py-2 px-3 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
               <ShieldAlert className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
-              Excluídos do ISPFY ({auditData?.excluidos.length || 0})
+              Excluídos do ISPFY ({auditData?.excluidos.length || 0}
+              {(auditData?.lacunasHistoricas?.length || 0) > (auditData?.excluidos.length || 0) &&
+                ` / ${auditData?.lacunasHistoricas?.length}`})
             </TabsTrigger>
             <TabsTrigger value="atendentes" className="text-xs py-2 px-3 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
               <Award className="w-3.5 h-3.5 mr-1.5 text-purple-500" />
@@ -699,17 +791,33 @@ export default function ISPFYAuditoria() {
                       <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs space-y-2 text-muted-foreground">
                         <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                          Metodologia da Auditoria ISPFY
+                          Metodologia da Auditoria ISPFY (Dados Reais em Tempo Real)
                         </div>
                         <p>
-                          • <strong>Cadastrados:</strong> Clientes criados na rota <code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">/api/object/cliente</code> com <code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">data_cadastro</code> pertencente ao mês.
+                          • <strong>Cadastrados:</strong> Clientes criados na base completa <code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">/cliente</code> no mês, cruzados com contratos, pontos/planos reais (<code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">/ponto/planos</code>), cidades (<code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">/cidade</code>) e telefones (<code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">/cliente/contato</code>).
                         </p>
                         <p>
-                          • <strong>Cancelados:</strong> Clientes com contratos finalizados ou rescindidos (<code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">data_rescisao</code> no mês e <code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">contrato_ativo = n</code>).
+                          • <strong>Cancelados &amp; Retiradas:</strong> Contratos com <code className="text-[11px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">data_rescisao</code> no mês (distinguindo cancelamento total vs parcial), além de tickets de retirada de equipamentos (Tópico 7) ainda sem baixa contratual.
                         </p>
                         <p>
-                          • <strong>Excluídos:</strong> IDs sequenciais que foram criados e posteriormente deletados de forma definitiva do banco de dados ISPFY, deixando lacuna de numeração.
+                          • <strong>Excluídos:</strong> Catálogo persistente na nuvem (Firestore) para registrar nome, CPF e data antes da exclusão + varredura global de lacunas na sequência de IDs da base inteira.
                         </p>
+                        {(auditData.resumo.totalTicketsRemocao || 0) > 0 && (
+                          <div className="pt-2 mt-2 border-t border-amber-500/20 flex items-center justify-between text-amber-700 dark:text-amber-300 font-medium">
+                            <span className="flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {auditData.resumo.totalTicketsRemocao} ticket(s) de retirada de equipamento aberto(s) no mês sem rescisão formal no contrato.
+                            </span>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              onClick={() => setActiveTab('cancelados')}
+                              className="h-auto p-0 text-xs text-amber-700 dark:text-amber-300 underline"
+                            >
+                              Ver na aba Cancelados
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -839,16 +947,23 @@ export default function ISPFYAuditoria() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                                {client.plano || 'Plano padrão'}
-                              </div>
-                              <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                R$ {parseFloat(client.valor_mensal || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-                              </div>
+                              {client.sem_contrato ? (
+                                <Badge variant="outline" className="text-[10px] border-amber-400/60 text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30">
+                                  Sem contrato vinculado
+                                </Badge>
+                              ) : (
+                                <>
+                                  <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                                    {client.plano || 'Não identificado'}
+                                  </div>
+                                  <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    R$ {parseFloat(client.valor_mensal || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                                  </div>
+                                </>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {client.bairro ? `${client.bairro}` : '-'}
-                              {client.cidade && `, ${client.cidade}`}
+                              {formatLocation(client.bairro, client.cidade)}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
@@ -867,11 +982,7 @@ export default function ISPFYAuditoria() {
                                     size="icon"
                                     className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                                     title="Abrir WhatsApp"
-                                    onClick={() => {
-                                      const clean = client.telefone?.replace(/\D/g, '') || '';
-                                      const phone = clean.startsWith('55') ? clean : `55${clean}`;
-                                      window.open(`https://wa.me/${phone}`, '_blank');
-                                    }}
+                                    onClick={() => openWhatsApp(client.telefone)}
                                   >
                                     <Phone className="w-3.5 h-3.5" />
                                   </Button>
@@ -910,11 +1021,11 @@ export default function ISPFYAuditoria() {
                       Contratos Cancelados / Rescindidos em {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}
                     </CardTitle>
                     <CardDescription>
-                      Exibindo {filteredCancelados.length} de {auditData?.cancelados.length || 0} cancelamentos registrados no ISPFY
+                      Exibindo {filteredCancelados.length} de {auditData?.cancelados.length || 0} cancelamentos formais registrados no ISPFY
                     </CardDescription>
                   </div>
                   <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300">
-                    Total: {auditData?.cancelados.length || 0} cancelamentos
+                    Total: {auditData?.cancelados.length || 0} rescisões
                   </Badge>
                 </div>
               </CardHeader>
@@ -923,21 +1034,20 @@ export default function ISPFYAuditoria() {
                   <Table>
                     <TableHeader className="bg-muted/30">
                       <TableRow>
-                        <TableHead className="w-16">ID</TableHead>
+                        <TableHead className="w-20">Contrato</TableHead>
                         <TableHead>Cliente</TableHead>
                         <TableHead>CPF / CNPJ</TableHead>
-                        <TableHead>Data Adesão</TableHead>
-                        <TableHead>Data Rescisão</TableHead>
-                        <TableHead>Tempo de Base</TableHead>
-                        <TableHead>Valor Mensal</TableHead>
-                        <TableHead>Atendente / Resp.</TableHead>
+                        <TableHead>Plano &amp; Valor</TableHead>
+                        <TableHead>Localidade</TableHead>
+                        <TableHead>Adesão / Rescisão</TableHead>
+                        <TableHead>Cadastrado por / Vínculo</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredCancelados.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
+                          <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                             Nenhum contrato rescindido ou cancelado neste mês.
                           </TableCell>
                         </TableRow>
@@ -954,32 +1064,55 @@ export default function ISPFYAuditoria() {
                               <div className="text-[10px] text-muted-foreground font-mono">
                                 ID Cliente: #{item.id_cliente}
                               </div>
+                              {item.telefone && (
+                                <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                  <Phone className="w-3 h-3 text-emerald-500" />
+                                  {item.telefone}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="font-mono text-xs">
                               {formatDocument(item.cpf_cnpj)}
                             </TableCell>
+                            <TableCell>
+                              <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                                {item.plano || 'Não identificado'}
+                              </div>
+                              <div className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+                                R$ {parseFloat(item.valor_mensal || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                              </div>
+                            </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {formatDate(item.data_adesao)}
+                              {formatLocation(item.bairro, item.cidade)}
                             </TableCell>
-                            <TableCell className="text-xs font-medium text-rose-600 dark:text-rose-400">
-                              {formatDate(item.data_rescisao)}
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              {item.dias_ativo !== undefined ? (
-                                <Badge variant="outline" className="text-[10px] font-normal border-slate-300">
+                            <TableCell className="text-xs space-y-0.5">
+                              <div className="text-muted-foreground">
+                                Adesão: {formatDate(item.data_adesao)}
+                              </div>
+                              <div className="font-medium text-rose-600 dark:text-rose-400">
+                                Rescisão: {formatDate(item.data_rescisao)}
+                              </div>
+                              {item.dias_ativo !== undefined && (
+                                <Badge variant="outline" className="text-[10px] font-normal border-slate-300 mt-0.5">
                                   {item.dias_ativo} dias (~{Math.round(item.dias_ativo / 30)} meses)
                                 </Badge>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-xs font-semibold text-rose-600 dark:text-rose-400">
-                              R$ {parseFloat(item.valor_mensal || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </TableCell>
-                            <TableCell>
+                            <TableCell className="space-y-1">
                               <Badge variant="secondary" className="text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                                 {item.usuario_cadastrou}
                               </Badge>
+                              <div>
+                                {(item.contratos_ativos_restantes || 0) > 0 ? (
+                                  <Badge variant="outline" className="text-[10px] border-amber-400/60 text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30">
+                                    Mantém {item.contratos_ativos_restantes} ativo(s)
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[10px] border-rose-400/60 text-rose-700 dark:text-rose-300 bg-rose-50/70 dark:bg-rose-950/30">
+                                    Cancelamento Total
+                                  </Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
@@ -992,6 +1125,17 @@ export default function ISPFYAuditoria() {
                                 >
                                   <Copy className="w-3.5 h-3.5" />
                                 </Button>
+                                {item.telefone && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                    title="Abrir WhatsApp"
+                                    onClick={() => openWhatsApp(item.telefone)}
+                                  >
+                                    <Phone className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
                                 {item.id_cliente && (
                                   <Button
                                     variant="ghost"
@@ -1013,6 +1157,130 @@ export default function ISPFYAuditoria() {
                 </div>
               </CardContent>
             </Card>
+
+            {(auditData?.ticketsRemocao?.length || 0) > 0 && (
+              <Card className="border border-amber-500/30 dark:border-amber-500/20 overflow-hidden">
+                <CardHeader className="bg-amber-50/50 dark:bg-amber-950/20 pb-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <CardTitle className="text-base font-semibold flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="w-5 h-5" />
+                        Tickets de Retirada de Equipamentos (Sem Rescisão Formal no Contrato)
+                      </CardTitle>
+                      <CardDescription>
+                        Chamados de remoção (Tópico 7) abertos em {MONTH_NAMES[selectedMonth - 1]}/{selectedYear} cujo contrato ainda não possui <code className="text-[11px]">data_rescisao</code> no ISPFY
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="bg-amber-100/80 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300">
+                      {filteredTicketsRemocao.length} chamado(s)
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader className="bg-muted/30">
+                        <TableRow>
+                          <TableHead className="w-20">Ticket</TableHead>
+                          <TableHead>Cliente</TableHead>
+                          <TableHead>Plano &amp; Valor</TableHead>
+                          <TableHead>Localidade</TableHead>
+                          <TableHead>Abertura / Status Contrato</TableHead>
+                          <TableHead>Assunto / Motivo</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredTicketsRemocao.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                              Nenhum ticket de retirada correspondente aos filtros aplicados.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredTicketsRemocao.map((tk) => (
+                            <TableRow key={`tk-${tk.ticket_id || tk.id}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-850/50 transition-colors">
+                              <TableCell className="font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                #{tk.ticket_id || tk.id}
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium text-xs text-slate-900 dark:text-slate-100">
+                                  {tk.nome_cliente}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground font-mono">
+                                  Cliente #{tk.id_cliente} • Contrato #{tk.id}
+                                </div>
+                                {tk.telefone && (
+                                  <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <Phone className="w-3 h-3 text-emerald-500" />
+                                    {tk.telefone}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                                  {tk.plano || 'Não identificado'}
+                                </div>
+                                <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                                  R$ {parseFloat(tk.valor_mensal || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {formatLocation(tk.bairro, tk.cidade)}
+                              </TableCell>
+                              <TableCell className="text-xs space-y-1">
+                                <div>{formatDate(tk.data_abertura_ticket || tk.data_rescisao)}</div>
+                                <Badge variant="outline" className="text-[10px] uppercase border-amber-400/60 text-amber-700 dark:text-amber-300">
+                                  {tk.status_contrato || 'em aberto'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[260px]">
+                                <span className="line-clamp-2">{tk.observacoes || '-'}</span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                    title="Copiar dados"
+                                    onClick={() => handleCopy(`${tk.nome_cliente} (ID: ${tk.id_cliente}) - Ticket #${tk.ticket_id}`, 'Dados do ticket')}
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </Button>
+                                  {tk.telefone && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                      title="Abrir WhatsApp"
+                                      onClick={() => openWhatsApp(tk.telefone)}
+                                    >
+                                      <Phone className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                  {tk.id_cliente && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                                      title="Ver cliente"
+                                      onClick={() => navigate(`/ispfy/cliente/${tk.id_cliente}`)}
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* ═══════════════════════════════════════════════════════ */}
@@ -1026,14 +1294,26 @@ export default function ISPFYAuditoria() {
                   <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div className="space-y-1 text-xs">
-                  <h3 className="font-semibold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2">
                     Auditoria Forense de Exclusões e Deleções no ISPFY
                     <Badge variant="outline" className="border-amber-400 text-amber-600 dark:text-amber-400 text-[10px]">
-                      Detecção Sequencial & Snapshot
+                      Detecção Sequencial Global &amp; Snapshot em Nuvem
                     </Badge>
+                    {auditData?.resumo.snapshotCloudAtivo !== undefined && (
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${
+                          auditData.resumo.snapshotCloudAtivo
+                            ? 'border-emerald-400 text-emerald-600 dark:text-emerald-400'
+                            : 'border-slate-400 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        {auditData.resumo.snapshotCloudAtivo ? 'Firestore Sincronizado' : 'Somente Cache Local'}
+                      </Badge>
+                    )}
                   </h3>
                   <p className="text-muted-foreground leading-relaxed">
-                    Quando um operador remove ou apaga um cliente/pré-cadastro no ISPFY, o registro sofre exclusão direta do banco de dados (hard delete). O sistema ISPFY atribui IDs sequenciais numéricos automáticos; portanto, qualquer lacuna na sequência ou cliente presente em histórico prévio ausente na consulta indica que o registro foi <strong>excluído/deletado permanentemente</strong> da base.
+                    Quando um operador apaga um cliente no ISPFY, o registro sofre exclusão direta do banco (hard delete), deixando lacuna na numeração sequencial. O painel compara toda a base ativa (IDs #1 até #{auditData?.resumo.maiorIdBase || '...'}) contra o snapshot salvo em nuvem: registros excluídos após a implantação do snapshot exibem nome, CPF e responsável; lacunas antigas anteriores ao primeiro snapshot exibem os clientes vizinhos exatos para rastreio.
                   </p>
                 </div>
               </div>
@@ -1041,19 +1321,36 @@ export default function ISPFYAuditoria() {
 
             <Card className="border border-slate-200 dark:border-slate-800 overflow-hidden">
               <CardHeader className="bg-slate-50/50 dark:bg-slate-900/50 pb-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                   <div>
                     <CardTitle className="text-base font-semibold flex items-center gap-2 text-amber-700 dark:text-amber-400">
                       <ShieldAlert className="w-5 h-5" />
                       Registros Excluídos / Expurgados Detectados
                     </CardTitle>
                     <CardDescription>
-                      {filteredExcluidos.length} lacunas ou registros excluídos catalogados no período
+                      {exclusoesView === 'historico'
+                        ? `Exibindo ${filteredExcluidos.length} de ${auditData?.lacunasHistoricas?.length || 0} lacunas na base completa (#1..#${auditData?.resumo.maiorIdBase || '-'})`
+                        : `Exibindo ${filteredExcluidos.length} de ${auditData?.excluidos.length || 0} ocorrências estimadas em ${MONTH_NAMES[selectedMonth - 1]}/${selectedYear}`}
                     </CardDescription>
                   </div>
-                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300">
-                    Total: {auditData?.excluidos.length || 0} ocorrências
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant={exclusoesView === 'periodo' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setExclusoesView('periodo')}
+                      className="h-8 text-xs"
+                    >
+                      Do Período ({auditData?.excluidos.length || 0})
+                    </Button>
+                    <Button
+                      variant={exclusoesView === 'historico' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setExclusoesView('historico')}
+                      className="h-8 text-xs"
+                    >
+                      Todas as Lacunas da Base ({auditData?.lacunasHistoricas?.length || auditData?.excluidos.length || 0})
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -1064,7 +1361,7 @@ export default function ISPFYAuditoria() {
                         <TableHead className="w-20">ID Excluído</TableHead>
                         <TableHead>Tipo de Detecção</TableHead>
                         <TableHead>Nome / Informações Prévias</TableHead>
-                        <TableHead>Data Estimada</TableHead>
+                        <TableHead>Data Estimada / Detecção</TableHead>
                         <TableHead>Referência Anterior</TableHead>
                         <TableHead>Referência Posterior</TableHead>
                         <TableHead>Status da Auditoria</TableHead>
@@ -1077,10 +1374,14 @@ export default function ISPFYAuditoria() {
                             <div className="flex flex-col items-center justify-center gap-2">
                               <CheckCircle2 className="w-8 h-8 text-emerald-500" />
                               <span className="font-medium text-slate-700 dark:text-slate-300">
-                                Nenhuma exclusão ou lacuna sequencial encontrada no mês de {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}.
+                                {exclusoesView === 'historico'
+                                  ? 'Nenhuma exclusão ou lacuna encontrada com os filtros aplicados.'
+                                  : `Nenhuma exclusão ou lacuna sequencial detectada em ${MONTH_NAMES[selectedMonth - 1]}/${selectedYear}.`}
                               </span>
                               <span className="text-xs text-muted-foreground">
-                                Todos os IDs sequenciais cadastrados estão preservados e íntegros no ISPFY.
+                                {(auditData?.lacunasHistoricas?.length || 0) > 0 && exclusoesView === 'periodo'
+                                  ? `Existem ${auditData?.lacunasHistoricas?.length} lacunas históricas na base completa. Clique em "Todas as Lacunas da Base" para visualizar.`
+                                  : 'Todos os IDs sequenciais estão íntegros no escopo selecionado.'}
                               </span>
                             </div>
                           </TableCell>
@@ -1111,22 +1412,42 @@ export default function ISPFYAuditoria() {
                                   CPF/CNPJ: {formatDocument(item.cpf_cnpj)}
                                 </div>
                               )}
+                              {item.telefone && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Tel: {item.telefone}
+                                </div>
+                              )}
+                              {(item.bairro || item.cidade) && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {formatLocation(item.bairro, item.cidade)}
+                                </div>
+                              )}
                               {item.usuario_cadastrou && (
                                 <div className="text-[10px] text-muted-foreground">
-                                  Atendente: {item.usuario_cadastrou}
+                                  Cadastrado por: {item.usuario_cadastrou}
                                 </div>
                               )}
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {formatDate(item.provavel_data)}
+                            <TableCell className="text-xs text-muted-foreground space-y-0.5">
+                              <div>{formatDate(item.provavel_data)}</div>
+                              {item.detectado_em && (
+                                <div className="text-[10px] text-rose-600 dark:text-rose-400">
+                                  Detectado: {formatDate(item.detectado_em)}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs">
                               {item.referencia_anterior ? (
                                 <div>
                                   <span className="font-mono text-slate-500">#{item.referencia_anterior.id}</span>
-                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate max-w-[150px]">
+                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate max-w-[160px]">
                                     {item.referencia_anterior.nome}
                                   </p>
+                                  {item.referencia_anterior.data_cadastro && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {formatDate(item.referencia_anterior.data_cadastro)}
+                                    </p>
+                                  )}
                                 </div>
                               ) : '-'}
                             </TableCell>
@@ -1134,9 +1455,14 @@ export default function ISPFYAuditoria() {
                               {item.referencia_posterior ? (
                                 <div>
                                   <span className="font-mono text-slate-500">#{item.referencia_posterior.id}</span>
-                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate max-w-[150px]">
+                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate max-w-[160px]">
                                     {item.referencia_posterior.nome}
                                   </p>
+                                  {item.referencia_posterior.data_cadastro && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {formatDate(item.referencia_posterior.data_cadastro)}
+                                    </p>
+                                  )}
                                 </div>
                               ) : '-'}
                             </TableCell>

@@ -1,35 +1,8 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import axios from "axios";
-
-// Função para converter string para base64
-function stringToBase64(str: string): string {
-  return Buffer.from(str).toString("base64");
-}
-
-// Helper para obter tokens em ambiente seguro (process.env ou fallback para teste)
-const getIxcAuthHeader = () => {
-  const token = process.env.IXC_TOKEN || "29:ed30004f8207dbe08feb05005d67ea023793429a91210655cbf03fe12b1e4c94";
-  return `Basic ${stringToBase64(token)}`;
-};
-
-const getSmartOltConfig = () => {
-  const url = process.env.SMARTOLT_URL || "https://ncbrasil.smartolt.com/api";
-  const token = process.env.SMARTOLT_TOKEN || "dc89eeacedac434ca5280f84d673f381";
-  return { baseUrl: url.replace('/system/', '').replace(/\/$/, ''), token };
-};
-
-/**
- * 🔒 Middleware de segurança para funções invocáveis
- */
-function verifyAuth(context: functions.https.CallableContext) {
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
-      "unauthenticated",
-      "O usuário deve estar autenticado para executar esta ação."
-    );
-  }
-}
+import { verifyAuth } from "./config/auth";
+import { getIxcConfig, getSmartOltConfig } from "./config/env";
 
 /**
  * 🚀 Proxy: Reiniciar roteador via SmartOLT
@@ -125,7 +98,7 @@ export const ixcFetchClient = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("invalid-argument", "CPF/CNPJ é obrigatório.");
   }
 
-  const ixcBaseUrl = process.env.IXC_URL || "https://coopertecisp.com.br/webservice/v1";
+  const { host: ixcBaseUrl, authHeader } = getIxcConfig();
 
   try {
     console.log(`🤖 [Proxy] Buscando cadastro de cliente para CPF: ${cpf}`);
@@ -142,7 +115,7 @@ export const ixcFetchClient = functions.https.onCall(async (data, context) => {
       },
       {
         headers: {
-          Authorization: getIxcAuthHeader(),
+          Authorization: authHeader,
           ixcsoft: "listar",
         },
         timeout: 15000,

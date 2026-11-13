@@ -11,12 +11,15 @@ export class WhatsAppService {
   private client: AxiosInstance;
 
   constructor(baseURL: string, apiKey: string) {
-    const finalBaseURL = baseURL.includes('z-api') ? baseURL : "https://api.z-api.io/instances/3F95A6BAE5232173E9473AA12C97C203/token/FC515FBAF1E892D0F1E3FFAB";
+    if (!baseURL?.trim()) {
+      throw new Error("WHAPI_BASE_URL não configurada.");
+    }
     this.client = axios.create({
-      baseURL: finalBaseURL,
+      baseURL: baseURL.replace(/\/$/, ""),
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey ? { 'Client-Token': apiKey } : {}),
       },
     });
   }
