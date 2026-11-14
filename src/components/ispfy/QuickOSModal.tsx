@@ -122,9 +122,9 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       .then((grupos) => {
         if (!grupos || grupos.length === 0) return;
         setGruposWhatsApp(grupos);
-        const padrao = selecionarGrupoWhatsAppPadrao(grupos);
-        if (padrao) {
-          setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
+        if (!grupoSelecionadoPhone) {
+          const padrao = selecionarGrupoWhatsAppPadrao(grupos);
+          if (padrao) setGrupoSelecionadoPhone(padrao.phone);
         }
       })
       .catch(console.error)
@@ -397,13 +397,13 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
     const textoCodificado = encodeURIComponent(
       `🛠 *Ordem de Serviço Aberta*\n` +
-        `Olá, *${nomeCliente}*!\n` +
-        `Seu chamado foi registrado com sucesso.\n\n` +
-        `📋 *O.S. Nº:* ${chamadoCriadoId || 'N/A'}\n` +
-        `📌 *Assunto:* ${nomeAssunto}\n` +
-        `⚡ *Prioridade:* ${rotuloPrioridade}\n` +
-        `📝 *Descrição:* ${mensagem}\n\n` +
-        `Nossa equipe entrará em contato em breve. Obrigado! 🙏`
+      `Olá, *${nomeCliente}*!\n` +
+      `Seu chamado foi registrado com sucesso.\n\n` +
+      `📋 *O.S. Nº:* ${chamadoCriadoId || 'N/A'}\n` +
+      `📌 *Assunto:* ${nomeAssunto}\n` +
+      `⚡ *Prioridade:* ${rotuloPrioridade}\n` +
+      `📝 *Descrição:* ${mensagem}\n\n` +
+      `Nossa equipe entrará em contato em breve. Obrigado! 🙏`
     );
 
     abrirConversaWhatsApp(telefoneBruto, textoCodificado);
@@ -452,13 +452,12 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                 {[1, 2, 3].map((passo) => (
                   <div
                     key={passo}
-                    className={`h-1.5 rounded-full transition-all duration-300 ${
-                      passo === etapa
+                    className={`h-1.5 rounded-full transition-all duration-300 ${passo === etapa
                         ? 'w-6 bg-emerald-500'
                         : passo < etapa
-                        ? 'w-3 bg-emerald-600'
-                        : 'w-3 bg-secondary'
-                    }`}
+                          ? 'w-3 bg-emerald-600'
+                          : 'w-3 bg-secondary'
+                      }`}
                   />
                 ))}
               </div>
@@ -673,11 +672,10 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                       <button
                         key={chave}
                         onClick={() => setPrioridade(chave)}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all ${
-                          prioridade === chave
+                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all ${prioridade === chave
                             ? `${info.classeBadge} scale-[1.02] shadow-sm`
                             : 'bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
-                        }`}
+                          }`}
                       >
                         {info.rotulo}
                       </button>
