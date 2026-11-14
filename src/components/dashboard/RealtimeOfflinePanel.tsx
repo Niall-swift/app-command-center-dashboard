@@ -24,66 +24,55 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
-import { openWhatsAppChat } from '@/lib/utils';
+import { abrirConversaWhatsApp } from '@/lib/utils';
+import { formatarDataHoraCurta, formatarHorarioCurto } from '@/utils/date';
 import { toast } from 'sonner';
 
-function formatClock(iso?: string): string {
-  if (!iso) return '-';
-  const cleaned = iso.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '');
-  const [datePart, timePart] = cleaned.split(' ');
-  const [y, m, d] = (datePart || '').split('-');
-  if (y && m && d) {
-    return timePart ? `${d}/${m} ${timePart.slice(0, 5)}` : `${d}/${m}/${y}`;
-  }
-  const dt = new Date(iso);
-  if (!isNaN(dt.getTime())) {
-    return dt.toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  }
-  return iso;
-}
-
+/** Painel de clientes desconectados no momento e histórico de quedas/reconexões ao vivo. */
 export const RealtimeOfflinePanel: React.FC = () => {
-  const navigate = useNavigate();
+  const navegar = useNavigate();
   const {
-    regionData,
-    recentEvents,
-    unreadDropCount,
-    soundEnabled,
-    monitorEnabled,
-    pollIntervalSec,
-    toggleSound,
-    toggleMonitor,
-    playDropAlertSound,
-    recheckSinglePoint,
-    acknowledgeAlerts,
+    dadosRegiao,
+    eventosRecentes,
+    quedasNaoLidas,
+    somAtivo,
+    monitorAtivo,
+    intervaloVerificacaoSeg,
+    alternarSom,
+    alternarMonitor,
+    tocarSomAlertaQueda,
+    revalidarPontoAoVivo,
+    confirmarAlertas,
   } = useNetworkMonitor();
 
-  const [checkingPontoId, setCheckingPontoId] = useState<string | null>(null);
+  const [pontoVerificandoId, setPontoVerificandoId] = useState<string | null>(
+    null
+  );
 
-  const disconnectedNow = useMemo(() => {
-    if (!regionData?.records) return [];
-    return regionData.records
-      .filter((r) => r.connectionHealth === 'desconectado')
+  const desconectadosAgora = useMemo(() => {
+    if (!dadosRegiao?.records) return [];
+    return dadosRegiao.records
+      .filter((registro) => registro.connectionHealth === 'desconectado')
       .sort(
         (a, b) =>
           (b.ultimoLogin || '').localeCompare(a.ultimoLogin || '') ||
           a.bairroLabel.localeCompare(b.bairroLabel, 'pt-BR')
       );
-  }, [regionData]);
+  }, [dadosRegiao]);
 
-  const handleRecheck = async (clienteId: string, pontoId: string, nome: string) => {
-    setCheckingPontoId(pontoId);
+  const aoRevalidarPonto = async (
+    clienteId: string,
+    pontoId: string,
+    nomeCliente: string
+  ) => {
+    setPontoVerificandoId(pontoId);
     try {
-      await recheckSinglePoint(clienteId, pontoId);
-      toast.success(`Status de ${nome} revalidado ao vivo no ISPFY!`);
+      await revalidarPontoAoVivo(clienteId, pontoId);
+      toast.success(`Status de ${nomeCliente} revalidado ao vivo no ISPFY!`);
     } catch {
-      toast.error(`Falha ao consultar ponto de ${nome} ao vivo.`);
+      toast.error(`Falha ao consultar ponto de ${nomeCliente} ao vivo.`);
     } finally {
-      setCheckingPontoId(null);
+      setPontoVerificandoId(null);
     }
   };
 
@@ -95,14 +84,14 @@ export const RealtimeOfflinePanel: React.FC = () => {
             <CardTitle className="text-base font-bold flex items-center gap-2">
               <WifiOff className="w-4 h-4 text-rose-500" />
               Sem Internet Agora &amp; Alertas ao Vivo
-              {unreadDropCount > 0 && (
+              {quedasNaoLidas > 0 && (
                 <Badge className="bg-rose-600 text-white text-[10px] animate-pulse">
-                  +{unreadDropCount} queda(s)
+                  +{quedasNaoLidas} queda(s)
                 </Badge>
               )}
             </CardTitle>
             <CardDescription className="text-xs">
-              Monitor global a cada {pollIntervalSec}s — alerta imediato em qualquer página do sistema
+              Monitor global a cada {intervaloVerificacaoSeg}s — alerta imediato em qualquer página do sistema
             </CardDescription>
           </div>
 
@@ -111,10 +100,10 @@ export const RealtimeOfflinePanel: React.FC = () => {
               variant="outline"
               size="icon"
               className="h-7 w-7"
-              onClick={toggleSound}
-              title={soundEnabled ? 'Silenciar alerta sonoro' : 'Ativar alerta sonoro'}
+              onClick={alternarSom}
+              title={somAtivo ? 'Silenciar alerta sonoro' : 'Ativar alerta sonoro'}
             >
-              {soundEnabled ? (
+              {somAtivo ? (
                 <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
               ) : (
                 <VolumeX className="w-3.5 h-3.5 text-muted-foreground" />
@@ -124,10 +113,14 @@ export const RealtimeOfflinePanel: React.FC = () => {
               variant="outline"
               size="icon"
               className="h-7 w-7"
-              onClick={toggleMonitor}
-              title={monitorEnabled ? 'Pausar monitor automático' : 'Ativar monitor automático'}
+              onClick={alternarMonitor}
+              title={
+                monitorAtivo
+                  ? 'Pausar monitor automático'
+                  : 'Ativar monitor automático'
+              }
             >
-              {monitorEnabled ? (
+              {monitorAtivo ? (
                 <Bell className="w-3.5 h-3.5 text-blue-600" />
               ) : (
                 <BellOff className="w-3.5 h-3.5 text-muted-foreground" />
@@ -138,7 +131,7 @@ export const RealtimeOfflinePanel: React.FC = () => {
               size="sm"
               className="h-7 text-[11px] px-2"
               onClick={() => {
-                playDropAlertSound();
+                tocarSomAlertaQueda();
                 toast.info('Teste de alerta sonoro disparado!');
               }}
               title="Testar som de alerta"
@@ -152,19 +145,19 @@ export const RealtimeOfflinePanel: React.FC = () => {
       <CardContent className="p-3 flex-1 flex flex-col">
         <Tabs
           defaultValue="offline_now"
-          onValueChange={(val) => {
-            if (val === 'live_events' && unreadDropCount > 0) {
-              acknowledgeAlerts();
+          onValueChange={(abaSelecionada) => {
+            if (abaSelecionada === 'live_events' && quedasNaoLidas > 0) {
+              confirmarAlertas();
             }
           }}
           className="flex-1 flex flex-col"
         >
           <TabsList className="grid grid-cols-2 w-full mb-3">
             <TabsTrigger value="offline_now" className="text-xs">
-              Sem Internet ({disconnectedNow.length})
+              Sem Internet ({desconectadosAgora.length})
             </TabsTrigger>
             <TabsTrigger value="live_events" className="text-xs">
-              Alertas em Tempo Real ({recentEvents.length})
+              Alertas em Tempo Real ({eventosRecentes.length})
             </TabsTrigger>
           </TabsList>
 
@@ -172,27 +165,30 @@ export const RealtimeOfflinePanel: React.FC = () => {
             value="offline_now"
             className="mt-0 flex-1 max-h-[300px] overflow-y-auto divide-y divide-border/70 border border-border rounded-xl"
           >
-            {disconnectedNow.length === 0 ? (
+            {desconectadosAgora.length === 0 ? (
               <div className="p-6 text-center text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                 Nenhum cliente ativo desconectado no momento!
               </div>
             ) : (
-              disconnectedNow.slice(0, 30).map((rec) => (
+              desconectadosAgora.slice(0, 30).map((registro) => (
                 <div
-                  key={rec.pontoId}
+                  key={registro.pontoId}
                   className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-secondary/30 transition-colors"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-foreground truncate">
-                      {rec.nome}
+                      {registro.nome}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
                       <MapPin className="w-3 h-3 shrink-0 text-rose-500" />
-                      {rec.bairroLabel} • {rec.enderecoCompleto}
+                      {registro.bairroLabel} • {registro.enderecoCompleto}
                     </p>
                     <p className="text-[10px] text-muted-foreground/80">
-                      Últ. login: {formatClock(rec.ultimoLogin)}
-                      {rec.plano ? ` • ${rec.plano}` : ''}
+                      Últ. login:{' '}
+                      {formatarDataHoraCurta(registro.ultimoLogin, {
+                        incluirAno: false,
+                      })}
+                      {registro.plano ? ` • ${registro.plano}` : ''}
                     </p>
                   </div>
 
@@ -202,23 +198,29 @@ export const RealtimeOfflinePanel: React.FC = () => {
                       size="icon"
                       className="h-7 w-7 text-blue-600"
                       onClick={() =>
-                        handleRecheck(rec.clienteId, rec.pontoId, rec.nome)
+                        aoRevalidarPonto(
+                          registro.clienteId,
+                          registro.pontoId,
+                          registro.nome
+                        )
                       }
-                      disabled={checkingPontoId === rec.pontoId}
+                      disabled={pontoVerificandoId === registro.pontoId}
                       title="Testar conexão no ISPFY agora"
                     >
                       <RefreshCw
                         className={`w-3.5 h-3.5 ${
-                          checkingPontoId === rec.pontoId ? 'animate-spin' : ''
+                          pontoVerificandoId === registro.pontoId
+                            ? 'animate-spin'
+                            : ''
                         }`}
                       />
                     </Button>
-                    {rec.telefone && (
+                    {registro.telefone && (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-emerald-600"
-                        onClick={() => openWhatsAppChat(rec.telefone)}
+                        onClick={() => abrirConversaWhatsApp(registro.telefone)}
                         title="WhatsApp"
                       >
                         <Phone className="w-3.5 h-3.5" />
@@ -228,7 +230,9 @@ export const RealtimeOfflinePanel: React.FC = () => {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-indigo-600"
-                      onClick={() => navigate(`/ispfy/cliente/${rec.clienteId}`)}
+                      onClick={() =>
+                        navegar(`/ispfy/cliente/${registro.clienteId}`)
+                      }
                       title="Abrir ficha ISPFY"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
@@ -243,7 +247,7 @@ export const RealtimeOfflinePanel: React.FC = () => {
             value="live_events"
             className="mt-0 flex-1 max-h-[300px] overflow-y-auto divide-y divide-border/70 border border-border rounded-xl"
           >
-            {recentEvents.length === 0 ? (
+            {eventosRecentes.length === 0 ? (
               <div className="p-6 text-center space-y-1.5">
                 <Activity className="w-7 h-7 mx-auto text-emerald-500/70" />
                 <p className="text-xs font-medium text-muted-foreground">
@@ -254,13 +258,13 @@ export const RealtimeOfflinePanel: React.FC = () => {
                 </p>
               </div>
             ) : (
-              recentEvents.map((ev) => {
-                const isDrop = ev.type === 'dropped';
+              eventosRecentes.map((evento) => {
+                const ficouOffline = evento.type === 'dropped';
                 return (
                   <div
-                    key={ev.id}
+                    key={evento.id}
                     className={`p-2.5 flex items-center justify-between gap-2 text-xs ${
-                      isDrop ? 'bg-rose-500/5' : 'bg-emerald-500/5'
+                      ficouOffline ? 'bg-rose-500/5' : 'bg-emerald-500/5'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
@@ -268,29 +272,31 @@ export const RealtimeOfflinePanel: React.FC = () => {
                         <Badge
                           variant="outline"
                           className={`text-[10px] px-1.5 py-0 ${
-                            isDrop
+                            ficouOffline
                               ? 'border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300'
                               : 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                           }`}
                         >
-                          {isDrop ? 'Ficou sem internet' : 'Voltou online'}
+                          {ficouOffline ? 'Ficou sem internet' : 'Voltou online'}
                         </Badge>
                         <span className="text-[10px] font-mono text-muted-foreground">
-                          {new Date(ev.occurredAt).toLocaleTimeString('pt-BR')}
+                          {formatarHorarioCurto(evento.occurredAt)}
                         </span>
                       </div>
                       <p className="font-bold text-foreground truncate mt-0.5">
-                        {ev.nome}
+                        {evento.nome}
                       </p>
                       <p className="text-[11px] text-muted-foreground truncate">
-                        {ev.bairroLabel} • {ev.enderecoCompleto}
+                        {evento.bairroLabel} • {evento.enderecoCompleto}
                       </p>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-indigo-600 shrink-0"
-                      onClick={() => navigate(`/ispfy/cliente/${ev.clienteId}`)}
+                      onClick={() =>
+                        navegar(`/ispfy/cliente/${evento.clienteId}`)
+                      }
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </Button>
@@ -309,7 +315,7 @@ export const RealtimeOfflinePanel: React.FC = () => {
             variant="ghost"
             size="sm"
             className="h-7 text-xs text-primary font-semibold gap-1 px-2"
-            onClick={() => navigate('/ispfy/regiao?status=DESCONECTADO')}
+            onClick={() => navegar('/ispfy/regiao?status=DESCONECTADO')}
           >
             Abrir tela completa
             <ArrowRight className="w-3.5 h-3.5" />

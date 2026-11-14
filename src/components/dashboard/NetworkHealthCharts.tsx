@@ -33,96 +33,98 @@ import {
 } from 'lucide-react';
 import type { ISPFYClientsByRegionResult } from '@/types/ispfy';
 
-interface NetworkHealthChartsProps {
-  regionData: ISPFYClientsByRegionResult | null;
-  loading: boolean;
-  onNavigateRegion: (status?: string, bairroKey?: string) => void;
+interface PropsGraficosSaudeRede {
+  dadosRegiao: ISPFYClientsByRegionResult | null;
+  carregando: boolean;
+  aoNavegarRegiao: (status?: string, chaveBairro?: string) => void;
 }
 
-type NeighborhoodSortMode = 'disconnected' | 'volume';
+type ModoOrdenacaoBairros = 'quedas' | 'volume';
 
-export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
-  regionData,
-  loading,
-  onNavigateRegion,
+/** Gráficos de distribuição das conexões (rosca) e saúde por bairro (barras empilhadas). */
+export const NetworkHealthCharts: React.FC<PropsGraficosSaudeRede> = ({
+  dadosRegiao,
+  carregando,
+  aoNavegarRegiao,
 }) => {
-  const [includeInactiveInChart, setIncludeInactiveInChart] = useState(false);
-  const [bairroSort, setBairroSort] =
-    useState<NeighborhoodSortMode>('disconnected');
+  const [incluirInativosGrafico, setIncluirInativosGrafico] = useState(false);
+  const [ordenacaoBairros, setOrdenacaoBairros] =
+    useState<ModoOrdenacaoBairros>('quedas');
 
-  const totals = regionData?.totals;
+  const totais = dadosRegiao?.totals;
 
-  const pieSlices = useMemo(() => {
-    if (!totals) return [];
-    const base = [
+  const fatiasGraficoRosca = useMemo(() => {
+    if (!totais) return [];
+    const fatiasBase = [
       {
-        key: 'OK',
-        name: 'Internet OK',
-        value: totals.internetOk,
-        color: '#10b981',
-        badgeClass:
+        chave: 'OK',
+        rotulo: 'Internet OK',
+        valor: totais.internetOk,
+        cor: '#10b981',
+        classeBadge:
           'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-        desc: 'Contratos ativos conectados agora',
+        descricao: 'Contratos ativos conectados agora',
       },
       {
-        key: 'DESCONECTADO',
-        name: 'Sem Internet',
-        value: totals.desconectados,
-        color: '#f43f5e',
-        badgeClass:
+        chave: 'DESCONECTADO',
+        rotulo: 'Sem Internet',
+        valor: totais.desconectados,
+        cor: '#f43f5e',
+        classeBadge:
           'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30',
-        desc: 'Ativos offline (sem bloqueio financeiro)',
+        descricao: 'Ativos offline (sem bloqueio financeiro)',
       },
       {
-        key: 'BLOQUEADO',
-        name: 'Bloqueados',
-        value: totals.bloqueados,
-        color: '#f59e0b',
-        badgeClass:
+        chave: 'BLOQUEADO',
+        rotulo: 'Bloqueados',
+        valor: totais.bloqueados,
+        cor: '#f59e0b',
+        classeBadge:
           'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
-        desc: `${totals.bloqueadosOnline} em aviso / ${totals.bloqueadosOffline} offline`,
+        descricao: `${totais.bloqueadosOnline} em aviso / ${totais.bloqueadosOffline} offline`,
       },
     ];
 
-    if (includeInactiveInChart && totals.inativos > 0) {
-      base.push({
-        key: 'INATIVO',
-        name: 'Inativos',
-        value: totals.inativos,
-        color: '#64748b',
-        badgeClass:
+    if (incluirInativosGrafico && totais.inativos > 0) {
+      fatiasBase.push({
+        chave: 'INATIVO',
+        rotulo: 'Inativos',
+        valor: totais.inativos,
+        cor: '#64748b',
+        classeBadge:
           'bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30',
-        desc: 'Contratos cancelados ou encerrados',
+        descricao: 'Contratos cancelados ou encerrados',
       });
     }
 
-    return base;
-  }, [totals, includeInactiveInChart]);
+    return fatiasBase;
+  }, [totais, incluirInativosGrafico]);
 
-  const totalDenominator = useMemo(
-    () => pieSlices.reduce((sum, s) => sum + s.value, 0),
-    [pieSlices]
+  const totalDenominador = useMemo(
+    () => fatiasGraficoRosca.reduce((soma, fatia) => soma + fatia.valor, 0),
+    [fatiasGraficoRosca]
   );
 
-  const onlinePct = useMemo(() => {
-    if (!totals || totals.totalAtivos === 0) return 0;
-    return Math.round((totals.internetOk / totals.totalAtivos) * 1000) / 10;
-  }, [totals]);
+  const percentualOnline = useMemo(() => {
+    if (!totais || totais.totalAtivos === 0) return 0;
+    return Math.round((totais.internetOk / totais.totalAtivos) * 1000) / 10;
+  }, [totais]);
 
-  const topBairrosChart = useMemo(() => {
-    if (!regionData?.bairros) return [];
-    const sorted = [...regionData.bairros].sort((a, b) =>
-      bairroSort === 'disconnected'
+  const bairrosDestaqueGrafico = useMemo(() => {
+    if (!dadosRegiao?.bairros) return [];
+    const ordenados = [...dadosRegiao.bairros].sort((a, b) =>
+      ordenacaoBairros === 'quedas'
         ? b.desconectados - a.desconectados || b.totalPontos - a.totalPontos
         : b.totalPontos - a.totalPontos
     );
-    return sorted.slice(0, 7).map((b) => ({
-      ...b,
-      shortName: b.label.length > 16 ? `${b.label.slice(0, 15)}…` : b.label,
+    return ordenados.slice(0, 7).map((bairro) => ({
+      ...bairro,
+      nomeCurto:
+        bairro.label.length > 16 ? `${bairro.label.slice(0, 15)}…` : bairro.label,
     }));
-  }, [regionData, bairroSort]);
+  }, [dadosRegiao, ordenacaoBairros]);
 
-  if (loading && !regionData) {
+  if (carregando && !dadosRegiao) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <Card className="lg:col-span-5 h-[360px] animate-pulse bg-card/60" />
@@ -149,8 +151,8 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
             <div className="flex items-center gap-1.5">
               <Switch
                 id="dash-inactive-chart"
-                checked={includeInactiveInChart}
-                onCheckedChange={setIncludeInactiveInChart}
+                checked={incluirInativosGrafico}
+                onCheckedChange={setIncluirInativosGrafico}
               />
               <Label
                 htmlFor="dash-inactive-chart"
@@ -169,37 +171,39 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={pieSlices}
-                    dataKey="value"
-                    nameKey="name"
+                    data={fatiasGraficoRosca}
+                    dataKey="valor"
+                    nameKey="rotulo"
                     cx="50%"
                     cy="50%"
                     innerRadius={56}
                     outerRadius={82}
                     paddingAngle={3}
                     strokeWidth={0}
-                    onClick={(entry: any) => {
-                      if (entry?.key) onNavigateRegion(entry.key);
+                    onClick={(entrada: { chave?: string }) => {
+                      if (entrada?.chave) aoNavegarRegiao(entrada.chave);
                     }}
                     className="cursor-pointer"
                   >
-                    {pieSlices.map((slice) => (
-                      <Cell key={slice.key} fill={slice.color} />
+                    {fatiasGraficoRosca.map((fatia) => (
+                      <Cell key={fatia.chave} fill={fatia.cor} />
                     ))}
                   </Pie>
                   <Tooltip
                     content={({ active, payload }) => {
                       if (!active || !payload || !payload.length) return null;
                       const item = payload[0].payload;
-                      const pct =
-                        totalDenominator > 0
-                          ? ((item.value / totalDenominator) * 100).toFixed(1)
+                      const porcentagem =
+                        totalDenominador > 0
+                          ? ((item.valor / totalDenominador) * 100).toFixed(1)
                           : '0.0';
                       return (
                         <div className="rounded-xl border border-border bg-popover px-3 py-2 shadow-lg text-xs">
-                          <p className="font-bold text-foreground">{item.name}</p>
+                          <p className="font-bold text-foreground">
+                            {item.rotulo}
+                          </p>
                           <p className="text-muted-foreground">
-                            {item.value} pontos ({pct}%)
+                            {item.valor} pontos ({porcentagem}%)
                           </p>
                         </div>
                       );
@@ -211,7 +215,7 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
               {/* Centro da Rosca */}
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
                 <span className="text-2xl font-black text-foreground tabular-nums">
-                  {onlinePct}%
+                  {percentualOnline}%
                 </span>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Online
@@ -221,45 +225,45 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
 
             {/* Legenda Interativa Clicável */}
             <div className="sm:col-span-7 space-y-2.5">
-              {pieSlices.map((slice) => {
-                const pct =
-                  totalDenominator > 0
-                    ? Math.round((slice.value / totalDenominator) * 1000) / 10
+              {fatiasGraficoRosca.map((fatia) => {
+                const porcentagem =
+                  totalDenominador > 0
+                    ? Math.round((fatia.valor / totalDenominador) * 1000) / 10
                     : 0;
                 return (
                   <button
                     type="button"
-                    key={slice.key}
-                    onClick={() => onNavigateRegion(slice.key)}
+                    key={fatia.chave}
+                    onClick={() => aoNavegarRegiao(fatia.chave)}
                     className="w-full text-left p-2.5 rounded-xl border border-border/70 hover:border-primary/40 hover:bg-secondary/40 transition-all group"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <span
                           className="w-3 h-3 rounded-full shrink-0"
-                          style={{ backgroundColor: slice.color }}
+                          style={{ backgroundColor: fatia.cor }}
                         />
                         <span className="text-xs font-bold text-foreground truncate">
-                          {slice.name}
+                          {fatia.rotulo}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <Badge
                           variant="outline"
-                          className={`text-[11px] font-extrabold tabular-nums ${slice.badgeClass}`}
+                          className={`text-[11px] font-extrabold tabular-nums ${fatia.classeBadge}`}
                         >
-                          {slice.value}
+                          {fatia.valor}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground tabular-nums w-10 text-right">
-                          {pct}%
+                          {porcentagem}%
                         </span>
                       </div>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1 truncate">
-                      {slice.desc}
+                      {fatia.descricao}
                     </p>
                     <Progress
-                      value={pct}
+                      value={porcentagem}
                       className="h-1 mt-1.5 bg-secondary"
                     />
                   </button>
@@ -273,15 +277,15 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
               <Users className="w-3.5 h-3.5 text-blue-500" />
               Total ativo:{' '}
               <strong className="text-foreground">
-                {totals?.totalAtivos ?? 0}
+                {totais?.totalAtivos ?? 0}
               </strong>{' '}
-              ({totals?.totalClientesUnicos ?? 0} assinantes)
+              ({totais?.totalClientesUnicos ?? 0} assinantes)
             </span>
             <Button
               variant="ghost"
               size="sm"
               className="h-7 text-xs text-primary font-semibold gap-1 px-2"
-              onClick={() => onNavigateRegion('ALL')}
+              onClick={() => aoNavegarRegiao('ALL')}
             >
               Ver por Bairro/Rua
               <ArrowRight className="w-3.5 h-3.5" />
@@ -305,19 +309,19 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
             </div>
             <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg self-start sm:self-auto">
               <Button
-                variant={bairroSort === 'disconnected' ? 'default' : 'ghost'}
+                variant={ordenacaoBairros === 'quedas' ? 'default' : 'ghost'}
                 size="sm"
                 className="h-7 text-[11px] px-2.5"
-                onClick={() => setBairroSort('disconnected')}
+                onClick={() => setOrdenacaoBairros('quedas')}
               >
                 <WifiOff className="w-3 h-3 mr-1" />
                 Mais Quedas
               </Button>
               <Button
-                variant={bairroSort === 'volume' ? 'default' : 'ghost'}
+                variant={ordenacaoBairros === 'volume' ? 'default' : 'ghost'}
                 size="sm"
                 className="h-7 text-[11px] px-2.5"
-                onClick={() => setBairroSort('volume')}
+                onClick={() => setOrdenacaoBairros('volume')}
               >
                 <Users className="w-3 h-3 mr-1" />
                 Mais Clientes
@@ -330,7 +334,7 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
           <div className="h-[230px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={topBairrosChart}
+                data={bairrosDestaqueGrafico}
                 margin={{ top: 8, right: 12, left: -12, bottom: 4 }}
               >
                 <CartesianGrid
@@ -339,7 +343,7 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
                   stroke="hsl(var(--border))"
                 />
                 <XAxis
-                  dataKey="shortName"
+                  dataKey="nomeCurto"
                   tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
@@ -353,21 +357,21 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
                   cursor={{ fill: 'hsl(var(--muted) / 0.35)' }}
                   content={({ active, payload }) => {
                     if (!active || !payload || !payload.length) return null;
-                    const b = payload[0].payload;
+                    const bairro = payload[0].payload;
                     return (
                       <div className="rounded-xl border border-border bg-popover p-3 shadow-xl text-xs space-y-1.5">
                         <p className="font-bold text-foreground">
-                          {b.label} ({b.totalPontos} pts)
+                          {bairro.label} ({bairro.totalPontos} pts)
                         </p>
                         <div className="space-y-0.5">
                           <p className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                            Internet OK: {b.internetOk} ({b.onlineRate}%)
+                            Internet OK: {bairro.internetOk} ({bairro.onlineRate}%)
                           </p>
                           <p className="text-rose-600 dark:text-rose-400 font-semibold">
-                            Sem Internet: {b.desconectados}
+                            Sem Internet: {bairro.desconectados}
                           </p>
                           <p className="text-amber-600 dark:text-amber-400 font-semibold">
-                            Bloqueados: {b.bloqueados}
+                            Bloqueados: {bairro.bloqueados}
                           </p>
                         </div>
                       </div>
@@ -381,9 +385,9 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
                   fill="#10b981"
                   radius={[0, 0, 0, 0]}
                   className="cursor-pointer"
-                  onClick={(data: any) => {
-                    const item = data?.payload ?? data;
-                    if (item?.key) onNavigateRegion('ALL', item.key);
+                  onClick={(dadosBarra: { payload?: { key?: string }; key?: string }) => {
+                    const item = dadosBarra?.payload ?? dadosBarra;
+                    if (item?.key) aoNavegarRegiao('ALL', item.key);
                   }}
                 />
                 <Bar
@@ -392,9 +396,9 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
                   name="Bloqueados"
                   fill="#f59e0b"
                   className="cursor-pointer"
-                  onClick={(data: any) => {
-                    const item = data?.payload ?? data;
-                    if (item?.key) onNavigateRegion('BLOQUEADO', item.key);
+                  onClick={(dadosBarra: { payload?: { key?: string }; key?: string }) => {
+                    const item = dadosBarra?.payload ?? dadosBarra;
+                    if (item?.key) aoNavegarRegiao('BLOQUEADO', item.key);
                   }}
                 />
                 <Bar
@@ -404,9 +408,9 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
                   fill="#f43f5e"
                   radius={[4, 4, 0, 0]}
                   className="cursor-pointer"
-                  onClick={(data: any) => {
-                    const item = data?.payload ?? data;
-                    if (item?.key) onNavigateRegion('DESCONECTADO', item.key);
+                  onClick={(dadosBarra: { payload?: { key?: string }; key?: string }) => {
+                    const item = dadosBarra?.payload ?? dadosBarra;
+                    if (item?.key) aoNavegarRegiao('DESCONECTADO', item.key);
                   }}
                 />
               </BarChart>
@@ -415,31 +419,31 @@ export const NetworkHealthCharts: React.FC<NetworkHealthChartsProps> = ({
 
           {/* Badges clicáveis dos bairros em destaque */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            {topBairrosChart.slice(0, 5).map((b) => (
+            {bairrosDestaqueGrafico.slice(0, 5).map((bairro) => (
               <button
                 type="button"
-                key={b.key}
+                key={bairro.key}
                 onClick={() =>
-                  onNavigateRegion(
-                    b.desconectados > 0 ? 'DESCONECTADO' : 'ALL',
-                    b.key
+                  aoNavegarRegiao(
+                    bairro.desconectados > 0 ? 'DESCONECTADO' : 'ALL',
+                    bairro.key
                   )
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 hover:bg-secondary px-2.5 py-1 text-[11px] font-semibold transition-colors"
               >
-                <span className="truncate max-w-[120px]">{b.label}</span>
+                <span className="truncate max-w-[120px]">{bairro.label}</span>
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  {b.internetOk}
+                  {bairro.internetOk}
                 </span>
-                {b.desconectados > 0 && (
+                {bairro.desconectados > 0 && (
                   <span className="text-rose-600 dark:text-rose-400 font-bold">
-                    • {b.desconectados} off
+                    • {bairro.desconectados} off
                   </span>
                 )}
-                {b.bloqueados > 0 && (
+                {bairro.bloqueados > 0 && (
                   <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
                     • <Lock className="w-2.5 h-2.5" />
-                    {b.bloqueados}
+                    {bairro.bloqueados}
                   </span>
                 )}
               </button>

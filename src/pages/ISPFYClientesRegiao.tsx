@@ -52,123 +52,196 @@ import {
 } from 'lucide-react';
 import PageTransition from '@/components/PageTransition';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
-import { ispfyService } from '@/services/ispfy/ispfyService';
 import {
-  aggregateRegionSummaries,
-  classifyPointConnectionHealth,
-  normalizeAsciiUpper,
+  agregarResumosPorRegiao,
+  normalizarTextoSemAcento,
 } from '@/services/ispfy/regionAuditHelpers';
 import type {
   ISPFYClientRegionRecord,
-  ISPFYClientsByRegionResult,
   ISPFYConnectionHealthStatus,
   ISPFYRegionGroupSummary,
   ISPFYStreetGroupSummary,
 } from '@/types/ispfy';
+import { abrirConversaWhatsApp, baixarArquivoCsv } from '@/lib/utils';
+import { formatarDataHoraCurta } from '@/utils/date';
+import {
+  formatarConsumoDados,
+  formatarDocumentoCpfCnpj,
+} from '@/utils/ispfyFormatters';
 import { toast } from 'sonner';
 
-type StatusFilter = 'ALL' | 'OK' | 'DESCONECTADO' | 'BLOQUEADO' | 'INATIVO';
-type SummarySortMode = 'disconnected' | 'volume' | 'alpha';
+type FiltroStatusConexao =
+  | 'ALL'
+  | 'OK'
+  | 'DESCONECTADO'
+  | 'BLOQUEADO'
+  | 'INATIVO';
+type ModoOrdenacaoResumo = 'disconnected' | 'volume' | 'alpha';
 
-const PAGE_SIZE = 50;
+const TAMANHO_PAGINA = 50;
 
-function matchesStatusFilter(
-  health: ISPFYConnectionHealthStatus,
-  filter: StatusFilter
+const PRIORIDADE_SAUDE_TABELA: Record<ISPFYConnectionHealthStatus, number> = {
+  desconectado: 0,
+  bloqueado_offline: 1,
+  bloqueado_online: 2,
+  ok: 3,
+  inativo: 4,
+};
+
+const ROTULOS_EXPORTACAO_SAUDE: Record<ISPFYConnectionHealthStatus, string> = {
+  ok: 'Internet OK (Online)',
+  desconectado: 'Desconectado (Offline)',
+  bloqueado_online: 'Bloqueado (Pool Bloqueio Online)',
+  bloqueado_offline: 'Bloqueado (Offline)',
+  inativo: 'Contrato Inativo/Cancelado',
+};
+
+function correspondeFiltroStatus(
+  saude: ISPFYConnectionHealthStatus,
+  filtro: FiltroStatusConexao
 ): boolean {
-  if (filter === 'ALL') return true;
-  if (filter === 'OK') return health === 'ok';
-  if (filter === 'DESCONECTADO') return health === 'desconectado';
-  if (filter === 'BLOQUEADO') {
-    return health === 'bloqueado_online' || health === 'bloqueado_offline';
+  if (filtro === 'ALL') return true;
+  if (filtro === 'OK') return saude === 'ok';
+  if (filtro === 'DESCONECTADO') return saude === 'desconectado';
+  if (filtro === 'BLOQUEADO') {
+    return saude === 'bloqueado_online' || saude === 'bloqueado_offline';
   }
-  return health === 'inativo';
+  return saude === 'inativo';
 }
 
-function sortRegionItems<T extends ISPFYRegionGroupSummary>(
-  items: T[],
-  mode: SummarySortMode
+function ordenarGruposRegiao<T extends ISPFYRegionGroupSummary>(
+  itens: T[],
+  modo: ModoOrdenacaoResumo
 ): T[] {
-  const copy = [...items];
-  if (mode === 'disconnected') {
-    return copy.sort(
+  const copia = [...itens];
+  if (modo === 'disconnected') {
+    return copia.sort(
       (a, b) =>
         b.desconectados - a.desconectados ||
         b.totalPontos - a.totalPontos ||
         a.label.localeCompare(b.label, 'pt-BR')
     );
   }
-  if (mode === 'alpha') {
-    return copy.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  if (modo === 'alpha') {
+    return copia.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
   }
-  return copy.sort(
-    (a, b) => b.totalPontos - a.totalPontos || a.label.localeCompare(b.label, 'pt-BR')
+  return copia.sort(
+    (a, b) =>
+      b.totalPontos - a.totalPontos || a.label.localeCompare(b.label, 'pt-BR')
   );
 }
 
-function formatDocument(doc: string = ''): string {
-  const clean = doc.replace(/\D/g, '');
-  if (clean.length === 11) {
-    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+/** Exibe badges padronizadas com totais OK, desconectados e bloqueados de um bairro ou rua. */
+const BadgesSaudeGrupo: React.FC<{ grupo: ISPFYRegionGroupSummary }> = ({
+  grupo,
+}) => (
+  <div className="flex items-center gap-1.5 shrink-0">
+    <Badge
+      variant="outline"
+      className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/5"
+    >
+      {grupo.internetOk} OK
+    </Badge>
+    <Badge
+      variant="outline"
+      className={`text-[10px] ${
+        grupo.desconectados > 0
+          ? 'border-rose-500/50 text-rose-700 dark:text-rose-300 bg-rose-500/10 font-bold'
+          : 'border-slate-300/60 text-muted-foreground'
+      }`}
+    >
+      {grupo.desconectados} off
+    </Badge>
+    {grupo.bloqueados > 0 && (
+      <Badge
+        variant="outline"
+        className="text-[10px] border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/5"
+      >
+        {grupo.bloqueados} bloq
+      </Badge>
+    )}
+  </div>
+);
+
+function renderizarBadgeConexao(registro: ISPFYClientRegionRecord) {
+  switch (registro.connectionHealth) {
+    case 'ok':
+      return (
+        <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] gap-1 font-semibold">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          Internet OK
+        </Badge>
+      );
+    case 'desconectado':
+      return (
+        <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] gap-1 font-semibold">
+          <WifiOff className="w-3 h-3" />
+          Desconectado (
+          {registro.sessaoConexaoStatus === 'none'
+            ? 'Sem sessão'
+            : registro.sessaoConexaoStatus}
+          )
+        </Badge>
+      );
+    case 'bloqueado_online':
+      return (
+        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] gap-1 font-semibold">
+          <Lock className="w-3 h-3" />
+          Bloqueado (Online)
+        </Badge>
+      );
+    case 'bloqueado_offline':
+      return (
+        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] gap-1 font-semibold">
+          <Lock className="w-3 h-3" />
+          Bloqueado (Off)
+        </Badge>
+      );
+    case 'inativo':
+      return (
+        <Badge variant="secondary" className="text-[11px] gap-1">
+          Contrato Inativo
+        </Badge>
+      );
   }
-  if (clean.length === 14) {
-    return clean.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-  }
-  return doc || '-';
 }
 
-function formatDateTime(value?: string): string {
-  if (!value) return '-';
-  const cleaned = value.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '');
-  const [datePart, timePart] = cleaned.split(' ');
-  const [y, m, d] = (datePart || '').split('-');
-  if (y && m && d) {
-    return timePart ? `${d}/${m}/${y} ${timePart.slice(0, 5)}` : `${d}/${m}/${y}`;
-  }
-  return value;
-}
-
-function formatMB(kbytes?: number): string {
-  if (kbytes === undefined || isNaN(kbytes)) return '';
-  if (kbytes >= 1024 * 1024) return `${(kbytes / (1024 * 1024)).toFixed(2)} GB`;
-  if (kbytes >= 1024) return `${(kbytes / 1024).toFixed(1)} MB`;
-  return `${kbytes} KB`;
-}
-
+/** Tela territorial com agrupamento de clientes por bairro, rua e saúde da conexão. */
 export default function ISPFYClientesRegiao() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const navegar = useNavigate();
+  const [parametrosUrl] = useSearchParams();
   const {
-    regionData: globalRegionData,
-    loadingRegion: globalLoadingRegion,
-    refreshConnections: globalRefreshConnections,
+    dadosRegiao,
+    carregandoRegiao,
+    atualizarConexoes,
+    revalidarPontoAoVivo,
   } = useNetworkMonitor();
 
-  const [manualRefreshing, setManualRefreshing] = useState<boolean>(false);
-  const [progressMsg, setProgressMsg] = useState<string>(
+  const [recarregamentoManual, setRecarregamentoManual] =
+    useState<boolean>(false);
+  const [mensagemProgresso, setMensagemProgresso] = useState<string>(
     'Carregando clientes e conexões do ISPFY...'
   );
-  const [data, setData] = useState<ISPFYClientsByRegionResult | null>(
-    globalRegionData
-  );
-  const loading = manualRefreshing || (!data && globalLoadingRegion);
+  const carregando = recarregamentoManual || (!dadosRegiao && carregandoRegiao);
 
   // Filtros
-  const [selectedBairro, setSelectedBairro] = useState<string>('ALL');
-  const [selectedStreetComposite, setSelectedStreetComposite] =
-    useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [includeInactive, setIncludeInactive] = useState<boolean>(false);
-  const [summarySort, setSummarySort] = useState<SummarySortMode>('disconnected');
-  const [page, setPage] = useState<number>(1);
-  const [checkingClientId, setCheckingClientId] = useState<string | null>(null);
+  const [bairroSelecionado, setBairroSelecionado] = useState<string>('ALL');
+  const [ruaSelecionadaComp, setRuaSelecionadaComp] = useState<string>('ALL');
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatusConexao>('ALL');
+  const [termoBusca, setTermoBusca] = useState<string>('');
+  const [incluirInativos, setIncluirInativos] = useState<boolean>(false);
+  const [ordenacaoResumo, setOrdenacaoResumo] =
+    useState<ModoOrdenacaoResumo>('disconnected');
+  const [paginaAtual, setPaginaAtual] = useState<number>(1);
+  const [pontoVerificandoId, setPontoVerificandoId] = useState<string | null>(
+    null
+  );
 
   // Sincroniza query params (?status=DESCONECTADO&bairro=FIGUEIRAS&search=...)
   useEffect(() => {
-    const paramStatus = searchParams.get('status')?.toUpperCase();
-    const paramBairro = searchParams.get('bairro');
-    const paramSearch = searchParams.get('search');
+    const paramStatus = parametrosUrl.get('status')?.toUpperCase();
+    const paramBairro = parametrosUrl.get('bairro');
+    const paramBusca = parametrosUrl.get('search');
 
     if (
       paramStatus === 'ALL' ||
@@ -177,369 +250,287 @@ export default function ISPFYClientesRegiao() {
       paramStatus === 'BLOQUEADO' ||
       paramStatus === 'INATIVO'
     ) {
-      setStatusFilter(paramStatus);
-      if (paramStatus === 'INATIVO') setIncludeInactive(true);
-      setPage(1);
+      setFiltroStatus(paramStatus);
+      if (paramStatus === 'INATIVO') setIncluirInativos(true);
+      setPaginaAtual(1);
     }
 
     if (paramBairro) {
-      setSelectedBairro(paramBairro);
-      setSelectedStreetComposite('ALL');
-      setPage(1);
+      setBairroSelecionado(paramBairro);
+      setRuaSelecionadaComp('ALL');
+      setPaginaAtual(1);
     }
 
-    if (paramSearch !== null) {
-      setSearchTerm(paramSearch);
-      setPage(1);
+    if (paramBusca !== null) {
+      setTermoBusca(paramBusca);
+      setPaginaAtual(1);
     }
-  }, [searchParams]);
+  }, [parametrosUrl]);
 
-  // Aproveita em tempo real o snapshot mantido pelo monitor global sem recarregar do zero
-  useEffect(() => {
-    if (globalRegionData) {
-      setData(globalRegionData);
-    }
-  }, [globalRegionData]);
-
-  const loadData = async (forceRefresh = false) => {
-    setManualRefreshing(true);
-    setProgressMsg('Atualizando base de clientes e status PPPoE no ISPFY...');
+  const carregarDados = async (forcarAtualizacao = false) => {
+    setRecarregamentoManual(true);
+    setMensagemProgresso(
+      'Atualizando base de clientes e status PPPoE no ISPFY...'
+    );
     try {
-      await globalRefreshConnections(forceRefresh);
-      if (forceRefresh) {
+      await atualizarConexoes(forcarAtualizacao);
+      if (forcarAtualizacao) {
         toast.success('Conexões e endereços atualizados ao vivo do ISPFY!');
       }
-    } catch (error: any) {
-      console.error('Erro ao carregar clientes por bairro/rua:', error);
-      toast.error(
-        'Erro ao consultar dados no ISPFY: ' +
-          (error?.message || 'Falha de comunicação')
-      );
+    } catch (erroCaptura: unknown) {
+      const mensagemErro =
+        erroCaptura instanceof Error
+          ? erroCaptura.message
+          : 'Falha de comunicação';
+      console.error('Erro ao carregar clientes por bairro/rua:', erroCaptura);
+      toast.error('Erro ao consultar dados no ISPFY: ' + mensagemErro);
     } finally {
-      setManualRefreshing(false);
+      setRecarregamentoManual(false);
     }
   };
 
   // Ao mudar o bairro, limpa a seleção de rua se ela não pertence ao bairro escolhido
-  const handleSelectBairro = (bairroKey: string) => {
-    setSelectedBairro(bairroKey);
+  const aoSelecionarBairro = (chaveBairro: string) => {
+    setBairroSelecionado(chaveBairro);
     if (
-      bairroKey !== 'ALL' &&
-      selectedStreetComposite !== 'ALL' &&
-      !selectedStreetComposite.startsWith(`${bairroKey}::`)
+      chaveBairro !== 'ALL' &&
+      ruaSelecionadaComp !== 'ALL' &&
+      !ruaSelecionadaComp.startsWith(`${chaveBairro}::`)
     ) {
-      setSelectedStreetComposite('ALL');
+      setRuaSelecionadaComp('ALL');
     }
-    setPage(1);
+    setPaginaAtual(1);
   };
 
-  const handleSelectStreet = (street: ISPFYStreetGroupSummary) => {
-    if (selectedStreetComposite === street.key) {
-      setSelectedStreetComposite('ALL');
+  const aoSelecionarRua = (rua: ISPFYStreetGroupSummary) => {
+    if (ruaSelecionadaComp === rua.key) {
+      setRuaSelecionadaComp('ALL');
     } else {
-      setSelectedBairro(street.bairroKey);
-      setSelectedStreetComposite(street.key);
+      setBairroSelecionado(rua.bairroKey);
+      setRuaSelecionadaComp(rua.key);
     }
-    setPage(1);
+    setPaginaAtual(1);
   };
 
-  const handleClearFilters = () => {
-    setSelectedBairro('ALL');
-    setSelectedStreetComposite('ALL');
-    setStatusFilter('ALL');
-    setSearchTerm('');
-    setPage(1);
+  const aoLimparFiltros = () => {
+    setBairroSelecionado('ALL');
+    setRuaSelecionadaComp('ALL');
+    setFiltroStatus('ALL');
+    setTermoBusca('');
+    setPaginaAtual(1);
   };
 
-  const hasActiveFilters =
-    selectedBairro !== 'ALL' ||
-    selectedStreetComposite !== 'ALL' ||
-    statusFilter !== 'ALL' ||
-    searchTerm.trim() !== '';
+  const possuiFiltrosAtivos =
+    bairroSelecionado !== 'ALL' ||
+    ruaSelecionadaComp !== 'ALL' ||
+    filtroStatus !== 'ALL' ||
+    termoBusca.trim() !== '';
 
   // Base respeitando o toggle "Incluir cancelados/inativos"
-  const activeScopedRecords = useMemo(() => {
-    if (!data) return [];
-    return includeInactive
-      ? data.records
-      : data.records.filter((r) => r.isContractActive);
-  }, [data, includeInactive]);
+  const registrosEscopoAtivo = useMemo(() => {
+    if (!dadosRegiao) return [];
+    return incluirInativos
+      ? dadosRegiao.records
+      : dadosRegiao.records.filter((registro) => registro.isContractActive);
+  }, [dadosRegiao, incluirInativos]);
 
   // Busca textual isolada (para manter as contagens consistentes entre os painéis e os selects)
-  const searchMatchedRecords = useMemo(() => {
-    const q = normalizeAsciiUpper(searchTerm);
-    const qDigits = searchTerm.replace(/\D/g, '');
-    if (!q && !qDigits) return activeScopedRecords;
+  const registrosFiltradosBusca = useMemo(() => {
+    const buscaNormalizada = normalizarTextoSemAcento(termoBusca);
+    const buscaDigitos = termoBusca.replace(/\D/g, '');
+    if (!buscaNormalizada && !buscaDigitos) return registrosEscopoAtivo;
 
-    return activeScopedRecords.filter((rec) => {
-      const hay = normalizeAsciiUpper(
-        `${rec.nome} ${rec.ruaLabel} ${rec.numero} ${rec.complemento} ${rec.bairroLabel} ${rec.cidade} ${rec.usuarioPppoe} ${rec.ipAlocado} ${rec.mac} ${rec.plano}`
+    return registrosEscopoAtivo.filter((registro) => {
+      const textoCompleto = normalizarTextoSemAcento(
+        `${registro.nome} ${registro.ruaLabel} ${registro.numero} ${registro.complemento} ${registro.bairroLabel} ${registro.cidade} ${registro.usuarioPppoe} ${registro.ipAlocado} ${registro.mac} ${registro.plano}`
       );
-      if (q && hay.includes(q)) return true;
-      if (qDigits.length > 0) {
-        const cpfDigits = rec.cpfCnpj.replace(/\D/g, '');
-        const telDigits = rec.telefone.replace(/\D/g, '');
+      if (buscaNormalizada && textoCompleto.includes(buscaNormalizada)) {
+        return true;
+      }
+      if (buscaDigitos.length > 0) {
+        const cpfDigitos = registro.cpfCnpj.replace(/\D/g, '');
+        const telefoneDigitos = registro.telefone.replace(/\D/g, '');
         if (
-          cpfDigits.includes(qDigits) ||
-          telDigits.includes(qDigits) ||
-          rec.clienteId.includes(qDigits) ||
-          rec.pontoId.includes(qDigits)
+          cpfDigitos.includes(buscaDigitos) ||
+          telefoneDigitos.includes(buscaDigitos) ||
+          registro.clienteId.includes(buscaDigitos) ||
+          registro.pontoId.includes(buscaDigitos)
         ) {
           return true;
         }
       }
       return false;
     });
-  }, [activeScopedRecords, searchTerm]);
+  }, [registrosEscopoAtivo, termoBusca]);
 
   // Agregação por Bairro/Rua sobre a base filtrada por busca + toggle ativo
-  const baseAggregated = useMemo(
-    () => aggregateRegionSummaries(searchMatchedRecords),
-    [searchMatchedRecords]
+  const resumoBaseRegiao = useMemo(
+    () => agregarResumosPorRegiao(registrosFiltradosBusca),
+    [registrosFiltradosBusca]
   );
 
   // Recorte Bairro + Rua antes do filtro de Status (para calcular os contadores dos botões de Status)
-  const locationScopedRecords = useMemo(() => {
-    return searchMatchedRecords.filter((rec) => {
-      if (selectedBairro !== 'ALL' && rec.bairroKey !== selectedBairro) {
+  const registrosEscopoLocal = useMemo(() => {
+    return registrosFiltradosBusca.filter((registro) => {
+      if (
+        bairroSelecionado !== 'ALL' &&
+        registro.bairroKey !== bairroSelecionado
+      ) {
         return false;
       }
       if (
-        selectedStreetComposite !== 'ALL' &&
-        `${rec.bairroKey}::${rec.ruaKey}` !== selectedStreetComposite
+        ruaSelecionadaComp !== 'ALL' &&
+        `${registro.bairroKey}::${registro.ruaKey}` !== ruaSelecionadaComp
       ) {
         return false;
       }
       return true;
     });
-  }, [searchMatchedRecords, selectedBairro, selectedStreetComposite]);
+  }, [registrosFiltradosBusca, bairroSelecionado, ruaSelecionadaComp]);
 
-  const locationSummary = useMemo(
-    () => aggregateRegionSummaries(locationScopedRecords),
-    [locationScopedRecords]
+  const resumoLocal = useMemo(
+    () => agregarResumosPorRegiao(registrosEscopoLocal),
+    [registrosEscopoLocal]
   );
 
   // Registros finais na tabela (Bairro + Rua + Busca + Status)
-  const filteredRecords = useMemo(() => {
-    const list =
-      statusFilter === 'ALL'
-        ? locationScopedRecords
-        : locationScopedRecords.filter((rec) =>
-            matchesStatusFilter(rec.connectionHealth, statusFilter)
+  const registrosFinaisFiltrados = useMemo(() => {
+    const listaFiltrada =
+      filtroStatus === 'ALL'
+        ? registrosEscopoLocal
+        : registrosEscopoLocal.filter((registro) =>
+            correspondeFiltroStatus(registro.connectionHealth, filtroStatus)
           );
 
-    // Prioriza desconectados no topo para agilizar diagnóstico de campo
-    const priority: Record<ISPFYConnectionHealthStatus, number> = {
-      desconectado: 0,
-      bloqueado_offline: 1,
-      bloqueado_online: 2,
-      ok: 3,
-      inativo: 4,
-    };
-
-    return [...list].sort(
+    return [...listaFiltrada].sort(
       (a, b) =>
-        priority[a.connectionHealth] - priority[b.connectionHealth] ||
+        PRIORIDADE_SAUDE_TABELA[a.connectionHealth] -
+          PRIORIDADE_SAUDE_TABELA[b.connectionHealth] ||
         a.bairroLabel.localeCompare(b.bairroLabel, 'pt-BR') ||
         a.ruaLabel.localeCompare(b.ruaLabel, 'pt-BR') ||
         a.nome.localeCompare(b.nome, 'pt-BR')
     );
-  }, [locationScopedRecords, statusFilter]);
+  }, [registrosEscopoLocal, filtroStatus]);
 
-  const finalSummary = useMemo(
-    () => aggregateRegionSummaries(filteredRecords),
-    [filteredRecords]
+  const resumoFinalTabela = useMemo(
+    () => agregarResumosPorRegiao(registrosFinaisFiltrados),
+    [registrosFinaisFiltrados]
   );
 
   // Listas para os dropdowns e cards laterais
-  const bairrosForCards = useMemo(
-    () => sortRegionItems(baseAggregated.bairros, summarySort),
-    [baseAggregated.bairros, summarySort]
+  const bairrosOrdenados = useMemo(
+    () => ordenarGruposRegiao(resumoBaseRegiao.bairros, ordenacaoResumo),
+    [resumoBaseRegiao.bairros, ordenacaoResumo]
   );
 
-  const streetsInScope = useMemo(() => {
-    const list =
-      selectedBairro === 'ALL'
-        ? baseAggregated.ruas
-        : baseAggregated.ruas.filter((r) => r.bairroKey === selectedBairro);
-    return sortRegionItems(list, summarySort);
-  }, [baseAggregated.ruas, selectedBairro, summarySort]);
+  const ruasDoEscopo = useMemo(() => {
+    const listaRuas =
+      bairroSelecionado === 'ALL'
+        ? resumoBaseRegiao.ruas
+        : resumoBaseRegiao.ruas.filter(
+            (rua) => rua.bairroKey === bairroSelecionado
+          );
+    return ordenarGruposRegiao(listaRuas, ordenacaoResumo);
+  }, [resumoBaseRegiao.ruas, bairroSelecionado, ordenacaoResumo]);
 
   // Paginação da tabela
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const paginatedRecords = useMemo(() => {
-    const start = (safePage - 1) * PAGE_SIZE;
-    return filteredRecords.slice(start, start + PAGE_SIZE);
-  }, [filteredRecords, safePage]);
+  const totalPaginas = Math.max(
+    1,
+    Math.ceil(registrosFinaisFiltrados.length / TAMANHO_PAGINA)
+  );
+  const paginaSegura = Math.min(paginaAtual, totalPaginas);
+  const registrosPaginados = useMemo(() => {
+    const inicio = (paginaSegura - 1) * TAMANHO_PAGINA;
+    return registrosFinaisFiltrados.slice(inicio, inicio + TAMANHO_PAGINA);
+  }, [registrosFinaisFiltrados, paginaSegura]);
 
   // Consulta individual ao vivo no ISPFY (/api/tool/assinante/ponto/status)
-  const handleVerifyLiveClient = async (record: ISPFYClientRegionRecord) => {
-    if (!record.clienteId) return;
-    setCheckingClientId(record.pontoId);
+  const aoRevalidarClienteAoVivo = async (registro: ISPFYClientRegionRecord) => {
+    if (!registro.clienteId) return;
+    setPontoVerificandoId(registro.pontoId);
     try {
-      const liveStatuses = await ispfyService.getClientLivePointStatuses(
-        record.clienteId
+      const pontoAtualizado = await revalidarPontoAoVivo(
+        registro.clienteId,
+        registro.pontoId
       );
-      const match =
-        liveStatuses.find((s) => s.idPonto === record.pontoId) ||
-        liveStatuses[0];
 
-      if (!match) {
-        toast.info(`Ponto #${record.pontoId} não retornou sessão ativa no ISPFY.`);
+      if (!pontoAtualizado) {
+        toast.info(
+          `Ponto #${registro.pontoId} não retornou sessão ativa no ISPFY.`
+        );
         return;
       }
 
-      setData((prev) => {
-        if (!prev) return prev;
-        const updatedRecords = prev.records.map((item) => {
-          if (item.pontoId !== record.pontoId) return item;
-
-          const health = classifyPointConnectionHealth({
-            contratoAtivo: item.isContractActive ? 's' : 'n',
-            pontoAtivo: item.isContractActive ? 's' : 'n',
-            statusContrato: match.isBlocked ? 'bloqueado' : 'livre',
-            sessaoConexaoStatus: match.conexaoStatus,
-            bloqueadoFlag: match.isBlocked,
-          });
-
-          return {
-            ...item,
-            sessaoConexaoStatus: match.conexaoStatus,
-            ipAlocado: match.ipWan || item.ipAlocado,
-            ipv6Alocado: match.ipv6Wan || item.ipv6Alocado,
-            ultimoLogin: match.ultimoLogin || item.ultimoLogin,
-            plano: match.planoNome || item.plano,
-            uploadMesKbytes: match.uploadMesKbytes,
-            downloadMesKbytes: match.downloadMesKbytes,
-            ...health,
-          };
-        });
-
-        const updatedActive = updatedRecords.filter((r) => r.isContractActive);
-        const aggregated = aggregateRegionSummaries(updatedActive);
-        return {
-          ...prev,
-          records: updatedRecords,
-          bairros: aggregated.bairros,
-          ruas: aggregated.ruas,
-          totals: {
-            ...aggregated.totals,
-            totalPontos: updatedRecords.length,
-            inativos: updatedRecords.length - updatedActive.length,
-          },
-        };
-      });
-
-      const statusText = match.isBlocked
-        ? `Bloqueado (${match.conexaoStatus.toUpperCase()})`
-        : match.conexaoStatus === 'online'
+      const textoStatus = pontoAtualizado.isBlocked
+        ? `Bloqueado (${pontoAtualizado.conexaoStatus.toUpperCase()})`
+        : pontoAtualizado.conexaoStatus === 'online'
         ? 'Internet OK (ONLINE)'
-        : `Desconectado (${match.conexaoStatus.toUpperCase()})`;
-      toast.success(`${record.nome}: ${statusText}`);
-    } catch (error: any) {
+        : `Desconectado (${pontoAtualizado.conexaoStatus.toUpperCase()})`;
+      toast.success(`${registro.nome}: ${textoStatus}`);
+    } catch (erroCaptura: unknown) {
+      const mensagemErro =
+        erroCaptura instanceof Error ? erroCaptura.message : 'Erro de API';
       toast.error(
-        'Não foi possível verificar o ponto ao vivo: ' +
-          (error?.message || 'Erro de API')
+        'Não foi possível verificar o ponto ao vivo: ' + mensagemErro
       );
     } finally {
-      setCheckingClientId(null);
+      setPontoVerificandoId(null);
     }
   };
 
-  const openWhatsApp = (phone?: string) => {
-    const clean = (phone || '').replace(/\D/g, '');
-    if (!clean) return;
-    const target = clean.startsWith('55') ? clean : `55${clean}`;
-    window.open(`https://wa.me/${target}`, '_blank');
+  const aoCopiarTexto = (texto: string, rotulo: string) => {
+    navigator.clipboard.writeText(texto);
+    toast.success(`${rotulo} copiado!`);
   };
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${label} copiado!`);
-  };
+  const aoExportarCsv = () => {
+    if (registrosFinaisFiltrados.length === 0) return;
 
-  const handleExportCSV = () => {
-    if (filteredRecords.length === 0) return;
+    const nomeBairroFiltro =
+      bairroSelecionado === 'ALL'
+        ? 'Todos'
+        : dadosRegiao?.bairros.find((b) => b.key === bairroSelecionado)?.label ||
+          bairroSelecionado;
 
-    const statusLabelMap: Record<ISPFYConnectionHealthStatus, string> = {
-      ok: 'Internet OK (Online)',
-      desconectado: 'Desconectado (Offline)',
-      bloqueado_online: 'Bloqueado (Pool Bloqueio Online)',
-      bloqueado_offline: 'Bloqueado (Offline)',
-      inativo: 'Contrato Inativo/Cancelado',
-    };
+    let conteudoCsv = '\uFEFF';
+    conteudoCsv +=
+      'RELATÓRIO DE CLIENTES POR BAIRRO / RUA E CONEXÃO - AVL TELECOM\n';
+    conteudoCsv += `Gerado em:;${new Date().toLocaleString('pt-BR')}\n`;
+    conteudoCsv += `Bairro Filtro:;${nomeBairroFiltro}\n`;
+    conteudoCsv += `Total no Filtro:;${registrosFinaisFiltrados.length}\n`;
+    conteudoCsv += `Internet OK:;${resumoFinalTabela.totals.internetOk};Desconectados:;${resumoFinalTabela.totals.desconectados};Bloqueados:;${resumoFinalTabela.totals.bloqueados}\n\n`;
+    conteudoCsv +=
+      'ID Cliente;ID Ponto;Cliente;CPF/CNPJ;Telefone;Bairro;Rua/Logradouro;Número;Complemento;Cidade;Plano;Login PPPoE;Status Internet;Sessão;IP WAN;MAC;Último Login\n';
 
-    let csv = '\uFEFF';
-    csv += `RELATÓRIO DE CLIENTES POR BAIRRO / RUA E CONEXÃO - AVL TELECOM\n`;
-    csv += `Gerado em:;${new Date().toLocaleString('pt-BR')}\n`;
-    csv += `Bairro Filtro:;${selectedBairro === 'ALL' ? 'Todos' : (data?.bairros.find(b => b.key === selectedBairro)?.label || selectedBairro)}\n`;
-    csv += `Total no Filtro:;${filteredRecords.length}\n`;
-    csv += `Internet OK:;${finalSummary.totals.internetOk};Desconectados:;${finalSummary.totals.desconectados};Bloqueados:;${finalSummary.totals.bloqueados}\n\n`;
-    csv += `ID Cliente;ID Ponto;Cliente;CPF/CNPJ;Telefone;Bairro;Rua/Logradouro;Número;Complemento;Cidade;Plano;Login PPPoE;Status Internet;Sessão;IP WAN;MAC;Último Login\n`;
-
-    filteredRecords.forEach((r) => {
-      csv += `${r.clienteId};${r.pontoId};"${r.nome}";"${formatDocument(r.cpfCnpj)}";"${r.telefone || '-'}";"${r.bairroLabel}";"${r.ruaLabel}";"${r.numero || '-'}";"${r.complemento || '-'}";"${r.cidade || '-'}";"${r.plano || '-'}";"${r.usuarioPppoe || '-'}";"${statusLabelMap[r.connectionHealth]}";"${r.sessaoConexaoStatus}";"${r.ipAlocado || '-'}";"${r.mac || '-'}";"${r.ultimoLogin || '-'}"\n`;
+    registrosFinaisFiltrados.forEach((registro) => {
+      conteudoCsv += `${registro.clienteId};${registro.pontoId};"${registro.nome}";"${formatarDocumentoCpfCnpj(
+        registro.cpfCnpj,
+        '-'
+      )}";"${registro.telefone || '-'}";"${registro.bairroLabel}";"${
+        registro.ruaLabel
+      }";"${registro.numero || '-'}";"${registro.complemento || '-'}";"${
+        registro.cidade || '-'
+      }";"${registro.plano || '-'}";"${registro.usuarioPppoe || '-'}";"${
+        ROTULOS_EXPORTACAO_SAUDE[registro.connectionHealth]
+      }";"${registro.sessaoConexaoStatus}";"${registro.ipAlocado || '-'}";"${
+        registro.mac || '-'
+      }";"${registro.ultimoLogin || '-'}"\n`;
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute(
-      'download',
-      `clientes_regiao_conexao_${new Date().toISOString().slice(0, 10)}.csv`
+    baixarArquivoCsv(
+      `clientes_regiao_conexao_${new Date().toISOString().slice(0, 10)}.csv`,
+      conteudoCsv
     );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success(`Exportados ${filteredRecords.length} registros para CSV!`);
+    toast.success(
+      `Exportados ${registrosFinaisFiltrados.length} registros para CSV!`
+    );
   };
 
-  const activeScopeOnlineRate = useMemo(() => {
-    const activeCount = locationSummary.totals.totalAtivos;
-    if (activeCount <= 0) return 0;
-    return Math.round((locationSummary.totals.internetOk / activeCount) * 1000) / 10;
-  }, [locationSummary]);
-
-  const renderConnectionBadge = (rec: ISPFYClientRegionRecord) => {
-    switch (rec.connectionHealth) {
-      case 'ok':
-        return (
-          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] gap-1 font-semibold">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Internet OK
-          </Badge>
-        );
-      case 'desconectado':
-        return (
-          <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] gap-1 font-semibold">
-            <WifiOff className="w-3 h-3" />
-            Desconectado ({rec.sessaoConexaoStatus === 'none' ? 'Sem sessão' : rec.sessaoConexaoStatus})
-          </Badge>
-        );
-      case 'bloqueado_online':
-        return (
-          <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] gap-1 font-semibold">
-            <Lock className="w-3 h-3" />
-            Bloqueado (Online)
-          </Badge>
-        );
-      case 'bloqueado_offline':
-        return (
-          <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] gap-1 font-semibold">
-            <Lock className="w-3 h-3" />
-            Bloqueado (Off)
-          </Badge>
-        );
-      case 'inativo':
-        return (
-          <Badge variant="secondary" className="text-[11px] gap-1">
-            Contrato Inativo
-          </Badge>
-        );
-    }
-  };
+  const taxaOnlineEscopo = useMemo(() => {
+    const qtdAtivos = resumoLocal.totals.totalAtivos;
+    if (qtdAtivos <= 0) return 0;
+    return Math.round((resumoLocal.totals.internetOk / qtdAtivos) * 1000) / 10;
+  }, [resumoLocal]);
 
   return (
     <PageTransition>
@@ -571,12 +562,14 @@ export default function ISPFYClientesRegiao() {
               <p className="text-slate-300 text-sm max-w-2xl">
                 Separe os assinantes por bairro, endereço ou rua, acompanhe a quantidade exata em cada recorte e identifique rapidamente quem está com a internet OK ou desconectado.
               </p>
-              {data?.fetchedAt && (
+              {dadosRegiao?.fetchedAt && (
                 <p className="text-xs text-slate-400 flex items-center gap-1.5 pt-1">
                   <Clock className="w-3.5 h-3.5 text-blue-300" />
-                  Última leitura completa: {formatDateTime(data.fetchedAt)} •{' '}
-                  {data.totals.totalAtivos} pontos ativos em {data.bairros.length} bairros e{' '}
-                  {data.ruas.length} ruas
+                  Última leitura completa:{' '}
+                  {formatarDataHoraCurta(dadosRegiao.fetchedAt)} •{' '}
+                  {dadosRegiao.totals.totalAtivos} pontos ativos em{' '}
+                  {dadosRegiao.bairros.length} bairros e{' '}
+                  {dadosRegiao.ruas.length} ruas
                 </p>
               )}
             </div>
@@ -585,38 +578,42 @@ export default function ISPFYClientesRegiao() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => loadData(true)}
-                disabled={loading}
+                onClick={() => carregarDados(true)}
+                disabled={carregando}
                 className="bg-blue-600 hover:bg-blue-500 border-blue-400 text-white text-xs h-9"
               >
                 <RefreshCw
-                  className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
+                  className={`w-3.5 h-3.5 mr-1.5 ${
+                    carregando ? 'animate-spin' : ''
+                  }`}
                 />
                 Atualizar Conexões
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleExportCSV}
-                disabled={loading || filteredRecords.length === 0}
+                onClick={aoExportarCsv}
+                disabled={carregando || registrosFinaisFiltrados.length === 0}
                 className="bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white text-xs h-9"
               >
                 <Download className="w-3.5 h-3.5 mr-1.5" />
-                Exportar Filtro ({filteredRecords.length})
+                Exportar Filtro ({registrosFinaisFiltrados.length})
               </Button>
             </div>
           </div>
 
-          {loading && (
+          {carregando && (
             <div className="mt-4 pt-3 border-t border-white/10 flex items-center gap-3">
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
-              <span className="text-xs text-blue-200 font-medium">{progressMsg}</span>
+              <span className="text-xs text-blue-200 font-medium">
+                {mensagemProgresso}
+              </span>
             </div>
           )}
         </motion.div>
 
         {/* ── 4 KPIs do Recorte Selecionado ───────────────────────── */}
-        {data && (
+        {dadosRegiao && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="border-blue-500/20 bg-gradient-to-br from-blue-50/50 via-white to-blue-50/20 dark:from-blue-950/20 dark:via-slate-900 dark:to-blue-950/10 shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -629,11 +626,11 @@ export default function ISPFYClientesRegiao() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">
-                  {finalSummary.totals.totalPontos}
+                  {resumoFinalTabela.totals.totalPontos}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {finalSummary.totals.totalClientesUnicos} assinantes únicos •{' '}
-                  {hasActiveFilters ? 'Recorte aplicado' : 'Base completa'}
+                  {resumoFinalTabela.totals.totalClientesUnicos} assinantes únicos •{' '}
+                  {possuiFiltrosAtivos ? 'Recorte aplicado' : 'Base completa'}
                 </p>
               </CardContent>
             </Card>
@@ -649,14 +646,14 @@ export default function ISPFYClientesRegiao() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">
-                  {locationSummary.totals.internetOk}
+                  {resumoLocal.totals.internetOk}
                 </div>
                 <div className="mt-1.5 space-y-1">
                   <p className="text-xs text-muted-foreground">
-                    <strong>{activeScopeOnlineRate}%</strong> dos pontos ativos do recorte conectados
+                    <strong>{taxaOnlineEscopo}%</strong> dos pontos ativos do recorte conectados
                   </p>
                   <Progress
-                    value={activeScopeOnlineRate}
+                    value={taxaOnlineEscopo}
                     className="h-1.5 bg-emerald-500/15 [&>div]:bg-emerald-500"
                   />
                 </div>
@@ -665,7 +662,7 @@ export default function ISPFYClientesRegiao() {
 
             <Card
               className={`border-rose-500/30 bg-gradient-to-br from-rose-50/60 via-white to-rose-50/20 dark:from-rose-950/25 dark:via-slate-900 dark:to-rose-950/10 shadow-sm ${
-                locationSummary.totals.desconectados > 0
+                resumoLocal.totals.desconectados > 0
                   ? 'ring-1 ring-rose-500/20'
                   : ''
               }`}
@@ -680,10 +677,10 @@ export default function ISPFYClientesRegiao() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-extrabold text-rose-600 dark:text-rose-400">
-                  {locationSummary.totals.desconectados}
+                  {resumoLocal.totals.desconectados}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                  {locationSummary.totals.desconectados > 0 ? (
+                  {resumoLocal.totals.desconectados > 0 ? (
                     <>
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                       Contratos ativos offline (sem bloqueio)
@@ -709,11 +706,11 @@ export default function ISPFYClientesRegiao() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">
-                  {locationSummary.totals.bloqueados}
+                  {resumoLocal.totals.bloqueados}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {locationSummary.totals.bloqueadosOnline} online em pool bloqueio •{' '}
-                  {locationSummary.totals.bloqueadosOffline} offline
+                  {resumoLocal.totals.bloqueadosOnline} online em pool bloqueio •{' '}
+                  {resumoLocal.totals.bloqueadosOffline} offline
                 </p>
               </CardContent>
             </Card>
@@ -726,21 +723,28 @@ export default function ISPFYClientesRegiao() {
             {/* Filtro de Bairro */}
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-muted-foreground">
-                Filtrar por Bairro ({baseAggregated.bairros.length})
+                Filtrar por Bairro ({resumoBaseRegiao.bairros.length})
               </Label>
-              <Select value={selectedBairro} onValueChange={handleSelectBairro}>
+              <Select
+                value={bairroSelecionado}
+                onValueChange={aoSelecionarBairro}
+              >
                 <SelectTrigger className="h-10 text-xs">
                   <SelectValue placeholder="Todos os Bairros" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">
-                    Todos os Bairros ({baseAggregated.totals.totalPontos} clientes)
+                    Todos os Bairros ({resumoBaseRegiao.totals.totalPontos}{' '}
+                    clientes)
                   </SelectItem>
-                  {sortRegionItems(baseAggregated.bairros, 'volume').map((b) => (
-                    <SelectItem key={b.key} value={b.key}>
-                      {b.label} — {b.totalPontos} ({b.internetOk} ok • {b.desconectados} off)
-                    </SelectItem>
-                  ))}
+                  {ordenarGruposRegiao(resumoBaseRegiao.bairros, 'volume').map(
+                    (bairro) => (
+                      <SelectItem key={bairro.key} value={bairro.key}>
+                        {bairro.label} — {bairro.totalPontos} (
+                        {bairro.internetOk} ok • {bairro.desconectados} off)
+                      </SelectItem>
+                    )
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -748,21 +752,23 @@ export default function ISPFYClientesRegiao() {
             {/* Filtro de Rua / Logradouro */}
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-muted-foreground">
-                Filtrar por Rua / Endereço ({streetsInScope.length})
+                Filtrar por Rua / Endereço ({ruasDoEscopo.length})
               </Label>
               <Select
-                value={selectedStreetComposite}
-                onValueChange={(val) => {
-                  if (val === 'ALL') {
-                    setSelectedStreetComposite('ALL');
+                value={ruaSelecionadaComp}
+                onValueChange={(valor) => {
+                  if (valor === 'ALL') {
+                    setRuaSelecionadaComp('ALL');
                   } else {
-                    const match = baseAggregated.ruas.find((r) => r.key === val);
-                    if (match) {
-                      setSelectedBairro(match.bairroKey);
-                      setSelectedStreetComposite(match.key);
+                    const ruaEncontrada = resumoBaseRegiao.ruas.find(
+                      (rua) => rua.key === valor
+                    );
+                    if (ruaEncontrada) {
+                      setBairroSelecionado(ruaEncontrada.bairroKey);
+                      setRuaSelecionadaComp(ruaEncontrada.key);
                     }
                   }
-                  setPage(1);
+                  setPaginaAtual(1);
                 }}
               >
                 <SelectTrigger className="h-10 text-xs">
@@ -770,13 +776,15 @@ export default function ISPFYClientesRegiao() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">
-                    Todas as Ruas ({streetsInScope.length} logradouros)
+                    Todas as Ruas ({ruasDoEscopo.length} logradouros)
                   </SelectItem>
-                  {sortRegionItems(streetsInScope, 'volume').map((s) => (
-                    <SelectItem key={s.key} value={s.key}>
-                      {s.label}
-                      {selectedBairro === 'ALL' ? ` (${s.bairroLabel})` : ''} — {s.totalPontos}{' '}
-                      ({s.desconectados} off)
+                  {ordenarGruposRegiao(ruasDoEscopo, 'volume').map((rua) => (
+                    <SelectItem key={rua.key} value={rua.key}>
+                      {rua.label}
+                      {bairroSelecionado === 'ALL'
+                        ? ` (${rua.bairroLabel})`
+                        : ''}{' '}
+                      — {rua.totalPontos} ({rua.desconectados} off)
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -792,10 +800,10 @@ export default function ISPFYClientesRegiao() {
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Ex: Rua Coelho, casa, joao, 100.64..."
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setPage(1);
+                  value={termoBusca}
+                  onChange={(evento) => {
+                    setTermoBusca(evento.target.value);
+                    setPaginaAtual(1);
                   }}
                   className="pl-9 h-10 text-xs"
                 />
@@ -807,75 +815,77 @@ export default function ISPFYClientesRegiao() {
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
-                variant={statusFilter === 'ALL' ? 'default' : 'outline'}
+                variant={filtroStatus === 'ALL' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => {
-                  setStatusFilter('ALL');
-                  setPage(1);
+                  setFiltroStatus('ALL');
+                  setPaginaAtual(1);
                 }}
                 className="h-8 text-xs"
               >
-                Todos ({locationSummary.totals.totalPontos})
+                Todos ({resumoLocal.totals.totalPontos})
               </Button>
               <Button
-                variant={statusFilter === 'OK' ? 'default' : 'outline'}
+                variant={filtroStatus === 'OK' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => {
-                  setStatusFilter('OK');
-                  setPage(1);
+                  setFiltroStatus('OK');
+                  setPaginaAtual(1);
                 }}
                 className={`h-8 text-xs ${
-                  statusFilter === 'OK'
+                  filtroStatus === 'OK'
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                     : 'text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
                 }`}
               >
                 <Wifi className="w-3.5 h-3.5 mr-1.5" />
-                Internet OK ({locationSummary.totals.internetOk})
+                Internet OK ({resumoLocal.totals.internetOk})
               </Button>
               <Button
-                variant={statusFilter === 'DESCONECTADO' ? 'default' : 'outline'}
+                variant={
+                  filtroStatus === 'DESCONECTADO' ? 'default' : 'outline'
+                }
                 size="sm"
                 onClick={() => {
-                  setStatusFilter('DESCONECTADO');
-                  setPage(1);
+                  setFiltroStatus('DESCONECTADO');
+                  setPaginaAtual(1);
                 }}
                 className={`h-8 text-xs ${
-                  statusFilter === 'DESCONECTADO'
+                  filtroStatus === 'DESCONECTADO'
                     ? 'bg-rose-600 hover:bg-rose-500 text-white'
                     : 'text-rose-700 dark:text-rose-300 border-rose-500/30'
                 }`}
               >
                 <WifiOff className="w-3.5 h-3.5 mr-1.5" />
-                Desconectados ({locationSummary.totals.desconectados})
+                Desconectados ({resumoLocal.totals.desconectados})
               </Button>
               <Button
-                variant={statusFilter === 'BLOQUEADO' ? 'default' : 'outline'}
+                variant={filtroStatus === 'BLOQUEADO' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => {
-                  setStatusFilter('BLOQUEADO');
-                  setPage(1);
+                  setFiltroStatus('BLOQUEADO');
+                  setPaginaAtual(1);
                 }}
                 className={`h-8 text-xs ${
-                  statusFilter === 'BLOQUEADO'
+                  filtroStatus === 'BLOQUEADO'
                     ? 'bg-amber-600 hover:bg-amber-500 text-white'
                     : 'text-amber-700 dark:text-amber-300 border-amber-500/30'
                 }`}
               >
                 <Lock className="w-3.5 h-3.5 mr-1.5" />
-                Bloqueados ({locationSummary.totals.bloqueados})
+                Bloqueados ({resumoLocal.totals.bloqueados})
               </Button>
-              {includeInactive && (
+              {incluirInativos && (
                 <Button
-                  variant={statusFilter === 'INATIVO' ? 'default' : 'outline'}
+                  variant={filtroStatus === 'INATIVO' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => {
-                    setStatusFilter('INATIVO');
-                    setPage(1);
+                    setFiltroStatus('INATIVO');
+                    setPaginaAtual(1);
                   }}
                   className="h-8 text-xs"
                 >
-                  Inativos ({locationSummary.totals.inativos})
+                  Inativos ({resumoLocal.totals.inativos})
                 </Button>
               )}
             </div>
@@ -884,45 +894,55 @@ export default function ISPFYClientesRegiao() {
               <div className="flex items-center gap-2">
                 <Switch
                   id="include-inactive"
-                  checked={includeInactive}
-                  onCheckedChange={(checked) => {
-                    setIncludeInactive(checked);
-                    if (!checked && statusFilter === 'INATIVO') {
-                      setStatusFilter('ALL');
+                  checked={incluirInativos}
+                  onCheckedChange={(marcado) => {
+                    setIncluirInativos(marcado);
+                    if (!marcado && filtroStatus === 'INATIVO') {
+                      setFiltroStatus('ALL');
                     }
-                    setPage(1);
+                    setPaginaAtual(1);
                   }}
                 />
                 <Label
                   htmlFor="include-inactive"
                   className="text-xs text-muted-foreground cursor-pointer"
                 >
-                  Incluir inativos ({data?.totals.inativos ?? 0})
+                  Incluir inativos ({dadosRegiao?.totals.inativos ?? 0})
                 </Label>
               </div>
 
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground">Ordenar grupos:</span>
+                <span className="text-xs text-muted-foreground">
+                  Ordenar grupos:
+                </span>
                 <Select
-                  value={summarySort}
-                  onValueChange={(v) => setSummarySort(v as SummarySortMode)}
+                  value={ordenacaoResumo}
+                  onValueChange={(valor) =>
+                    setOrdenacaoResumo(valor as ModoOrdenacaoResumo)
+                  }
                 >
                   <SelectTrigger className="h-8 w-44 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="disconnected">Mais desconectados (quedas)</SelectItem>
-                    <SelectItem value="volume">Maior qtd. de clientes</SelectItem>
-                    <SelectItem value="alpha">Ordem alfabética (A-Z)</SelectItem>
+                    <SelectItem value="disconnected">
+                      Mais desconectados (quedas)
+                    </SelectItem>
+                    <SelectItem value="volume">
+                      Maior qtd. de clientes
+                    </SelectItem>
+                    <SelectItem value="alpha">
+                      Ordem alfabética (A-Z)
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {hasActiveFilters && (
+              {possuiFiltrosAtivos && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleClearFilters}
+                  onClick={aoLimparFiltros}
                   className="h-8 text-xs text-rose-600 hover:text-rose-700"
                 >
                   <FilterX className="w-3.5 h-3.5 mr-1" />
@@ -934,7 +954,7 @@ export default function ISPFYClientesRegiao() {
         </Card>
 
         {/* ── Painel Duplo Clicável: Bairros & Ruas com Contagens ── */}
-        {data && (
+        {dadosRegiao && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Bairros */}
             <Card className="border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -943,17 +963,17 @@ export default function ISPFYClientesRegiao() {
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-blue-500" />
-                      Bairros ({bairrosForCards.length})
+                      Bairros ({bairrosOrdenados.length})
                     </CardTitle>
                     <CardDescription className="text-xs">
                       Clique em um bairro para filtrar seus clientes e ruas
                     </CardDescription>
                   </div>
-                  {selectedBairro !== 'ALL' && (
+                  {bairroSelecionado !== 'ALL' && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleSelectBairro('ALL')}
+                      onClick={() => aoSelecionarBairro('ALL')}
                       className="h-7 text-[11px]"
                     >
                       Ver todos
@@ -962,22 +982,22 @@ export default function ISPFYClientesRegiao() {
                 </div>
               </CardHeader>
               <CardContent className="p-2 max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/70">
-                {bairrosForCards.length === 0 ? (
+                {bairrosOrdenados.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-8">
                     Nenhum bairro corresponde à busca atual.
                   </p>
                 ) : (
-                  bairrosForCards.map((b) => {
-                    const isSelected = selectedBairro === b.key;
+                  bairrosOrdenados.map((bairro) => {
+                    const selecionado = bairroSelecionado === bairro.key;
                     return (
                       <button
                         type="button"
-                        key={b.key}
+                        key={bairro.key}
                         onClick={() =>
-                          handleSelectBairro(isSelected ? 'ALL' : b.key)
+                          aoSelecionarBairro(selecionado ? 'ALL' : bairro.key)
                         }
                         className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between gap-2 ${
-                          isSelected
+                          selecionado
                             ? 'bg-blue-500/15 ring-1 ring-blue-500/40'
                             : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
                         }`}
@@ -985,49 +1005,27 @@ export default function ISPFYClientesRegiao() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-xs truncate">
-                              {b.label}
+                              {bairro.label}
                             </span>
-                            <Badge variant="secondary" className="text-[10px] font-mono">
-                              {b.totalPontos}
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] font-mono"
+                            >
+                              {bairro.totalPontos}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-2 mt-1">
                             <Progress
-                              value={b.onlineRate}
+                              value={bairro.onlineRate}
                               className="h-1 flex-1 max-w-[120px] bg-slate-200 dark:bg-slate-800 [&>div]:bg-emerald-500"
                             />
                             <span className="text-[10px] text-muted-foreground">
-                              {b.onlineRate}% OK
+                              {bairro.onlineRate}% OK
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/5"
-                          >
-                            {b.internetOk} OK
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${
-                              b.desconectados > 0
-                                ? 'border-rose-500/50 text-rose-700 dark:text-rose-300 bg-rose-500/10 font-bold'
-                                : 'border-slate-300/60 text-muted-foreground'
-                            }`}
-                          >
-                            {b.desconectados} off
-                          </Badge>
-                          {b.bloqueados > 0 && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/5"
-                            >
-                              {b.bloqueados} bloq
-                            </Badge>
-                          )}
-                        </div>
+                        <BadgesSaudeGrupo grupo={bairro} />
                       </button>
                     );
                   })
@@ -1042,21 +1040,25 @@ export default function ISPFYClientesRegiao() {
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <Navigation className="w-4 h-4 text-indigo-500" />
-                      Ruas / Logradouros ({streetsInScope.length})
+                      Ruas / Logradouros ({ruasDoEscopo.length})
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      {selectedBairro === 'ALL'
+                      {bairroSelecionado === 'ALL'
                         ? 'Mostrando ruas de toda a rede — clique para isolar uma rua'
-                        : `Ruas em ${bairrosForCards.find((b) => b.key === selectedBairro)?.label || 'Bairro selecionado'}`}
+                        : `Ruas em ${
+                            bairrosOrdenados.find(
+                              (b) => b.key === bairroSelecionado
+                            )?.label || 'Bairro selecionado'
+                          }`}
                     </CardDescription>
                   </div>
-                  {selectedStreetComposite !== 'ALL' && (
+                  {ruaSelecionadaComp !== 'ALL' && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setSelectedStreetComposite('ALL');
-                        setPage(1);
+                        setRuaSelecionadaComp('ALL');
+                        setPaginaAtual(1);
                       }}
                       className="h-7 text-[11px]"
                     >
@@ -1066,20 +1068,20 @@ export default function ISPFYClientesRegiao() {
                 </div>
               </CardHeader>
               <CardContent className="p-2 max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/70">
-                {streetsInScope.length === 0 ? (
+                {ruasDoEscopo.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-8">
                     Nenhuma rua encontrada para os filtros aplicados.
                   </p>
                 ) : (
-                  streetsInScope.map((st) => {
-                    const isSelected = selectedStreetComposite === st.key;
+                  ruasDoEscopo.map((rua) => {
+                    const selecionada = ruaSelecionadaComp === rua.key;
                     return (
                       <button
                         type="button"
-                        key={st.key}
-                        onClick={() => handleSelectStreet(st)}
+                        key={rua.key}
+                        onClick={() => aoSelecionarRua(rua)}
                         className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between gap-2 ${
-                          isSelected
+                          selecionada
                             ? 'bg-indigo-500/15 ring-1 ring-indigo-500/40'
                             : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
                         }`}
@@ -1087,43 +1089,21 @@ export default function ISPFYClientesRegiao() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-xs truncate">
-                              {st.label}
+                              {rua.label}
                             </span>
-                            <Badge variant="secondary" className="text-[10px] font-mono">
-                              {st.totalPontos}
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] font-mono"
+                            >
+                              {rua.totalPontos}
                             </Badge>
                           </div>
                           <p className="text-[10px] text-muted-foreground truncate mt-0.5">
-                            {st.bairroLabel} • {st.onlineRate}% OK
+                            {rua.bairroLabel} • {rua.onlineRate}% OK
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/5"
-                          >
-                            {st.internetOk} OK
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${
-                              st.desconectados > 0
-                                ? 'border-rose-500/50 text-rose-700 dark:text-rose-300 bg-rose-500/10 font-bold'
-                                : 'border-slate-300/60 text-muted-foreground'
-                            }`}
-                          >
-                            {st.desconectados} off
-                          </Badge>
-                          {st.bloqueados > 0 && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/5"
-                            >
-                              {st.bloqueados} bloq
-                            </Badge>
-                          )}
-                        </div>
+                        <BadgesSaudeGrupo grupo={rua} />
                       </button>
                     );
                   })
@@ -1143,7 +1123,9 @@ export default function ISPFYClientesRegiao() {
                   Clientes no Filtro &amp; Diagnóstico de Internet
                 </CardTitle>
                 <CardDescription>
-                  Exibindo {paginatedRecords.length} de {filteredRecords.length} pontos encontrados (página {safePage} de {totalPages})
+                  Exibindo {registrosPaginados.length} de{' '}
+                  {registrosFinaisFiltrados.length} pontos encontrados (página{' '}
+                  {paginaSegura} de {totalPaginas})
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -1151,13 +1133,13 @@ export default function ISPFYClientesRegiao() {
                   variant="outline"
                   className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs"
                 >
-                  {finalSummary.totals.internetOk} OK
+                  {resumoFinalTabela.totals.internetOk} OK
                 </Badge>
                 <Badge
                   variant="outline"
                   className="bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 text-xs"
                 >
-                  {finalSummary.totals.desconectados} Desconectados
+                  {resumoFinalTabela.totals.desconectados} Desconectados
                 </Badge>
               </div>
             </div>
@@ -1177,85 +1159,96 @@ export default function ISPFYClientesRegiao() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loading && !data ? (
+                  {carregando && !dadosRegiao ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-40 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={6}
+                        className="h-40 text-center text-muted-foreground"
+                      >
                         <div className="flex flex-col items-center justify-center gap-2">
                           <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
-                          <span>{progressMsg}</span>
+                          <span>{mensagemProgresso}</span>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : paginatedRecords.length === 0 ? (
+                  ) : registrosPaginados.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={6}
+                        className="h-32 text-center text-muted-foreground"
+                      >
                         Nenhum cliente encontrado para os filtros aplicados.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginatedRecords.map((rec) => (
+                    registrosPaginados.map((registro) => (
                       <TableRow
-                        key={rec.pontoId}
+                        key={registro.pontoId}
                         className={`hover:bg-slate-50/70 dark:hover:bg-slate-850/50 transition-colors ${
-                          rec.connectionHealth === 'desconectado'
+                          registro.connectionHealth === 'desconectado'
                             ? 'bg-rose-500/[0.03]'
                             : ''
                         }`}
                       >
                         <TableCell>
                           <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">
-                            {rec.nome}
+                            {registro.nome}
                           </div>
                           <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                            Cliente #{rec.clienteId || '-'} • Ponto #{rec.pontoId} •{' '}
-                            {formatDocument(rec.cpfCnpj)}
+                            Cliente #{registro.clienteId || '-'} • Ponto #
+                            {registro.pontoId} •{' '}
+                            {formatarDocumentoCpfCnpj(registro.cpfCnpj, '-')}
                           </div>
-                          {rec.telefone && (
+                          {registro.telefone && (
                             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5 font-medium">
                               <Phone className="w-3 h-3" />
-                              {rec.telefone}
+                              {registro.telefone}
                             </div>
                           )}
                         </TableCell>
 
                         <TableCell>
                           <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                            {rec.ruaLabel}
-                            {rec.numero ? `, ${rec.numero}` : ''}
+                            {registro.ruaLabel}
+                            {registro.numero ? `, ${registro.numero}` : ''}
                           </div>
-                          {rec.complemento && (
+                          {registro.complemento && (
                             <div className="text-[10px] text-muted-foreground truncate max-w-[260px]">
-                              {rec.complemento}
+                              {registro.complemento}
                             </div>
                           )}
                           <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
-                            {rec.bairroLabel}
-                            {rec.cidade ? ` • ${rec.cidade}` : ''}
+                            {registro.bairroLabel}
+                            {registro.cidade ? ` • ${registro.cidade}` : ''}
                           </div>
                         </TableCell>
 
                         <TableCell>
                           <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                            {rec.plano || 'Não identificado'}
+                            {registro.plano || 'Não identificado'}
                           </div>
                           <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                            PPPoE: {rec.usuarioPppoe || '-'}
+                            PPPoE: {registro.usuarioPppoe || '-'}
                           </div>
-                          {rec.mac && (
+                          {registro.mac && (
                             <div className="text-[10px] text-muted-foreground font-mono">
-                              MAC: {rec.mac}
+                              MAC: {registro.mac}
                             </div>
                           )}
                         </TableCell>
 
                         <TableCell>
                           <div className="space-y-1">
-                            {renderConnectionBadge(rec)}
-                            {(rec.downloadMesKbytes !== undefined ||
-                              rec.uploadMesKbytes !== undefined) && (
+                            {renderizarBadgeConexao(registro)}
+                            {(registro.downloadMesKbytes !== undefined ||
+                              registro.uploadMesKbytes !== undefined) && (
                               <div className="text-[10px] text-muted-foreground">
-                                Mês: ↓ {formatMB(rec.downloadMesKbytes)} / ↑{' '}
-                                {formatMB(rec.uploadMesKbytes)}
+                                Mês: ↓{' '}
+                                {formatarConsumoDados(
+                                  registro.downloadMesKbytes
+                                )}{' '}
+                                / ↑{' '}
+                                {formatarConsumoDados(registro.uploadMesKbytes)}
                               </div>
                             )}
                           </div>
@@ -1263,14 +1256,18 @@ export default function ISPFYClientesRegiao() {
 
                         <TableCell className="text-xs space-y-0.5">
                           <div className="font-mono text-[11px] text-slate-800 dark:text-slate-200">
-                            {rec.ipAlocado ? `IP: ${rec.ipAlocado}` : 'Sem IP ativo'}
+                            {registro.ipAlocado
+                              ? `IP: ${registro.ipAlocado}`
+                              : 'Sem IP ativo'}
                           </div>
                           <div className="text-[10px] text-muted-foreground">
-                            Últ. login: {formatDateTime(rec.ultimoLogin)}
+                            Últ. login:{' '}
+                            {formatarDataHoraCurta(registro.ultimoLogin)}
                           </div>
-                          {rec.ultimoAccounting && (
+                          {registro.ultimoAccounting && (
                             <div className="text-[10px] text-muted-foreground">
-                              Accounting: {formatDateTime(rec.ultimoAccounting)}
+                              Accounting:{' '}
+                              {formatarDataHoraCurta(registro.ultimoAccounting)}
                             </div>
                           )}
                         </TableCell>
@@ -1282,12 +1279,14 @@ export default function ISPFYClientesRegiao() {
                               size="icon"
                               className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30"
                               title="Verificar conexão deste cliente agora (tempo real)"
-                              disabled={checkingClientId === rec.pontoId}
-                              onClick={() => handleVerifyLiveClient(rec)}
+                              disabled={pontoVerificandoId === registro.pontoId}
+                              onClick={() => aoRevalidarClienteAoVivo(registro)}
                             >
                               <RefreshCw
                                 className={`w-3.5 h-3.5 ${
-                                  checkingClientId === rec.pontoId ? 'animate-spin' : ''
+                                  pontoVerificandoId === registro.pontoId
+                                    ? 'animate-spin'
+                                    : ''
                                 }`}
                               />
                             </Button>
@@ -1297,33 +1296,35 @@ export default function ISPFYClientesRegiao() {
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
                               title="Copiar endereço e dados"
                               onClick={() =>
-                                handleCopy(
-                                  `${rec.nome} | ${rec.enderecoCompleto} - ${rec.bairroLabel}`,
+                                aoCopiarTexto(
+                                  `${registro.nome} | ${registro.enderecoCompleto} - ${registro.bairroLabel}`,
                                   'Endereço do cliente'
                                 )
                               }
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </Button>
-                            {rec.telefone && (
+                            {registro.telefone && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                                 title="Abrir WhatsApp"
-                                onClick={() => openWhatsApp(rec.telefone)}
+                                onClick={() =>
+                                  abrirConversaWhatsApp(registro.telefone)
+                                }
                               >
                                 <Phone className="w-3.5 h-3.5" />
                               </Button>
                             )}
-                            {rec.clienteId && (
+                            {registro.clienteId && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                                 title="Abrir ficha completa no ISPFY"
                                 onClick={() =>
-                                  navigate(`/ispfy/cliente/${rec.clienteId}`)
+                                  navegar(`/ispfy/cliente/${registro.clienteId}`)
                                 }
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -1339,17 +1340,20 @@ export default function ISPFYClientesRegiao() {
             </div>
 
             {/* Paginação */}
-            {filteredRecords.length > PAGE_SIZE && (
+            {registrosFinaisFiltrados.length > TAMANHO_PAGINA && (
               <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40">
                 <span className="text-xs text-muted-foreground">
-                  Página {safePage} de {totalPages} • {filteredRecords.length} clientes neste recorte
+                  Página {paginaSegura} de {totalPaginas} •{' '}
+                  {registrosFinaisFiltrados.length} clientes neste recorte
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={paginaSegura <= 1}
+                    onClick={() =>
+                      setPaginaAtual((pagina) => Math.max(1, pagina - 1))
+                    }
                     className="h-8 text-xs"
                   >
                     <ChevronLeft className="w-3.5 h-3.5 mr-1" />
@@ -1358,8 +1362,12 @@ export default function ISPFYClientesRegiao() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={paginaSegura >= totalPaginas}
+                    onClick={() =>
+                      setPaginaAtual((pagina) =>
+                        Math.min(totalPaginas, pagina + 1)
+                      )
+                    }
                     className="h-8 text-xs"
                   >
                     Próxima
@@ -1374,4 +1382,3 @@ export default function ISPFYClientesRegiao() {
     </PageTransition>
   );
 }
-

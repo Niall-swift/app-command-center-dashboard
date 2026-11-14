@@ -2,11 +2,10 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Loader2, User, Phone, MapPin, Ticket, CheckCircle2,
-  AlertCircle, Send, X, Navigation, Copy, ExternalLink,
-  ClipboardList, ChevronRight, Radio, Wifi, WifiOff,
-  Zap, Wrench, HelpCircle, Cable, Monitor, RotateCcw, MessageSquare,
-  Settings, Edit3, Sliders, Check, RefreshCw, Eye, Sparkles, Layers,
-  Lock, Key, Globe, CheckCheck, PlusCircle,
+  AlertCircle, Send, X, Navigation, Copy, ClipboardList,
+  ChevronRight, Radio, Wifi, WifiOff, Zap, Wrench, HelpCircle,
+  Cable, Monitor, RotateCcw, Edit3, Sliders, Check, Key,
+  CheckCheck, PlusCircle, Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,57 +29,52 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import PageTransition from '@/components/PageTransition';
-import { ispfyService } from '@/services/ispfy/ispfyService';
-import type { ISPFYClienteData, ISPFYLoginData, ISPFYContratoData, ISPFYPlanoData } from '@/types/ispfy';
-import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
-import type { WhapiGroup } from '@/types/whapi';
-import { useDailyOS } from '@/hooks/useDailyOS';
+import { IconeWhatsApp } from '@/components/icons/IconeWhatsApp';
 import { DailyOSModal } from '@/components/ispfy/DailyOSModal';
-import { Calendar } from 'lucide-react';
+import { useDailyOS } from '@/hooks/useDailyOS';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
+import type { ISPFYClienteData, ISPFYLoginData, ISPFYContratoData, ISPFYPlanoData } from '@/types/ispfy';
+import type { WhapiGroup } from '@/types/whapi';
+import {
+  ROTULOS_PRIORIDADE_OS,
+  buscarClientesISPFYHibrido,
+  gerarLinksMapaCliente,
+  isRegistroAtivo,
+  montarEnderecoISPFY,
+  obterNomeClienteISPFY,
+  obterTelefoneClienteISPFY,
+  selecionarGrupoWhatsAppPadrao,
+} from '@/utils/ispfyFormatters';
 
-// ─── WhatsApp SVG Icon ────────────────────────────────────────────────────────
-const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={`${className} fill-current`} xmlns="http://www.w3.org/2000/svg">
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
-  </svg>
-);
-
-// ─── Tipos de problema predefinidos ──────────────────────────────────────────
-const PROBLEMS = [
-  { id: 'instalacao', label: 'Nova Instalação', icon: PlusCircle, color: 'emerald' },
-  { id: 'sem_sinal', label: 'Sem Sinal / Internet', icon: WifiOff, color: 'red' },
-  { id: 'lentidao', label: 'Lentidão / Queda de Velocidade', icon: Zap, color: 'orange' },
-  { id: 'intermitencia', label: 'Conexão Intermitente', icon: Radio, color: 'yellow' },
-  { id: 'sem_wifi', label: 'Wi-Fi com Problema', icon: Wifi, color: 'blue' },
-  { id: 'roteador', label: 'Problema no Roteador', icon: Monitor, color: 'purple' },
-  { id: 'cabo', label: 'Cabo Danificado / Solto', icon: Cable, color: 'pink' },
-  { id: 'tecnica', label: 'Visita Técnica Agendada', icon: Wrench, color: 'green' },
-  { id: 'reinstalacao', label: 'Reinstalação / Mudança', icon: RotateCcw, color: 'teal' },
-  { id: 'outro', label: 'Outro Problema', icon: HelpCircle, color: 'gray' },
+const OPCOES_PROBLEMAS = [
+  { id: 'instalacao', label: 'Nova Instalação', icon: PlusCircle, cor: 'emerald' },
+  { id: 'sem_sinal', label: 'Sem Sinal / Internet', icon: WifiOff, cor: 'red' },
+  { id: 'lentidao', label: 'Lentidão / Queda de Velocidade', icon: Zap, cor: 'orange' },
+  { id: 'intermitencia', label: 'Conexão Intermitente', icon: Radio, cor: 'yellow' },
+  { id: 'sem_wifi', label: 'Wi-Fi com Problema', icon: Wifi, cor: 'blue' },
+  { id: 'roteador', label: 'Problema no Roteador', icon: Monitor, cor: 'purple' },
+  { id: 'cabo', label: 'Cabo Danificado / Solto', icon: Cable, cor: 'pink' },
+  { id: 'tecnica', label: 'Visita Técnica Agendada', icon: Wrench, cor: 'green' },
+  { id: 'reinstalacao', label: 'Reinstalação / Mudança', icon: RotateCcw, cor: 'teal' },
+  { id: 'outro', label: 'Outro Problema', icon: HelpCircle, cor: 'gray' },
 ];
 
-const colorMap: Record<string, { chip: string; chipSelected: string }> = {
-  emerald:{ chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelected: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
-  red:    { chip: 'border-red-500/20 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/15',    chipSelected: 'border-red-500 text-red-700 dark:text-red-300 bg-red-500/20 shadow-red-500/20' },
-  orange: { chip: 'border-orange-500/20 text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/15', chipSelected: 'border-orange-500 text-orange-700 dark:text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
-  yellow: { chip: 'border-amber-500/20 text-amber-600 dark:text-yellow-400 bg-amber-500/10 hover:bg-amber-500/15', chipSelected: 'border-amber-500 text-amber-700 dark:text-yellow-300 bg-amber-500/20 shadow-amber-500/20' },
-  blue:   { chip: 'border-blue-500/20 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/15',   chipSelected: 'border-blue-500 text-blue-700 dark:text-blue-300 bg-blue-500/20 shadow-blue-500/20' },
-  purple: { chip: 'border-purple-500/20 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/15', chipSelected: 'border-purple-500 text-purple-700 dark:text-purple-300 bg-purple-500/20 shadow-purple-500/20' },
-  pink:   { chip: 'border-pink-500/20 text-pink-600 dark:text-pink-400 bg-pink-500/10 hover:bg-pink-500/15',   chipSelected: 'border-pink-500 text-pink-700 dark:text-pink-300 bg-pink-500/20 shadow-pink-500/20' },
-  green:  { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelected: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
-  teal:   { chip: 'border-teal-500/20 text-teal-600 dark:text-teal-400 bg-teal-500/10 hover:bg-teal-500/15',   chipSelected: 'border-teal-500 text-teal-700 dark:text-teal-300 bg-teal-500/20 shadow-teal-500/20' },
-  gray:   { chip: 'border-border text-muted-foreground bg-secondary/60 hover:bg-secondary',         chipSelected: 'border-primary/50 text-foreground bg-secondary shadow-sm' },
-};
-
-const PRIORITY_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  B: { label: 'Baixa',   color: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
-  N: { label: 'Normal',  color: 'text-emerald-600 dark:text-emerald-400',  bg: 'bg-emerald-500/10 border-emerald-500/30' },
-  A: { label: 'Alta',    color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30' },
-  C: { label: 'Crítica', color: 'text-red-600 dark:text-red-400',    bg: 'bg-red-500/10 border-red-500/30' },
+const MAPA_CORES_PROBLEMAS: Record<string, { chip: string; chipSelecionado: string }> = {
+  emerald: { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelecionado: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
+  red:     { chip: 'border-red-500/20 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/15', chipSelecionado: 'border-red-500 text-red-700 dark:text-red-300 bg-red-500/20 shadow-red-500/20' },
+  orange:  { chip: 'border-orange-500/20 text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/15', chipSelecionado: 'border-orange-500 text-orange-700 dark:text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
+  yellow:  { chip: 'border-amber-500/20 text-amber-600 dark:text-yellow-400 bg-amber-500/10 hover:bg-amber-500/15', chipSelecionado: 'border-amber-500 text-amber-700 dark:text-yellow-300 bg-amber-500/20 shadow-amber-500/20' },
+  blue:    { chip: 'border-blue-500/20 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/15', chipSelecionado: 'border-blue-500 text-blue-700 dark:text-blue-300 bg-blue-500/20 shadow-blue-500/20' },
+  purple:  { chip: 'border-purple-500/20 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/15', chipSelecionado: 'border-purple-500 text-purple-700 dark:text-purple-300 bg-purple-500/20 shadow-purple-500/20' },
+  pink:    { chip: 'border-pink-500/20 text-pink-600 dark:text-pink-400 bg-pink-500/10 hover:bg-pink-500/15', chipSelecionado: 'border-pink-500 text-pink-700 dark:text-pink-300 bg-pink-500/20 shadow-pink-500/20' },
+  green:   { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelecionado: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
+  teal:    { chip: 'border-teal-500/20 text-teal-600 dark:text-teal-400 bg-teal-500/10 hover:bg-teal-500/15', chipSelecionado: 'border-teal-500 text-teal-700 dark:text-teal-300 bg-teal-500/20 shadow-teal-500/20' },
+  gray:    { chip: 'border-border text-muted-foreground bg-secondary/60 hover:bg-secondary', chipSelecionado: 'border-primary/50 text-foreground bg-secondary shadow-sm' },
 };
 
 // ─── Modelo Padrão da O.S. & Variáveis Dinâmicas ──────────────────────────────
-export const DEFAULT_OS_TEMPLATE = 
+export const DEFAULT_OS_TEMPLATE =
 `🛠 *O.S. #{numero_diario} – Ordem de Serviço* (ISPFY #{numero_os})
 👤 *Cliente:* {cliente}
 📞 *Contato:* {telefone}
@@ -95,645 +89,569 @@ export const DEFAULT_OS_TEMPLATE =
 {observacao}
 {mapa}`;
 
-const STORAGE_KEY_TEMPLATE = 'avl_os_template_structure_v2';
+const CHAVE_STORAGE_TEMPLATE = 'avl_os_template_structure_v2';
 
-const TEMPLATE_VARIABLES = [
-  { tag: '{numero_diario}', label: 'Nº O.S. do Dia', desc: 'Ex: #01, #02 (Reinicia todo dia às 00:00)' },
-  { tag: '{numero_os}', label: 'ID ISPFY', desc: 'Ex: #12345 (ID oficial no sistema)' },
-  { tag: '{data_hoje}', label: 'Data Atual', desc: 'Ex: 15/10/2026' },
-  { tag: '{cliente}', label: 'Cliente', desc: 'Nome completo' },
-  { tag: '{telefone}', label: 'Telefone', desc: 'Contato / Celular' },
-  { tag: '{plano}', label: 'Plano', desc: 'Plano de Internet' },
-  { tag: '{logins}', label: 'PPPoE (Login/Senha)', desc: 'Credenciais completas' },
-  { tag: '{pppoe}', label: 'Usuário PPPoE', desc: 'Apenas login' },
-  { tag: '{senha}', label: 'Senha PPPoE', desc: 'Apenas senha' },
-  { tag: '{wifi}', label: 'Wi-Fi (Nome/Senha)', desc: 'Dados da rede Wi-Fi definidos' },
-  { tag: '{wifi_nome}', label: 'Nome do Wi-Fi (SSID)', desc: 'Nome da rede Wi-Fi' },
-  { tag: '{wifi_senha}', label: 'Senha do Wi-Fi', desc: 'Senha da rede Wi-Fi' },
-  { tag: '{problemas}', label: 'Problemas', desc: 'Lista de problemas selecionados' },
-  { tag: '{assunto}', label: 'Assunto', desc: 'Assunto do chamado' },
-  { tag: '{prioridade}', label: 'Prioridade', desc: 'Baixa, Normal, Alta, Crítica' },
-  { tag: '{endereco}', label: 'Endereço', desc: 'Endereço completo' },
-  { tag: '{referencia}', label: 'Ponto Ref.', desc: 'Ponto de referência' },
-  { tag: '{observacao}', label: 'Observação', desc: 'Observação adicional' },
-  { tag: '{mapa}', label: 'Link do Mapa', desc: 'Link direto do Google Maps' },
+const VARIAVEIS_TEMPLATE_OS = [
+  { tag: '{numero_diario}', rotulo: 'Nº O.S. do Dia', desc: 'Ex: #01, #02 (Reinicia todo dia às 00:00)' },
+  { tag: '{numero_os}', rotulo: 'ID ISPFY', desc: 'Ex: #12345 (ID oficial no sistema)' },
+  { tag: '{data_hoje}', rotulo: 'Data Atual', desc: 'Ex: 15/10/2026' },
+  { tag: '{cliente}', rotulo: 'Cliente', desc: 'Nome completo' },
+  { tag: '{telefone}', rotulo: 'Telefone', desc: 'Contato / Celular' },
+  { tag: '{plano}', rotulo: 'Plano', desc: 'Plano de Internet' },
+  { tag: '{logins}', rotulo: 'PPPoE (Login/Senha)', desc: 'Credenciais completas' },
+  { tag: '{pppoe}', rotulo: 'Usuário PPPoE', desc: 'Apenas login' },
+  { tag: '{senha}', rotulo: 'Senha PPPoE', desc: 'Apenas senha' },
+  { tag: '{wifi}', rotulo: 'Wi-Fi (Nome/Senha)', desc: 'Dados da rede Wi-Fi definidos' },
+  { tag: '{wifi_nome}', rotulo: 'Nome do Wi-Fi (SSID)', desc: 'Nome da rede Wi-Fi' },
+  { tag: '{wifi_senha}', rotulo: 'Senha do Wi-Fi', desc: 'Senha da rede Wi-Fi' },
+  { tag: '{problemas}', rotulo: 'Problemas', desc: 'Lista de problemas selecionados' },
+  { tag: '{assunto}', rotulo: 'Assunto', desc: 'Assunto do chamado' },
+  { tag: '{prioridade}', rotulo: 'Prioridade', desc: 'Baixa, Normal, Alta, Crítica' },
+  { tag: '{endereco}', rotulo: 'Endereço', desc: 'Endereço completo' },
+  { tag: '{referencia}', rotulo: 'Ponto Ref.', desc: 'Ponto de referência' },
+  { tag: '{observacao}', rotulo: 'Observação', desc: 'Observação adicional' },
+  { tag: '{mapa}', rotulo: 'Link do Mapa', desc: 'Link direto do Google Maps' },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const clientName = (c: ISPFYClienteData) =>
-  c.nome_razao || c.nome || c.razao || 'Sem nome';
-
-const clientPhone = (c: ISPFYClienteData) =>
-  c.fone_whatsapp || c.fone_celular || c.telefone_celular || c.telefone || c.fone || c.fone_residencial || 'Não informado';
-
-const buildAddress = (c: ISPFYClienteData): string => {
-  const parts: string[] = [];
-  const rua = c.endereco_cobranca_rua || c.endereco;
-  const num = c.endereco_cobranca_numero;
-  const bairro = c.endereco_cobranca_bairro || c.bairro;
-  const cidade = c.cidade;
-  const cep = c.endereco_cobranca_cep || c.cep;
-
-  if (rua) parts.push(num ? `${rua}, ${num}` : rua);
-  if (bairro) parts.push(bairro);
-  if (cidade) parts.push(cidade);
-  if (cep) parts.push(cep);
-  return parts.join(' – ');
-};
-
-const mapsUrl = (c: ISPFYClienteData): string => {
-  const lat = c.endereco_cobranca_latitude || c.latitude;
-  const lng = c.endereco_cobranca_longitude || c.longitude;
-  if (lat && lng && lat !== '0' && lat !== '0.0000000' && lng !== '0' && lng !== '0.0000000') {
-    return `https://maps.google.com/?q=${lat},${lng}`;
-  }
-  const addr = buildAddress(c);
-  if (addr) return `https://maps.google.com/?q=${encodeURIComponent(addr)}`;
-  return '';
-};
-
-const mapsEmbedUrl = (c: ISPFYClienteData): string => {
-  const lat = c.endereco_cobranca_latitude || c.latitude;
-  const lng = c.endereco_cobranca_longitude || c.longitude;
-  if (lat && lng && lat !== '0' && lat !== '0.0000000' && lng !== '0' && lng !== '0.0000000') {
-    return `https://maps.google.com/maps?q=${lat},${lng}&z=16&output=embed`;
-  }
-  const addr = buildAddress(c);
-  if (addr) {
-    return `https://maps.google.com/maps?q=${encodeURIComponent(addr)}&z=16&output=embed`;
-  }
-  return '';
-};
-
-// ─── Componente Principal ─────────────────────────────────────────────────────
 const ISPFYNovaOS: React.FC = () => {
-  // Busca de clientes
-  const [searchQuery, setSearchQuery] = useState('');
-  const [allClients, setAllClients] = useState<ISPFYClienteData[]>([]);
-  const [searchResults, setSearchResults] = useState<ISPFYClienteData[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(null);
-  const [clientLogins, setClientLogins] = useState<ISPFYLoginData[]>([]);
-  const [clientContracts, setClientContracts] = useState<ISPFYContratoData[]>([]);
-  const [clientPlan, setClientPlan] = useState('');
-  const [allPlanos, setAllPlanos] = useState<ISPFYPlanoData[]>([]);
-  const [loadingPlan, setLoadingPlan] = useState(false);
-  const [isEditingPlan, setIsEditingPlan] = useState(false);
-  const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Busca de clientes e vínculo de plano/logins
+  const [termoBusca, setTermoBusca] = useState('');
+  const [todosClientes, setTodosClientes] = useState<ISPFYClienteData[]>([]);
+  const [resultadosBusca, setResultadosBusca] = useState<ISPFYClienteData[]>([]);
+  const [carregandoBusca, setCarregandoBusca] = useState(false);
+  const [clienteSelecionado, setClienteSelecionado] = useState<ISPFYClienteData | null>(null);
+  const [loginsCliente, setLoginsCliente] = useState<ISPFYLoginData[]>([]);
+  const [contratosCliente, setContratosCliente] = useState<ISPFYContratoData[]>([]);
+  const [planoCliente, setPlanoCliente] = useState('');
+  const [todosPlanos, setTodosPlanos] = useState<ISPFYPlanoData[]>([]);
+  const [carregandoPlano, setCarregandoPlano] = useState(false);
+  const [editandoPlano, setEditandoPlano] = useState(false);
+  const timerBuscaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Formulário da OS
-  const [subjects, setSubjects] = useState<{ id: string; assunto: string }[]>([]);
-  const [loadingSubjects, setLoadingSubjects] = useState(false);
-  const [selectedSubject, setSelectedSubject] = useState('');
-  const [subjectLabel, setSubjectLabel] = useState('');
-  const [selectedProblems, setSelectedProblems] = useState<string[]>([]);
-  const [priority, setPriority] = useState('N');
-  const [observation, setObservation] = useState('');
-  const [referencePoint, setReferencePoint] = useState('');
-  const [wifiSsid, setWifiSsid] = useState('');
-  const [wifiPassword, setWifiPassword] = useState('');
+  // Formulário da O.S.
+  const [assuntos, setAssuntos] = useState<{ id: string; assunto: string }[]>([]);
+  const [carregandoAssuntos, setCarregandoAssuntos] = useState(false);
+  const [assuntoSelecionado, setAssuntoSelecionado] = useState('');
+  const [nomeAssunto, setNomeAssunto] = useState('');
+  const [problemasSelecionados, setProblemasSelecionados] = useState<string[]>([]);
+  const [prioridade, setPrioridade] = useState('N');
+  const [observacao, setObservacao] = useState('');
+  const [pontoReferencia, setPontoReferencia] = useState('');
+  const [nomeRedeWifi, setNomeRedeWifi] = useState('');
+  const [senhaWifi, setSenhaWifi] = useState('');
 
-  // Estado da criação
-  const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState(false);
-  const [createdTicketId, setCreatedTicketId] = useState('');
-  const [createdDailyFormatted, setCreatedDailyFormatted] = useState<string | null>(null);
-  const [isDailyOrdersModalOpen, setIsDailyOrdersModalOpen] = useState(false);
+  // Estado da criação e modal de acompanhamento diário
+  const [criandoOS, setCriandoOS] = useState(false);
+  const [osCriada, setOsCriada] = useState(false);
+  const [idChamadoCriado, setIdChamadoCriado] = useState('');
+  const [numeroDiarioCriado, setNumeroDiarioCriado] = useState<string | null>(null);
+  const [modalOrdensDoDiaAberto, setModalOrdensDoDiaAberto] = useState(false);
 
-  // ─── Contagem e Rastreamento Diário de O.S. (Reinicia a cada dia) ───────────
+  // ─── Contagem e Rastreamento Diário de O.S. (Reinicia a cada dia) ──────────
   const {
-    count: dailyCount,
-    formattedNextDailyNumber,
-    orders: dailyOrders,
-    formattedDate,
-    registerOS,
+    count: contagemDiaria,
+    formattedNextDailyNumber: proximoNumeroDiarioFormatado,
+    orders: ordensDoDia,
+    formattedDate: dataFormatada,
+    registerOS: registrarOS,
   } = useDailyOS();
 
   // Estado dos Grupos WhatsApp
-  const [whatsappGroups, setWhatsappGroups] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
-  const [loadingGroups, setLoadingGroups] = useState(false);
-  const [selectedGroupPhone, setSelectedGroupPhone] = useState('120363426874994471-group');
-  const [sendToGroupOnCreate, setSendToGroupOnCreate] = useState(true);
-  const [sendingToGroup, setSendingToGroup] = useState(false);
-  const [sentGroupSuccess, setSentGroupSuccess] = useState<string | null>(null);
+  const [gruposWhatsApp, setGruposWhatsApp] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
+  const [carregandoGrupos, setCarregandoGrupos] = useState(false);
+  const [grupoSelecionadoPhone, setGrupoSelecionadoPhone] = useState('120363426874994471-group');
+  const [enviarGrupoAoCriar, setEnviarGrupoAoCriar] = useState(true);
+  const [enviandoParaGrupo, setEnviandoParaGrupo] = useState(false);
+  const [grupoEnviadoComSucesso, setGrupoEnviadoComSucesso] = useState<string | null>(null);
 
   // Customização da Estrutura / Template da O.S.
-  const [osTemplate, setOsTemplate] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY_TEMPLATE) || DEFAULT_OS_TEMPLATE;
-  });
-  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-  const [tempTemplateText, setTempTemplateText] = useState(osTemplate);
-  const templateInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [modeloOS, setModeloOS] = useState<string>(
+    () => localStorage.getItem(CHAVE_STORAGE_TEMPLATE) || DEFAULT_OS_TEMPLATE
+  );
+  const [modalModeloAberto, setModalModeloAberto] = useState(false);
+  const [textoTemporarioModelo, setTextoTemporarioModelo] = useState(modeloOS);
+  const campoModeloRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Edição Manual Direta do Texto da O.S.
-  const [customOSText, setCustomOSText] = useState<string | null>(null);
-  const [isEditingLiveMessage, setIsEditingLiveMessage] = useState(false);
+  const [textoManualOS, setTextoManualOS] = useState<string | null>(null);
+  const [editandoMensagemAoVivo, setEditandoMensagemAoVivo] = useState(false);
 
   // Endereço e Links de Localização do cliente selecionado
-  const addr = selectedClient ? buildAddress(selectedClient) : '';
-  const mapUrl = selectedClient ? mapsEmbedUrl(selectedClient) : '';
-  const mapsLink = selectedClient ? mapsUrl(selectedClient) : '';
+  const enderecoCliente = clienteSelecionado ? montarEnderecoISPFY(clienteSelecionado) : '';
+  const linksMapa = clienteSelecionado
+    ? gerarLinksMapaCliente(clienteSelecionado)
+    : { urlDireta: '', urlIncorporada: '' };
 
-  // Carregar grupos do WhatsApp ao montar o componente
   useEffect(() => {
-    setLoadingGroups(true);
+    setCarregandoGrupos(true);
     whapiService
       .getGroups()
-      .then((groups) => {
-        if (groups && groups.length > 0) {
-          setWhatsappGroups(groups);
-          if (!selectedGroupPhone) {
-            const defaultGroup = groups.find(g => 
-              g.phone === '120363426874994471-group' ||
-              g.name.toUpperCase().includes('OPERAÇÃO') ||
-              g.name.toUpperCase().includes('EQUIPE')
-            ) || groups[0];
-            setSelectedGroupPhone(defaultGroup.phone);
-          }
+      .then((grupos) => {
+        if (!grupos || grupos.length === 0) return;
+        setGruposWhatsApp(grupos);
+        const padrao = selecionarGrupoWhatsAppPadrao(grupos);
+        if (padrao) {
+          setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
         }
       })
-      .catch((err) => {
-        console.error('Erro ao buscar grupos do WhatsApp:', err);
+      .catch((erro) => {
+        console.error('Erro ao buscar grupos do WhatsApp:', erro);
       })
       .finally(() => {
-        setLoadingGroups(false);
+        setCarregandoGrupos(false);
       });
   }, []);
 
-  // Carregar assuntos ao montar
   useEffect(() => {
-    setLoadingSubjects(true);
+    setCarregandoAssuntos(true);
     ispfyService
       .getTicketSubjects()
-      .then(setSubjects)
+      .then(setAssuntos)
       .catch(() => toast.error('Erro ao carregar assuntos'))
-      .finally(() => setLoadingSubjects(false));
+      .finally(() => setCarregandoAssuntos(false));
 
-    // Carregar planos da empresa ao montar
     ispfyService
       .getPlanosAtivos()
       .then((planos) => {
-        if (planos && planos.length > 0) {
-          setAllPlanos(planos);
-        }
+        if (planos && planos.length > 0) setTodosPlanos(planos);
       })
-      .catch((err) => console.error('Erro ao carregar planos:', err));
+      .catch((erro) => console.error('Erro ao carregar planos:', erro));
   }, []);
 
-  const fetchInitialClients = async () => {
-    setSearchLoading(true);
+  const carregarClientesIniciais = useCallback(async () => {
+    setCarregandoBusca(true);
     try {
-      const response = await ispfyService.getClientesAtivos();
-      setAllClients(response);
-      setSearchResults(response);
+      const resposta = await ispfyService.getClientesAtivos();
+      setTodosClientes(resposta);
+      setResultadosBusca(resposta);
     } catch {
-      setAllClients([]);
-      setSearchResults([]);
+      setTodosClientes([]);
+      setResultadosBusca([]);
     } finally {
-      setSearchLoading(false);
+      setCarregandoBusca(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchInitialClients();
+    carregarClientesIniciais();
+  }, [carregarClientesIniciais]);
+
+  useEffect(() => {
+    return () => {
+      if (timerBuscaRef.current) clearTimeout(timerBuscaRef.current);
+    };
   }, []);
 
-  // ─── Busca híbrida (Memória + Servidor) ─────────────────────────────────────────────────────────
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchQuery(value);
-    if (searchRef.current) clearTimeout(searchRef.current);
-    
-    if (!value.trim()) {
-      setSearchResults(allClients);
+  // ─── Busca híbrida (Memória + Servidor) ─────────────────────────────────────
+  const aoAlterarBusca = useCallback(
+    (valor: string) => {
+      setTermoBusca(valor);
+      if (timerBuscaRef.current) clearTimeout(timerBuscaRef.current);
+
+      if (!valor.trim()) {
+        setResultadosBusca(todosClientes);
+        return;
+      }
+
+      timerBuscaRef.current = setTimeout(async () => {
+        setCarregandoBusca(true);
+        try {
+          const resultados = await buscarClientesISPFYHibrido(valor, todosClientes, ispfyService);
+          setResultadosBusca(resultados);
+        } catch {
+          setResultadosBusca([]);
+        } finally {
+          setCarregandoBusca(false);
+        }
+      }, 300);
+    },
+    [todosClientes]
+  );
+
+  // ─── Seleção de Cliente e Detecção do Plano ────────────────────────────────
+  const aoSelecionarCliente = async (cliente: ISPFYClienteData) => {
+    setClienteSelecionado(cliente);
+    setResultadosBusca([]);
+    setTermoBusca(obterNomeClienteISPFY(cliente));
+    if (cliente.endereco_cobranca_complemento) {
+      setPontoReferencia(cliente.endereco_cobranca_complemento);
+    }
+    setTextoManualOS(null);
+
+    if (!cliente.id) {
+      setLoginsCliente([]);
+      setContratosCliente([]);
+      setPlanoCliente('');
+      setCarregandoPlano(false);
       return;
     }
 
-    const lowerVal = value.toLowerCase();
-    
-    searchRef.current = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        let results: ISPFYClienteData[] = [];
-        const digits = value.replace(/\D/g, '');
-        
-        // 1. Busca Local em Memória
-        const localMatches = allClients.filter(c => 
-          (c.nome_razao || c.nome || c.razao || '').toLowerCase().includes(lowerVal) || 
-          (c.id && c.id.toString().includes(lowerVal)) ||
-          (c.fone_whatsapp || c.fone_celular || c.fone_residencial || '').includes(lowerVal)
-        );
-        
-        if (localMatches.length > 0) {
-          results = localMatches;
-        }
-
-        // 2. Se não achou localmente e é um número (CPF/Telefone), busca direto na API
-        if (results.length === 0 && /^\d+$/.test(value.replace(/[-.() ]/g, ''))) {
-          if (digits.length >= 10 && digits.length <= 11) {
-            const client = await ispfyService.getClienteByPhone(digits);
-            if (client) results = [client];
-          } else if (digits.length === 11 || digits.length === 14) {
-            const client = await ispfyService.getClienteByCnpjCpf(digits);
-            if (client) results = [client];
-          }
-        }
-
-        // 3. Fallback no servidor
-        if (results.length === 0) {
-          const apiResults = await ispfyService.getClienteByNome(value);
-          if (apiResults.length > 0) {
-            results = apiResults;
-          }
-        }
-        
-        setSearchResults(results);
-      } catch { 
-        setSearchResults([]); 
-      } finally { 
-        setSearchLoading(false); 
+    setCarregandoPlano(true);
+    try {
+      const contatos = await ispfyService.getClienteContatos(cliente.id);
+      if (contatos && contatos.length > 0) {
+        cliente.fone_celular =
+          contatos.find((ct) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
+        cliente.fone_whatsapp = contatos.find((ct) => ct.pode_enviar_mensagem === 's')?.contato;
       }
-    }, 300);
-  }, [allClients]);
-
-  // ─── Seleção de Cliente e Detecção do Plano ─────────────────────────────────────────────────────
-  const handleSelectClient = async (c: ISPFYClienteData) => {
-    setSelectedClient(c);
-    setSearchResults([]);
-    setSearchQuery(clientName(c));
-    if (c.endereco_cobranca_complemento) {
-      setReferencePoint(c.endereco_cobranca_complemento);
+    } catch (erro) {
+      console.error('Erro ao buscar contatos:', erro);
     }
-    setCustomOSText(null); // Reseta edição manual para gerar nova mensagem do cliente
 
-    if (c.id) {
-      setLoadingPlan(true);
-
-      // 1. Contatos
-      try {
-        const contatos = await ispfyService.getClienteContatos(c.id);
-        if (contatos && contatos.length > 0) {
-          c.fone_celular = contatos.find((ct: any) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
-          c.fone_whatsapp = contatos.find((ct: any) => ct.pode_enviar_mensagem === 's')?.contato;
-        }
-      } catch (err) {
-        console.error('Erro ao buscar contatos:', err);
+    try {
+      const detalhes = await ispfyService.getClientPlanDetails(cliente.id);
+      setContratosCliente(detalhes.contratos);
+      setLoginsCliente(detalhes.logins);
+      setPlanoCliente(detalhes.planName);
+      if (detalhes.allPlanos && detalhes.allPlanos.length > 0) {
+        setTodosPlanos(detalhes.allPlanos);
       }
-
-      // 2. Busca e resolução inteligente do plano, contratos e logins
-      try {
-        const details = await ispfyService.getClientPlanDetails(c.id);
-        setClientContracts(details.contratos);
-        setClientLogins(details.logins);
-        setClientPlan(details.planName);
-        if (details.allPlanos && details.allPlanos.length > 0) {
-          setAllPlanos(details.allPlanos);
-        }
-      } catch (err) {
-        console.error('Erro ao resolver plano e detalhes do cliente:', err);
-        setClientContracts([]);
-        setClientLogins([]);
-        setClientPlan('');
-      } finally {
-        setLoadingPlan(false);
-      }
-    } else {
-      setClientLogins([]);
-      setClientContracts([]);
-      setClientPlan('');
-      setLoadingPlan(false);
+    } catch (erro) {
+      console.error('Erro ao resolver plano e detalhes do cliente:', erro);
+      setContratosCliente([]);
+      setLoginsCliente([]);
+      setPlanoCliente('');
+    } finally {
+      setCarregandoPlano(false);
     }
   };
 
-  const toggleProblem = (id: string) => {
-    setSelectedProblems(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+  const alternarProblema = (idProblema: string) => {
+    setProblemasSelecionados((anterior) =>
+      anterior.includes(idProblema)
+        ? anterior.filter((item) => item !== idProblema)
+        : [...anterior, idProblema]
     );
   };
 
-  const buildDescription = (): string => {
-    const problemLabels = selectedProblems.map(pid =>
-      PROBLEMS.find(p => p.id === pid)?.label || pid
+  const montarDescricaoChamado = (): string => {
+    const rotulosProblemas = problemasSelecionados.map(
+      (idProblema) => OPCOES_PROBLEMAS.find((item) => item.id === idProblema)?.label || idProblema
     );
-    let desc = '';
-    if (problemLabels.length > 0) {
-      desc += `Problemas reportados: ${problemLabels.join(', ')}`;
+
+    let descricao = '';
+    if (rotulosProblemas.length > 0) {
+      descricao += `Problemas reportados: ${rotulosProblemas.join(', ')}`;
     }
-    if (clientPlan.trim()) {
-      desc += `\nPlano: ${clientPlan.trim()}`;
+    if (planoCliente.trim()) {
+      descricao += `\nPlano: ${planoCliente.trim()}`;
     }
-    if (wifiSsid.trim() || wifiPassword.trim()) {
-      const wifiParts: string[] = [];
-      if (wifiSsid.trim()) wifiParts.push(`Wi-Fi: ${wifiSsid.trim()}`);
-      if (wifiPassword.trim()) wifiParts.push(`Senha: ${wifiPassword.trim()}`);
-      desc += `\n${wifiParts.join(' | ')}`;
+    if (nomeRedeWifi.trim() || senhaWifi.trim()) {
+      const partesWifi: string[] = [];
+      if (nomeRedeWifi.trim()) partesWifi.push(`Wi-Fi: ${nomeRedeWifi.trim()}`);
+      if (senhaWifi.trim()) partesWifi.push(`Senha: ${senhaWifi.trim()}`);
+      descricao += `\n${partesWifi.join(' | ')}`;
     }
-    if (referencePoint.trim()) {
-      desc += `\nPonto de referência: ${referencePoint.trim()}`;
+    if (pontoReferencia.trim()) {
+      descricao += `\nPonto de referência: ${pontoReferencia.trim()}`;
     }
-    if (observation.trim()) {
-      desc += `\nObservação: ${observation.trim()}`;
+    if (observacao.trim()) {
+      descricao += `\nObservação: ${observacao.trim()}`;
     }
-    const address = buildAddress(selectedClient!);
-    if (address) {
-      desc += `\nEndereço: ${address}`;
+    if (enderecoCliente) {
+      descricao += `\nEndereço: ${enderecoCliente}`;
     }
-    return desc || 'Sem descrição';
+    return descricao || 'Sem descrição';
   };
 
-  // ─── Gerador da Estrutura da O.S. a partir do Template ───────────────────────
-  const generateOSText = useCallback((ticketIdOverride?: string, dailyNumberOverride?: string): string => {
-    if (!selectedClient) {
-      return 'Selecione um cliente para gerar o formato da O.S.';
-    }
+  // ─── Gerador da Estrutura da O.S. a partir do Template ──────────────────────
+  const gerarTextoOS = useCallback(
+    (idChamadoSobrescrito?: string, numeroDiarioSobrescrito?: string): string => {
+      if (!clienteSelecionado) {
+        return 'Selecione um cliente para gerar o formato da O.S.';
+      }
 
-    const tid = ticketIdOverride || createdTicketId || 'PENDENTE';
-    const dailyFormatted = dailyNumberOverride || createdDailyFormatted || formattedNextDailyNumber;
-    const name = clientName(selectedClient);
-    const phone = clientPhone(selectedClient);
-    const plan = clientPlan.trim() || 'Não informado';
+      const idChamado = idChamadoSobrescrito || idChamadoCriado || 'PENDENTE';
+      const diarioFormatado =
+        numeroDiarioSobrescrito || numeroDiarioCriado || proximoNumeroDiarioFormatado;
+      const nomeCliente = obterNomeClienteISPFY(clienteSelecionado);
+      const telefoneCliente = obterTelefoneClienteISPFY(clienteSelecionado, 'Não informado');
+      const plano = planoCliente.trim() || 'Não informado';
 
-    let loginsText = '';
-    let pppoeUser = '';
-    let pppoePass = '';
-    if (clientLogins && clientLogins.length > 0) {
-      pppoeUser = clientLogins[0]?.usuario || clientLogins[0]?.login || '';
-      pppoePass = clientLogins[0]?.senha || '';
-      loginsText = clientLogins
-        .map(l => `🔑 *PPPoE:* ${l.usuario || l.login || 'Não informado'}\n🔒 *Senha:* ${l.senha || 'Não informada'}`)
-        .join('\n');
-    }
+      let textoLogins = '';
+      let usuarioPppoe = '';
+      let senhaPppoe = '';
+      if (loginsCliente && loginsCliente.length > 0) {
+        usuarioPppoe = loginsCliente[0]?.usuario || loginsCliente[0]?.login || '';
+        senhaPppoe = loginsCliente[0]?.senha || '';
+        textoLogins = loginsCliente
+          .map(
+            (login) =>
+              `🔑 *PPPoE:* ${login.usuario || login.login || 'Não informado'}\n🔒 *Senha:* ${login.senha || 'Não informada'}`
+          )
+          .join('\n');
+      }
 
-    let wifiText = '';
-    if (wifiSsid.trim() || wifiPassword.trim()) {
-      const wifiLines: string[] = [];
-      if (wifiSsid.trim()) wifiLines.push(`📶 *Rede Wi-Fi:* ${wifiSsid.trim()}`);
-      if (wifiPassword.trim()) wifiLines.push(`🔒 *Senha Wi-Fi:* ${wifiPassword.trim()}`);
-      wifiText = wifiLines.join('\n');
-    }
+      let textoWifi = '';
+      if (nomeRedeWifi.trim() || senhaWifi.trim()) {
+        const linhasWifi: string[] = [];
+        if (nomeRedeWifi.trim()) linhasWifi.push(`📶 *Rede Wi-Fi:* ${nomeRedeWifi.trim()}`);
+        if (senhaWifi.trim()) linhasWifi.push(`🔒 *Senha Wi-Fi:* ${senhaWifi.trim()}`);
+        textoWifi = linhasWifi.join('\n');
+      }
 
-    const problemLabels = selectedProblems.map(pid =>
-      PROBLEMS.find(p => p.id === pid)?.label || pid
-    );
-    const problemsText = problemLabels.length > 0 ? `📋 *Problemas:* ${problemLabels.join(', ')}` : '';
-    const priorityLabel = PRIORITY_LABELS[priority]?.label || 'Normal';
-    const addressText = addr ? `📍 *Endereço:* ${addr}` : '';
-    const refText = referencePoint.trim() ? `📍 *Ref:* ${referencePoint.trim()}` : '';
-    const obsText = observation.trim() ? `📝 *Obs:* ${observation.trim()}` : '';
-    const mapText = mapsLink ? `🗺️ *Mapa:* ${mapsLink}` : '';
+      const rotulosProblemas = problemasSelecionados.map(
+        (idProblema) => OPCOES_PROBLEMAS.find((item) => item.id === idProblema)?.label || idProblema
+      );
+      const textoProblemas =
+        rotulosProblemas.length > 0 ? `📋 *Problemas:* ${rotulosProblemas.join(', ')}` : '';
+      const rotuloPrioridade = ROTULOS_PRIORIDADE_OS[prioridade]?.rotulo || 'Normal';
+      const textoEndereco = enderecoCliente ? `📍 *Endereço:* ${enderecoCliente}` : '';
+      const textoReferencia = pontoReferencia.trim() ? `📍 *Ref:* ${pontoReferencia.trim()}` : '';
+      const textoObservacao = observacao.trim() ? `📝 *Obs:* ${observacao.trim()}` : '';
+      const textoMapa = linksMapa.urlDireta ? `🗺️ *Mapa:* ${linksMapa.urlDireta}` : '';
 
-    let text = osTemplate;
+      let texto = modeloOS;
 
-    // Compatibilidade inteligente: se o template antigo não possui a tag {numero_diario},
-    // adapta {numero_os} para exibir o número do dia e o ID do ISPFY
-    if (!text.includes('{numero_diario}')) {
-      text = text.replace(/{numero_os}/g, `${dailyFormatted} (ISPFY #${tid})`);
-    } else {
-      text = text
-        .replace(/{numero_diario}/g, dailyFormatted)
-        .replace(/{numero_os}/g, tid);
-    }
-
-    if (text.includes('{wifi}')) {
-      text = text.replace(/{wifi}/g, wifiText);
-    } else if (wifiText) {
-      if (text.includes('{problemas}')) {
-        text = text.replace('{problemas}', `${wifiText}\n{problemas}`);
-      } else if (text.includes('{assunto}')) {
-        text = text.replace('{assunto}', `${wifiText}\n{assunto}`);
+      // Compatibilidade retroativa com modelos salvos sem {numero_diario}
+      if (!texto.includes('{numero_diario}')) {
+        texto = texto.replace(/{numero_os}/g, `${diarioFormatado} (ISPFY #${idChamado})`);
       } else {
-        text = `${text}\n${wifiText}`;
+        texto = texto
+          .replace(/{numero_diario}/g, diarioFormatado)
+          .replace(/{numero_os}/g, idChamado);
       }
-    }
 
-    text = text
-      .replace(/{data_hoje}/g, formattedDate)
-      .replace(/{cliente}/g, name)
-      .replace(/{telefone}/g, phone)
-      .replace(/{plano}/g, plan)
-      .replace(/{logins}/g, loginsText)
-      .replace(/{pppoe}/g, pppoeUser)
-      .replace(/{senha}/g, pppoePass)
-      .replace(/{wifi_nome}/g, wifiSsid.trim())
-      .replace(/{wifi_senha}/g, wifiPassword.trim())
-      .replace(/{problemas}/g, problemsText)
-      .replace(/{assunto}/g, subjectLabel || 'Não informado')
-      .replace(/{prioridade}/g, priorityLabel)
-      .replace(/{endereco}/g, addressText)
-      .replace(/{referencia}/g, refText)
-      .replace(/{observacao}/g, obsText)
-      .replace(/{mapa}/g, mapText);
+      if (texto.includes('{wifi}')) {
+        texto = texto.replace(/{wifi}/g, textoWifi);
+      } else if (textoWifi) {
+        if (texto.includes('{problemas}')) {
+          texto = texto.replace('{problemas}', `${textoWifi}\n{problemas}`);
+        } else if (texto.includes('{assunto}')) {
+          texto = texto.replace('{assunto}', `${textoWifi}\n{assunto}`);
+        } else {
+          texto = `${texto}\n${textoWifi}`;
+        }
+      }
 
-    // Limpa linhas em branco duplas que ficaram devido a tags vazias
-    return text
-      .split('\n')
-      .map(line => line.trimEnd())
-      .filter((line, i, arr) => !(line.trim() === '' && arr[i - 1]?.trim() === ''))
-      .join('\n')
-      .trim();
-  }, [
-    selectedClient,
-    createdTicketId,
-    createdDailyFormatted,
-    formattedNextDailyNumber,
-    formattedDate,
-    clientPlan,
-    clientLogins,
-    selectedProblems,
-    priority,
-    subjectLabel,
-    referencePoint,
-    observation,
-    wifiSsid,
-    wifiPassword,
-    osTemplate,
-    addr,
-    mapsLink,
-  ]);
+      texto = texto
+        .replace(/{data_hoje}/g, dataFormatada)
+        .replace(/{cliente}/g, nomeCliente)
+        .replace(/{telefone}/g, telefoneCliente)
+        .replace(/{plano}/g, plano)
+        .replace(/{logins}/g, textoLogins)
+        .replace(/{pppoe}/g, usuarioPppoe)
+        .replace(/{senha}/g, senhaPppoe)
+        .replace(/{wifi_nome}/g, nomeRedeWifi.trim())
+        .replace(/{wifi_senha}/g, senhaWifi.trim())
+        .replace(/{problemas}/g, textoProblemas)
+        .replace(/{assunto}/g, nomeAssunto || 'Não informado')
+        .replace(/{prioridade}/g, rotuloPrioridade)
+        .replace(/{endereco}/g, textoEndereco)
+        .replace(/{referencia}/g, textoReferencia)
+        .replace(/{observacao}/g, textoObservacao)
+        .replace(/{mapa}/g, textoMapa);
 
-  // Mensagem efetiva (se o usuário editou manualmente no box, usa o custom; senão gera do template)
-  const effectiveMessage = customOSText !== null ? customOSText : generateOSText();
+      return texto
+        .split('\n')
+        .map((linha) => linha.trimEnd())
+        .filter((linha, indice, lista) => !(linha.trim() === '' && lista[indice - 1]?.trim() === ''))
+        .join('\n')
+        .trim();
+    },
+    [
+      clienteSelecionado,
+      idChamadoCriado,
+      numeroDiarioCriado,
+      proximoNumeroDiarioFormatado,
+      dataFormatada,
+      planoCliente,
+      loginsCliente,
+      problemasSelecionados,
+      prioridade,
+      nomeAssunto,
+      pontoReferencia,
+      observacao,
+      nomeRedeWifi,
+      senhaWifi,
+      modeloOS,
+      enderecoCliente,
+      linksMapa.urlDireta,
+    ]
+  );
 
-  const handleCreate = async () => {
-    if (!selectedClient?.id) {
+  const mensagemEfetiva = textoManualOS !== null ? textoManualOS : gerarTextoOS();
+
+  const aoCriarOS = async () => {
+    if (!clienteSelecionado?.id) {
       toast.warning('Selecione um cliente.');
       return;
     }
-    if (!selectedSubject) {
+    if (!assuntoSelecionado) {
       toast.warning('Selecione o assunto da O.S.');
       return;
     }
-    if (selectedProblems.length === 0 && !observation.trim()) {
+    if (problemasSelecionados.length === 0 && !observacao.trim()) {
       toast.warning('Selecione pelo menos um problema ou escreva uma observação.');
       return;
     }
 
-    setCreating(true);
+    setCriandoOS(true);
     try {
-      const result = await ispfyService.createTicket({
-        id_cliente: selectedClient.id,
-        id_assunto: selectedSubject,
-        prioridade: priority,
-        mensagem: buildDescription(),
+      const resultado = await ispfyService.createTicket({
+        id_cliente: clienteSelecionado.id,
+        id_assunto: assuntoSelecionado,
+        prioridade,
+        mensagem: montarDescricaoChamado(),
       });
-      if (result.success) {
-        const newTicketId = result.id ?? '';
-        setCreatedTicketId(newTicketId);
 
-        // ─── Registro e Incremento na Contagem Diária ───────────────────────────
-        const targetGroup = (whatsappGroups.length > 0 ? whatsappGroups : DEFAULT_AVL_WHATSAPP_GROUPS).find(g => g.phone === selectedGroupPhone);
-        const groupName = targetGroup?.name || 'Grupo de Operação';
+      if (!resultado.success) {
+        toast.error('Erro ao abrir O.S.', { description: resultado.message });
+        return;
+      }
 
-        const { formattedDailyNumber } = await registerOS({
-          ticketId: newTicketId,
-          clientId: selectedClient.id,
-          clientName: clientName(selectedClient),
-          phone: clientPhone(selectedClient),
-          plan: clientPlan,
-          subject: subjectLabel || 'Não informado',
-          priority,
-          address: addr,
-          referencePoint,
-          observation,
-          wifiSsid: wifiSsid.trim() || undefined,
-          wifiPassword: wifiPassword.trim() || undefined,
-          whatsappSent: !!(sendToGroupOnCreate && selectedGroupPhone),
-          whatsappGroup: groupName,
-          fullMessage: '', // preenchido logo abaixo
-        });
+      const novoChamadoId = resultado.id ?? '';
+      setIdChamadoCriado(novoChamadoId);
 
-        setCreatedDailyFormatted(formattedDailyNumber);
-        setCreated(true);
-        toast.success(`O.S. #${formattedDailyNumber} registrada hoje! (ISPFY #${newTicketId})`);
+      const gruposValidos = gruposWhatsApp.length > 0 ? gruposWhatsApp : DEFAULT_AVL_WHATSAPP_GROUPS;
+      const grupoDestino = gruposValidos.find((grupo) => grupo.phone === grupoSelecionadoPhone);
+      const nomeGrupo = grupoDestino?.name || 'Grupo de Operação';
 
-        // Mensagem final enviada
-        const finalMessage = customOSText !== null 
-          ? customOSText
-              .replace(/NOVA O.S.|PENDENTE/g, `#${newTicketId}`)
+      const { formattedDailyNumber } = await registrarOS({
+        ticketId: novoChamadoId,
+        clientId: clienteSelecionado.id,
+        clientName: obterNomeClienteISPFY(clienteSelecionado),
+        phone: obterTelefoneClienteISPFY(clienteSelecionado, 'Não informado'),
+        plan: planoCliente,
+        subject: nomeAssunto || 'Não informado',
+        priority: prioridade,
+        address: enderecoCliente,
+        referencePoint: pontoReferencia,
+        observation: observacao,
+        wifiSsid: nomeRedeWifi.trim() || undefined,
+        wifiPassword: senhaWifi.trim() || undefined,
+        whatsappSent: !!(enviarGrupoAoCriar && grupoSelecionadoPhone),
+        whatsappGroup: nomeGrupo,
+        fullMessage: '',
+      });
+
+      setNumeroDiarioCriado(formattedDailyNumber);
+      setOsCriada(true);
+      toast.success(`O.S. #${formattedDailyNumber} registrada hoje! (ISPFY #${novoChamadoId})`);
+
+      const mensagemFinal =
+        textoManualOS !== null
+          ? textoManualOS
+              .replace(/NOVA O.S.|PENDENTE/g, `#${novoChamadoId}`)
               .replace(/{numero_diario}/g, formattedDailyNumber)
-          : generateOSText(newTicketId, formattedDailyNumber);
+          : gerarTextoOS(novoChamadoId, formattedDailyNumber);
 
-        // Envio automático para o grupo do WhatsApp selecionado
-        if (sendToGroupOnCreate && selectedGroupPhone) {
-          whapiService.sendGroupMessage(selectedGroupPhone, finalMessage).then((res) => {
-            if (res.sent) {
-              setSentGroupSuccess(groupName);
-              toast.success(`O.S. #${formattedDailyNumber} enviada para o grupo "${groupName}"!`);
+      if (enviarGrupoAoCriar && grupoSelecionadoPhone) {
+        whapiService
+          .sendGroupMessage(grupoSelecionadoPhone, mensagemFinal)
+          .then((resposta) => {
+            if (resposta.sent) {
+              setGrupoEnviadoComSucesso(nomeGrupo);
+              toast.success(`O.S. #${formattedDailyNumber} enviada para o grupo "${nomeGrupo}"!`);
             } else {
-              toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${res.error}`);
+              toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${resposta.error}`);
             }
-          }).catch((err) => {
-            console.error('Erro ao enviar para grupo WhatsApp:', err);
+          })
+          .catch((erro) => {
+            console.error('Erro ao enviar para grupo WhatsApp:', erro);
           });
-        }
-      } else {
-        toast.error('Erro ao abrir O.S.', { description: result.message });
       }
     } catch {
       toast.error('Erro de comunicação com o servidor.');
     } finally {
-      setCreating(false);
+      setCriandoOS(false);
     }
   };
 
-  const handleCopyInfo = () => {
-    if (!selectedClient) {
+  const aoCopiarInformacoes = () => {
+    if (!clienteSelecionado) {
       toast.warning('Selecione um cliente antes de copiar a O.S.');
       return;
     }
-    navigator.clipboard.writeText(effectiveMessage).then(() => {
-      toast.success('Informações da O.S. copiadas para a área de transferência!');
-    }).catch(() => {
-      toast.error('Falha ao copiar informações.');
-    });
+    navigator.clipboard
+      .writeText(mensagemEfetiva)
+      .then(() => toast.success('Informações da O.S. copiadas para a área de transferência!'))
+      .catch(() => toast.error('Falha ao copiar informações.'));
   };
 
-  const handleSendToGroup = async () => {
-    if (!selectedGroupPhone) {
+  const aoEnviarParaGrupo = async () => {
+    if (!grupoSelecionadoPhone) {
       toast.warning('Selecione um grupo do WhatsApp de destino.');
       return;
     }
-    const targetGroup = whatsappGroups.find(g => g.phone === selectedGroupPhone);
-    const groupName = targetGroup?.name || 'Grupo selecionado';
+    const grupoDestino = gruposWhatsApp.find((grupo) => grupo.phone === grupoSelecionadoPhone);
+    const nomeGrupo = grupoDestino?.name || 'Grupo selecionado';
 
-    setSendingToGroup(true);
+    setEnviandoParaGrupo(true);
     try {
-      const res = await whapiService.sendGroupMessage(selectedGroupPhone, effectiveMessage);
-      if (res.sent) {
-        setSentGroupSuccess(groupName);
-        toast.success(`O.S. enviada com sucesso para o grupo ${groupName}!`);
+      const resposta = await whapiService.sendGroupMessage(grupoSelecionadoPhone, mensagemEfetiva);
+      if (resposta.sent) {
+        setGrupoEnviadoComSucesso(nomeGrupo);
+        toast.success(`O.S. enviada com sucesso para o grupo ${nomeGrupo}!`);
       } else {
-        toast.error(`Falha ao enviar para o grupo: ${res.error || 'Erro desconhecido'}`);
+        toast.error(`Falha ao enviar para o grupo: ${resposta.error || 'Erro desconhecido'}`);
       }
-    } catch (error: any) {
+    } catch {
       toast.error('Erro ao enviar mensagem para o WhatsApp.');
     } finally {
-      setSendingToGroup(false);
+      setEnviandoParaGrupo(false);
     }
   };
 
-  const handleReset = () => {
-    setSelectedClient(null);
-    setSearchQuery('');
-    setSearchResults([]);
-    setSelectedSubject('');
-    setSubjectLabel('');
-    setSelectedProblems([]);
-    setPriority('N');
-    setObservation('');
-    setReferencePoint('');
-    setWifiSsid('');
-    setWifiPassword('');
-    setCreated(false);
-    setCreatedTicketId('');
-    setCreatedDailyFormatted(null);
-    setClientLogins([]);
-    setClientContracts([]);
-    setClientPlan('');
-    setSentGroupSuccess(null);
-    setCustomOSText(null);
-    setIsEditingLiveMessage(false);
+  const aoLimparFormulario = () => {
+    setClienteSelecionado(null);
+    setTermoBusca('');
+    setResultadosBusca([]);
+    setAssuntoSelecionado('');
+    setNomeAssunto('');
+    setProblemasSelecionados([]);
+    setPrioridade('N');
+    setObservacao('');
+    setPontoReferencia('');
+    setNomeRedeWifi('');
+    setSenhaWifi('');
+    setOsCriada(false);
+    setIdChamadoCriado('');
+    setNumeroDiarioCriado(null);
+    setLoginsCliente([]);
+    setContratosCliente([]);
+    setPlanoCliente('');
+    setGrupoEnviadoComSucesso(null);
+    setTextoManualOS(null);
+    setEditandoMensagemAoVivo(false);
   };
 
-  const copyAddress = () => {
-    if (!selectedClient) return;
-    const addr = buildAddress(selectedClient);
-    navigator.clipboard.writeText(addr).then(() => toast.success('Endereço copiado!'));
+  const aoAbrirModalModelo = () => {
+    setTextoTemporarioModelo(modeloOS);
+    setModalModeloAberto(true);
   };
 
-  // ─── Salvar e Restaurar Modelo de Estrutura da O.S. ────────────────────────
-  const openTemplateModal = () => {
-    setTempTemplateText(osTemplate);
-    setIsTemplateModalOpen(true);
-  };
-
-  const handleSaveTemplate = () => {
-    setOsTemplate(tempTemplateText);
-    localStorage.setItem(STORAGE_KEY_TEMPLATE, tempTemplateText);
-    setIsTemplateModalOpen(false);
+  const aoSalvarModelo = () => {
+    setModeloOS(textoTemporarioModelo);
+    localStorage.setItem(CHAVE_STORAGE_TEMPLATE, textoTemporarioModelo);
+    setModalModeloAberto(false);
     toast.success('Estrutura e modelo da O.S. salvos com sucesso!');
   };
 
-  const handleRestoreDefaultTemplate = () => {
-    setTempTemplateText(DEFAULT_OS_TEMPLATE);
+  const aoRestaurarModeloPadrao = () => {
+    setTextoTemporarioModelo(DEFAULT_OS_TEMPLATE);
     toast.info('Estrutura restaurada para o padrão AVL Telecom.');
   };
 
-  const insertTagIntoTemplate = (tag: string) => {
-    const el = templateInputRef.current;
-    if (!el) {
-      setTempTemplateText(prev => prev + '\n' + tag);
+  const inserirTagNoModelo = (tag: string) => {
+    const campo = campoModeloRef.current;
+    if (!campo) {
+      setTextoTemporarioModelo((anterior) => `${anterior}\n${tag}`);
       return;
     }
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const current = tempTemplateText;
-    const next = current.substring(0, start) + tag + current.substring(end);
-    setTempTemplateText(next);
+    const inicio = campo.selectionStart;
+    const fim = campo.selectionEnd;
+    const proximoTexto =
+      textoTemporarioModelo.substring(0, inicio) + tag + textoTemporarioModelo.substring(fim);
+    setTextoTemporarioModelo(proximoTexto);
     setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + tag.length, start + tag.length);
+      campo.focus();
+      campo.setSelectionRange(inicio + tag.length, inicio + tag.length);
     }, 50);
   };
+
+  const telefoneClienteSelecionado = obterTelefoneClienteISPFY(clienteSelecionado);
+  const infoPrioridadeAtual = ROTULOS_PRIORIDADE_OS[prioridade] || ROTULOS_PRIORIDADE_OS.N;
 
   return (
     <PageTransition>
@@ -756,10 +674,10 @@ const ISPFYNovaOS: React.FC = () => {
                 </Badge>
                 <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 text-[11px] gap-1 px-2.5 py-0.5">
                   <Calendar className="w-3 h-3 text-emerald-500" />
-                  Hoje: #{dailyCount} O.S. emitidas
+                  Hoje: #{contagemDiaria} O.S. emitidas
                 </Badge>
                 <Badge variant="outline" className="bg-secondary/60 text-muted-foreground border-border text-[11px] px-2 py-0.5">
-                  Próxima do dia: #{formattedNextDailyNumber}
+                  Próxima do dia: #{proximoNumeroDiarioFormatado}
                 </Badge>
               </div>
               <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 font-medium">
@@ -771,18 +689,18 @@ const ISPFYNovaOS: React.FC = () => {
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
             <Button
               variant="outline"
-              onClick={() => setIsDailyOrdersModalOpen(true)}
+              onClick={() => setModalOrdensDoDiaAberto(true)}
               className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all shadow-sm"
             >
               <ClipboardList className="w-4 h-4 text-emerald-500" />
               <span>Ver O.S. de Hoje</span>
               <Badge className="bg-emerald-500/25 text-emerald-700 dark:text-emerald-200 border-none text-[10px] px-1.5 py-0 h-5">
-                {dailyCount}
+                {contagemDiaria}
               </Badge>
             </Button>
             <Button
               variant="outline"
-              onClick={openTemplateModal}
+              onClick={aoAbrirModalModelo}
               className="bg-secondary hover:bg-secondary/80 border-border text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 text-xs h-10 gap-2 rounded-xl transition-all"
             >
               <Sliders className="w-3.5 h-3.5 text-emerald-500" />
@@ -790,7 +708,7 @@ const ISPFYNovaOS: React.FC = () => {
             </Button>
             <Button
               variant="ghost"
-              onClick={handleReset}
+              onClick={aoLimparFormulario}
               className="text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/60 text-xs h-10 gap-1.5 rounded-xl"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -801,16 +719,14 @@ const ISPFYNovaOS: React.FC = () => {
 
         {/* ─── Tela de Sucesso ─── */}
         <AnimatePresence mode="wait">
-          {created ? (
+          {osCriada ? (
             <motion.div
-              key="success"
+              key="sucesso"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="max-w-xl mx-auto"
             >
-              <div
-                className="rounded-3xl border border-emerald-500/30 bg-card p-8 flex flex-col items-center gap-6 text-center shadow-xl shadow-emerald-500/5"
-              >
+              <div className="rounded-3xl border border-emerald-500/30 bg-card p-8 flex flex-col items-center gap-6 text-center shadow-xl shadow-emerald-500/5">
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
@@ -822,16 +738,19 @@ const ISPFYNovaOS: React.FC = () => {
 
                 <div>
                   <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs mb-2">
-                    Ordem de Serviço Diária #{createdDailyFormatted || formattedNextDailyNumber} Registrada
+                    Ordem de Serviço Diária #{numeroDiarioCriado || proximoNumeroDiarioFormatado} Registrada
                   </Badge>
                   <p className="text-3xl font-extrabold text-foreground tracking-tight">
-                    O.S. #{createdDailyFormatted || formattedNextDailyNumber} do Dia
+                    O.S. #{numeroDiarioCriado || proximoNumeroDiarioFormatado} do Dia
                   </p>
                   <p className="text-emerald-600 dark:text-emerald-400 text-xs font-semibold mt-1">
-                    Protocolo ISPFY: #{createdTicketId} • Total hoje: {dailyCount} O.S.
+                    Protocolo ISPFY: #{idChamadoCriado} • Total hoje: {contagemDiaria} O.S.
                   </p>
                   <p className="text-muted-foreground mt-1.5 text-sm">
-                    Cadastrada com sucesso para <span className="text-emerald-600 dark:text-emerald-300 font-semibold">{clientName(selectedClient!)}</span>
+                    Cadastrada com sucesso para{' '}
+                    <span className="text-emerald-600 dark:text-emerald-300 font-semibold">
+                      {obterNomeClienteISPFY(clienteSelecionado)}
+                    </span>
                   </p>
                 </div>
 
@@ -839,35 +758,35 @@ const ISPFYNovaOS: React.FC = () => {
                 <div className="w-full rounded-2xl border border-border divide-y divide-border text-left text-xs overflow-hidden bg-secondary/30">
                   <div className="flex justify-between items-center px-4 py-3">
                     <span className="text-muted-foreground">Plano de Internet</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{clientPlan || 'Não especificado'}</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{planoCliente || 'Não especificado'}</span>
                   </div>
                   <div className="flex justify-between items-center px-4 py-3">
                     <span className="text-muted-foreground">Assunto</span>
-                    <span className="text-foreground font-medium">{subjectLabel}</span>
+                    <span className="text-foreground font-medium">{nomeAssunto}</span>
                   </div>
                   <div className="flex justify-between items-center px-4 py-3">
                     <span className="text-muted-foreground">Prioridade</span>
-                    <span className={`font-semibold ${PRIORITY_LABELS[priority]?.color}`}>
-                      {PRIORITY_LABELS[priority]?.label}
+                    <span className={`font-semibold ${infoPrioridadeAtual.corTexto}`}>
+                      {infoPrioridadeAtual.rotulo}
                     </span>
                   </div>
-                  {clientPhone(selectedClient!) && (
+                  {telefoneClienteSelecionado && (
                     <div className="flex justify-between items-center px-4 py-3">
                       <span className="text-muted-foreground">Contato do Cliente</span>
-                      <span className="text-foreground">{clientPhone(selectedClient!)}</span>
+                      <span className="text-foreground">{telefoneClienteSelecionado}</span>
                     </div>
                   )}
-                  {addr && (
+                  {enderecoCliente && (
                     <div className="flex justify-between items-start px-4 py-3 gap-3">
                       <span className="text-muted-foreground shrink-0">Endereço</span>
-                      <span className="text-foreground text-right">{addr}</span>
+                      <span className="text-foreground text-right">{enderecoCliente}</span>
                     </div>
                   )}
-                  {(wifiSsid.trim() || wifiPassword.trim()) && (
+                  {(nomeRedeWifi.trim() || senhaWifi.trim()) && (
                     <div className="flex justify-between items-center px-4 py-3">
                       <span className="text-muted-foreground">Wi-Fi (Instalação)</span>
                       <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">
-                        {wifiSsid.trim() ? `Rede: ${wifiSsid.trim()}` : ''} {wifiPassword.trim() ? `| Senha: ${wifiPassword.trim()}` : ''}
+                        {nomeRedeWifi.trim() ? `Rede: ${nomeRedeWifi.trim()}` : ''} {senhaWifi.trim() ? `| Senha: ${senhaWifi.trim()}` : ''}
                       </span>
                     </div>
                   )}
@@ -878,61 +797,61 @@ const ISPFYNovaOS: React.FC = () => {
                   <div className="w-full p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-left space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                        <WhatsAppIcon className="w-4 h-4 text-emerald-500" />
+                        <IconeWhatsApp className="w-4 h-4 text-emerald-500" />
                         Disparar para Grupo WhatsApp
                       </span>
                       <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
-                        {whatsappGroups.length} grupos
+                        {gruposWhatsApp.length} grupos
                       </Badge>
                     </div>
 
                     <Select
-                      value={selectedGroupPhone}
-                      onValueChange={setSelectedGroupPhone}
+                      value={grupoSelecionadoPhone}
+                      onValueChange={setGrupoSelecionadoPhone}
                     >
                       <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500">
                         <SelectValue placeholder="Selecione o grupo..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
-                        {whatsappGroups.map((g) => (
+                        {gruposWhatsApp.map((grupo) => (
                           <SelectItem
-                            key={g.phone}
-                            value={g.phone}
+                            key={grupo.phone}
+                            value={grupo.phone}
                             className="text-xs focus:bg-emerald-500/20 focus:text-emerald-600 dark:focus:text-emerald-300 cursor-pointer"
                           >
-                            👥 {g.name}
+                            👥 {grupo.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
 
                     <Button
-                      onClick={handleSendToGroup}
-                      disabled={sendingToGroup || !selectedGroupPhone || loadingGroups}
+                      onClick={aoEnviarParaGrupo}
+                      disabled={enviandoParaGrupo || !grupoSelecionadoPhone || carregandoGrupos}
                       className="w-full h-11 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99]"
                       style={{
                         background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
                         boxShadow: '0 4px 20px rgba(37,211,102,0.35)',
                       }}
                     >
-                      {sendingToGroup ? (
+                      {enviandoParaGrupo ? (
                         <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
                       ) : (
                         <><Send className="w-4 h-4" /> Enviar para o Grupo Selecionado</>
                       )}
                     </Button>
 
-                    {sentGroupSuccess && (
+                    {grupoEnviadoComSucesso && (
                       <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs">
                         <CheckCheck className="w-4 h-4 shrink-0 text-emerald-500" />
-                        <span>Enviada com sucesso para: <strong>{sentGroupSuccess}</strong></span>
+                        <span>Enviada com sucesso para: <strong>{grupoEnviadoComSucesso}</strong></span>
                       </div>
                     )}
                   </div>
 
                   <Button
                     variant="outline"
-                    onClick={handleCopyInfo}
+                    onClick={aoCopiarInformacoes}
                     className="w-full flex items-center justify-center gap-2 border-border text-foreground hover:bg-secondary h-11 rounded-xl text-sm font-semibold"
                   >
                     <Copy className="w-4 h-4 text-emerald-500" />
@@ -940,7 +859,7 @@ const ISPFYNovaOS: React.FC = () => {
                   </Button>
 
                   <Button
-                    onClick={handleReset}
+                    onClick={aoLimparFormulario}
                     className="w-full flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 border border-border"
                   >
                     <RotateCcw className="w-4 h-4" />
@@ -951,7 +870,7 @@ const ISPFYNovaOS: React.FC = () => {
             </motion.div>
           ) : (
             <motion.div
-              key="form"
+              key="formulario"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -960,24 +879,30 @@ const ISPFYNovaOS: React.FC = () => {
               {/* Coluna Principal: Formulário */}
               <div className="xl:col-span-7 space-y-6">
                 {/* 1. Seleção de Cliente e Plano */}
-                <Section
-                  title="1. Cliente & Plano de Internet"
-                  icon={<User className="w-4 h-4 text-emerald-500" />}
+                <SecaoFormularioOS
+                  titulo="1. Cliente & Plano de Internet"
+                  icone={<User className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     <Input
-                      value={searchQuery}
-                      onChange={e => handleSearchChange(e.target.value)}
+                      value={termoBusca}
+                      onChange={(e) => aoAlterarBusca(e.target.value)}
                       placeholder="Buscar por nome, telefone ou CPF..."
                       className="pl-10 pr-10 bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 h-11 text-sm rounded-xl"
                     />
-                    {searchLoading && (
+                    {carregandoBusca && (
                       <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-spin" />
                     )}
-                    {selectedClient && !searchLoading && (
+                    {clienteSelecionado && !carregandoBusca && (
                       <button
-                        onClick={() => { setSelectedClient(null); setSearchQuery(''); setSearchResults([]); setClientPlan(''); setClientContracts([]); }}
+                        onClick={() => {
+                          setClienteSelecionado(null);
+                          setTermoBusca('');
+                          setResultadosBusca([]);
+                          setPlanoCliente('');
+                          setContratosCliente([]);
+                        }}
                         className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <X className="w-4 h-4" />
@@ -987,50 +912,58 @@ const ISPFYNovaOS: React.FC = () => {
 
                   {/* Resultados da busca */}
                   <AnimatePresence>
-                    {searchResults.length > 0 && (
+                    {resultadosBusca.length > 0 && (
                       <motion.div
                         initial={{ opacity: 0, y: -6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
                         className="rounded-2xl border border-border overflow-hidden divide-y divide-border max-h-[280px] overflow-y-auto custom-scrollbar bg-popover shadow-xl text-popover-foreground"
                       >
-                        {searchResults.map(c => (
-                          <button
-                            key={c.id}
-                            onClick={() => handleSelectClient(c)}
-                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left group"
-                          >
-                            <div className="w-8 h-8 rounded-xl bg-secondary group-hover:bg-emerald-500/20 flex items-center justify-center transition-colors shrink-0">
-                              <User className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{clientName(c)}</p>
-                              <div className="flex items-center gap-3 mt-0.5">
-                                {clientPhone(c) && (
-                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <Phone className="w-2.5 h-2.5" />{clientPhone(c)}
-                                  </span>
-                                )}
-                                {(c.cidade || c.endereco_cobranca_bairro) && (
-                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <MapPin className="w-2.5 h-2.5" />{c.endereco_cobranca_bairro || c.cidade}
-                                  </span>
-                                )}
+                        {resultadosBusca.map((cliente) => {
+                          const telefone = obterTelefoneClienteISPFY(cliente);
+                          const localidade = cliente.endereco_cobranca_bairro || cliente.cidade;
+                          return (
+                            <button
+                              key={cliente.id}
+                              onClick={() => aoSelecionarCliente(cliente)}
+                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left group"
+                            >
+                              <div className="w-8 h-8 rounded-xl bg-secondary group-hover:bg-emerald-500/20 flex items-center justify-center transition-colors shrink-0">
+                                <User className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
                               </div>
-                            </div>
-                            {c.ativo === 'S' && (
-                              <Badge className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 shrink-0">Ativo</Badge>
-                            )}
-                            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors shrink-0" />
-                          </button>
-                        ))}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">
+                                  {obterNomeClienteISPFY(cliente)}
+                                </p>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  {telefone && (
+                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <Phone className="w-2.5 h-2.5" />{telefone}
+                                    </span>
+                                  )}
+                                  {localidade && (
+                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <MapPin className="w-2.5 h-2.5" />{localidade}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {isRegistroAtivo(cliente.ativo) && (
+                                <Badge className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  Ativo
+                                </Badge>
+                              )}
+                              <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors shrink-0" />
+                            </button>
+                          );
+                        })}
                       </motion.div>
                     )}
                   </AnimatePresence>
 
                   {/* Card do Cliente Selecionado */}
                   <AnimatePresence>
-                    {selectedClient && (
+                    {clienteSelecionado && (
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1039,54 +972,60 @@ const ISPFYNovaOS: React.FC = () => {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400 font-bold text-base shadow-sm">
-                              {clientName(selectedClient).charAt(0).toUpperCase()}
+                              {obterNomeClienteISPFY(clienteSelecionado).charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-foreground font-bold text-base truncate">{clientName(selectedClient)}</p>
-                              <p className="text-muted-foreground text-xs">ID ISPFY: #{selectedClient.id}</p>
+                              <p className="text-foreground font-bold text-base truncate">
+                                {obterNomeClienteISPFY(clienteSelecionado)}
+                              </p>
+                              <p className="text-muted-foreground text-xs">ID ISPFY: #{clienteSelecionado.id}</p>
                             </div>
                           </div>
-                          {selectedClient.ativo === 'S' ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-xs shrink-0">Ativo</Badge>
+                          {isRegistroAtivo(clienteSelecionado.ativo) ? (
+                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-xs shrink-0">
+                              Ativo
+                            </Badge>
                           ) : (
-                            <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 text-xs shrink-0">Inativo</Badge>
+                            <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 text-xs shrink-0">
+                              Inativo
+                            </Badge>
                           )}
                         </div>
 
-                        {/* 📶 Card de Plano de Internet (Destaque) */}
+                        {/* 📶 Card de Plano de Internet */}
                         <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
                               <Wifi className="w-3.5 h-3.5" /> Plano de Internet
-                              {loadingPlan && <Loader2 className="w-3 h-3 animate-spin text-emerald-500 ml-1" />}
+                              {carregandoPlano && <Loader2 className="w-3 h-3 animate-spin text-emerald-500 ml-1" />}
                             </span>
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => setIsEditingPlan(!isEditingPlan)}
+                                onClick={() => setEditandoPlano(!editandoPlano)}
                                 className="text-[11px] text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 transition-colors"
                               >
                                 <Edit3 className="w-3 h-3" />
-                                {isEditingPlan ? 'Concluir' : 'Digitar manual'}
+                                {editandoPlano ? 'Concluir' : 'Digitar manual'}
                               </button>
                             </div>
                           </div>
 
-                          {loadingPlan ? (
+                          {carregandoPlano ? (
                             <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                               <span>Identificando plano de internet no ISPFY...</span>
                             </div>
-                          ) : isEditingPlan ? (
+                          ) : editandoPlano ? (
                             <div className="flex items-center gap-2">
                               <Input
-                                value={clientPlan}
-                                onChange={e => setClientPlan(e.target.value)}
+                                value={planoCliente}
+                                onChange={(e) => setPlanoCliente(e.target.value)}
                                 placeholder="Digite o nome do plano (ex: FIBRA 700 MEGA)..."
                                 className="bg-background border-emerald-500/40 text-foreground text-xs h-9"
                               />
                               <Button
                                 size="sm"
-                                onClick={() => setIsEditingPlan(false)}
+                                onClick={() => setEditandoPlano(false)}
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-3 text-xs"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -1096,34 +1035,34 @@ const ISPFYNovaOS: React.FC = () => {
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm font-bold text-foreground tracking-wide flex items-center gap-1.5">
-                                  {clientPlan ? (
+                                  {planoCliente ? (
                                     <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 text-xs py-1 px-2.5">
-                                      <Zap className="w-3 h-3 mr-1 text-emerald-500" /> {clientPlan}
+                                      <Zap className="w-3 h-3 mr-1 text-emerald-500" /> {planoCliente}
                                     </Badge>
                                   ) : (
                                     <span className="text-muted-foreground italic text-xs">Nenhum plano identificado</span>
                                   )}
                                 </span>
-                                {clientContracts.length > 1 && (
+                                {contratosCliente.length > 1 && (
                                   <Badge variant="outline" className="text-[10px] bg-secondary text-muted-foreground border-border">
-                                    {clientContracts.length} contratos
+                                    {contratosCliente.length} contratos
                                   </Badge>
                                 )}
                               </div>
 
-                              {allPlanos.length > 0 && (
+                              {todosPlanos.length > 0 && (
                                 <div className="flex items-center gap-2">
                                   <Select
-                                    value={clientPlan}
-                                    onValueChange={setClientPlan}
+                                    value={planoCliente}
+                                    onValueChange={setPlanoCliente}
                                   >
                                     <SelectTrigger className="w-full sm:w-[240px] h-7 text-[11px] bg-background border-border text-foreground hover:border-emerald-500/40">
                                       <SelectValue placeholder="Trocar / Selecionar Plano..." />
                                     </SelectTrigger>
                                     <SelectContent className="bg-popover border-border text-popover-foreground text-xs max-h-64 z-50">
-                                      {allPlanos.map(p => (
-                                        <SelectItem key={p.id} value={p.nome || p.descricao || `Plano #${p.id}`}>
-                                          {p.nome || p.descricao} {p.valor_mensal && p.valor_mensal !== '0.00' ? `— R$ ${p.valor_mensal}` : ''}
+                                      {todosPlanos.map((plano) => (
+                                        <SelectItem key={plano.id} value={plano.nome || plano.descricao || `Plano #${plano.id}`}>
+                                          {plano.nome || plano.descricao} {plano.valor_mensal && plano.valor_mensal !== '0.00' ? `— R$ ${plano.valor_mensal}` : ''}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
@@ -1134,8 +1073,8 @@ const ISPFYNovaOS: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Credenciais PPPoE se existirem */}
-                        {clientLogins.length > 0 && (
+                        {/* Credenciais PPPoE */}
+                        {loginsCliente.length > 0 && (
                           <div className="p-3 rounded-xl bg-secondary/50 border border-border space-y-1.5 text-xs">
                             <span className="text-muted-foreground text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1">
                               <Key className="w-3 h-3 text-amber-500" /> Acesso PPPoE do Cliente
@@ -1143,11 +1082,11 @@ const ISPFYNovaOS: React.FC = () => {
                             <div className="flex flex-wrap gap-3 items-center pt-0.5">
                               <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
                                 <span className="text-muted-foreground">Login:</span>
-                                <span className="text-foreground font-mono font-medium">{clientLogins[0]?.usuario || clientLogins[0]?.login || '–'}</span>
+                                <span className="text-foreground font-mono font-medium">{loginsCliente[0]?.usuario || loginsCliente[0]?.login || '–'}</span>
                               </div>
                               <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
                                 <span className="text-muted-foreground">Senha:</span>
-                                <span className="text-foreground font-mono font-medium">{clientLogins[0]?.senha || '–'}</span>
+                                <span className="text-foreground font-mono font-medium">{loginsCliente[0]?.senha || '–'}</span>
                               </div>
                             </div>
                           </div>
@@ -1155,23 +1094,23 @@ const ISPFYNovaOS: React.FC = () => {
 
                         {/* Detalhes de Contato e Endereço */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                          {clientPhone(selectedClient) && (
-                            <InfoRow
-                              icon={<Phone className="w-3.5 h-3.5 text-emerald-500" />}
-                              label="Telefone / WhatsApp"
-                              value={clientPhone(selectedClient)}
+                          {telefoneClienteSelecionado && (
+                            <LinhaDetalheOS
+                              icone={<Phone className="w-3.5 h-3.5 text-emerald-500" />}
+                              rotulo="Telefone / WhatsApp"
+                              valor={telefoneClienteSelecionado}
                             />
                           )}
-                          {addr && (
-                            <InfoRow
-                              icon={<MapPin className="w-3.5 h-3.5 text-blue-500" />}
-                              label="Endereço"
-                              value={addr}
+                          {enderecoCliente && (
+                            <LinhaDetalheOS
+                              icone={<MapPin className="w-3.5 h-3.5 text-blue-500" />}
+                              rotulo="Endereço"
+                              valor={enderecoCliente}
                             />
                           )}
                         </div>
 
-                        {/* 📶 Configuração de Wi-Fi (Instalação / Troca de Roteador) */}
+                        {/* Configuração de Wi-Fi (Instalação / Troca de Roteador) */}
                         <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
                           <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
                             <Wifi className="w-3.5 h-3.5 text-emerald-500" /> Rede Wi-Fi (Instalação / Roteador)
@@ -1182,8 +1121,8 @@ const ISPFYNovaOS: React.FC = () => {
                                 Nome da Rede Wi-Fi (SSID)
                               </Label>
                               <Input
-                                value={wifiSsid}
-                                onChange={e => setWifiSsid(e.target.value)}
+                                value={nomeRedeWifi}
+                                onChange={(e) => setNomeRedeWifi(e.target.value)}
                                 placeholder="Ex: AVL_FIBRA_CLIENTE"
                                 className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
                               />
@@ -1193,8 +1132,8 @@ const ISPFYNovaOS: React.FC = () => {
                                 Senha do Wi-Fi
                               </Label>
                               <Input
-                                value={wifiPassword}
-                                onChange={e => setWifiPassword(e.target.value)}
+                                value={senhaWifi}
+                                onChange={(e) => setSenhaWifi(e.target.value)}
                                 placeholder="Ex: @senha1234"
                                 className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500 font-mono"
                               />
@@ -1208,8 +1147,8 @@ const ISPFYNovaOS: React.FC = () => {
                             <Navigation className="w-3 h-3 text-emerald-500" /> Ponto de Referência para a Equipe
                           </Label>
                           <Input
-                            value={referencePoint}
-                            onChange={e => setReferencePoint(e.target.value)}
+                            value={pontoReferencia}
+                            onChange={(e) => setPontoReferencia(e.target.value)}
                             placeholder="Ex: Próximo à padaria, em frente ao poste com transformador..."
                             className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
                           />
@@ -1217,77 +1156,76 @@ const ISPFYNovaOS: React.FC = () => {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </Section>
+                </SecaoFormularioOS>
 
                 {/* 2. Tipo de Problema */}
-                <Section
-                  title="2. Tipo de Problema"
-                  icon={<AlertCircle className="w-4 h-4 text-emerald-500" />}
-                  badge={selectedProblems.length > 0 ? `${selectedProblems.length} selecionado(s)` : undefined}
+                <SecaoFormularioOS
+                  titulo="2. Tipo de Problema"
+                  icone={<AlertCircle className="w-4 h-4 text-emerald-500" />}
+                  badge={problemasSelecionados.length > 0 ? `${problemasSelecionados.length} selecionado(s)` : undefined}
                 >
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {PROBLEMS.map(problem => {
-                      const selected = selectedProblems.includes(problem.id);
-                      const colors = colorMap[problem.color];
-                      const Icon = problem.icon;
+                    {OPCOES_PROBLEMAS.map((problema) => {
+                      const selecionado = problemasSelecionados.includes(problema.id);
+                      const cores = MAPA_CORES_PROBLEMAS[problema.cor];
+                      const Icone = problema.icon;
                       return (
                         <motion.button
-                          key={problem.id}
+                          key={problema.id}
                           whileTap={{ scale: 0.97 }}
-                          onClick={() => toggleProblem(problem.id)}
+                          onClick={() => alternarProblema(problema.id)}
                           className={`relative flex flex-col items-center gap-2 p-3 rounded-2xl border text-xs font-medium transition-all duration-200 ${
-                            selected
-                              ? `${colors.chipSelected} scale-[1.02]`
-                              : colors.chip
+                            selecionado
+                              ? `${cores.chipSelecionado} scale-[1.02]`
+                              : cores.chip
                           }`}
                         >
-                          {selected && (
+                          {selecionado && (
                             <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-current/20 flex items-center justify-center">
                               <CheckCircle2 className="w-3 h-3" />
                             </span>
                           )}
-                          <Icon className="w-5 h-5" />
-                          <span className="text-center leading-tight">{problem.label}</span>
+                          <Icone className="w-5 h-5" />
+                          <span className="text-center leading-tight">{problema.label}</span>
                         </motion.button>
                       );
                     })}
                   </div>
-                </Section>
+                </SecaoFormularioOS>
 
                 {/* 3. Assunto e Prioridade */}
-                <Section
-                  title="3. Assunto & Prioridade"
-                  icon={<Ticket className="w-4 h-4 text-emerald-500" />}
+                <SecaoFormularioOS
+                  titulo="3. Assunto & Prioridade"
+                  icone={<Ticket className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Assunto */}
                     <div className="space-y-1.5">
                       <Label className="text-xs text-foreground font-medium">
                         Assunto do Chamado <span className="text-red-500">*</span>
                       </Label>
-                      {loadingSubjects ? (
+                      {carregandoAssuntos ? (
                         <div className="flex items-center gap-2 text-muted-foreground text-xs h-10 px-3 rounded-xl bg-secondary/50 border border-border">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando assuntos...
                         </div>
                       ) : (
                         <Select
-                          value={selectedSubject}
-                          onValueChange={v => {
-                            setSelectedSubject(v);
-                            setSubjectLabel(subjects.find(s => s.id === v)?.assunto ?? v);
+                          value={assuntoSelecionado}
+                          onValueChange={(valor) => {
+                            setAssuntoSelecionado(valor);
+                            setNomeAssunto(assuntos.find((item) => item.id === valor)?.assunto ?? valor);
                           }}
                         >
                           <SelectTrigger className="bg-background border-input text-foreground focus:ring-emerald-500 text-xs h-10 rounded-xl">
                             <SelectValue placeholder="Selecione o assunto..." />
                           </SelectTrigger>
                           <SelectContent className="bg-popover border-border text-popover-foreground max-h-52 z-50">
-                            {subjects.map(s => (
+                            {assuntos.map((assunto) => (
                               <SelectItem
-                                key={s.id}
-                                value={s.id}
+                                key={assunto.id}
+                                value={assunto.id}
                                 className="focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 text-xs cursor-pointer"
                               >
-                                {s.assunto}
+                                {assunto.assunto}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1295,21 +1233,20 @@ const ISPFYNovaOS: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Prioridade */}
                     <div className="space-y-1.5">
                       <Label className="text-xs text-foreground font-medium">Nível de Prioridade</Label>
                       <div className="grid grid-cols-4 gap-1.5">
-                        {Object.entries(PRIORITY_LABELS).map(([key, { label, color, bg }]) => (
+                        {Object.entries(ROTULOS_PRIORIDADE_OS).map(([chave, info]) => (
                           <button
-                            key={key}
-                            onClick={() => setPriority(key)}
+                            key={chave}
+                            onClick={() => setPrioridade(chave)}
                             className={`h-10 rounded-xl text-xs font-semibold border transition-all ${
-                              priority === key
-                                ? `${bg} ${color} scale-[1.04] shadow-sm`
+                              prioridade === chave
+                                ? `${info.classeChip} ${info.corTexto} scale-[1.04] shadow-sm`
                                 : 'bg-secondary/40 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
                             }`}
                           >
-                            {label}
+                            {info.rotulo}
                           </button>
                         ))}
                       </div>
@@ -1320,19 +1257,19 @@ const ISPFYNovaOS: React.FC = () => {
                   <div className="space-y-1.5 pt-1">
                     <Label className="text-xs text-foreground font-medium">Observações adicionais para o técnico</Label>
                     <Textarea
-                      value={observation}
-                      onChange={e => setObservation(e.target.value)}
+                      value={observacao}
+                      onChange={(e) => setObservacao(e.target.value)}
                       placeholder="Descreva observações específicas, instruções ou avisos..."
                       rows={3}
                       className="bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 resize-none text-xs rounded-xl"
                     />
                   </div>
-                </Section>
+                </SecaoFormularioOS>
 
                 {/* 4. Destino no WhatsApp (Grupos da Equipe) */}
-                <Section
-                  title="4. Destino no WhatsApp (Equipe de Operações)"
-                  icon={<WhatsAppIcon className="w-4 h-4 text-emerald-500" />}
+                <SecaoFormularioOS
+                  titulo="4. Destino no WhatsApp (Equipe de Operações)"
+                  icone={<IconeWhatsApp className="w-4 h-4 text-emerald-500" />}
                 >
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -1340,25 +1277,25 @@ const ISPFYNovaOS: React.FC = () => {
                         Grupo WhatsApp que receberá a O.S.:
                       </Label>
                       <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
-                        {whatsappGroups.length} grupos conectados
+                        {gruposWhatsApp.length} grupos conectados
                       </Badge>
                     </div>
 
                     <Select
-                      value={selectedGroupPhone}
-                      onValueChange={setSelectedGroupPhone}
+                      value={grupoSelecionadoPhone}
+                      onValueChange={setGrupoSelecionadoPhone}
                     >
                       <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500 rounded-xl">
                         <SelectValue placeholder="Selecione o grupo..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
-                        {whatsappGroups.map((g) => (
+                        {gruposWhatsApp.map((grupo) => (
                           <SelectItem
-                            key={g.phone}
-                            value={g.phone}
+                            key={grupo.phone}
+                            value={grupo.phone}
                             className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 cursor-pointer"
                           >
-                            👥 {g.name}
+                            👥 {grupo.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1367,8 +1304,8 @@ const ISPFYNovaOS: React.FC = () => {
                     <label className="flex items-center gap-2.5 cursor-pointer pt-1 select-none">
                       <input
                         type="checkbox"
-                        checked={sendToGroupOnCreate}
-                        onChange={(e) => setSendToGroupOnCreate(e.target.checked)}
+                        checked={enviarGrupoAoCriar}
+                        onChange={(e) => setEnviarGrupoAoCriar(e.target.checked)}
                         className="w-4 h-4 rounded border-border bg-background text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                       />
                       <span className="text-xs text-foreground">
@@ -1376,30 +1313,25 @@ const ISPFYNovaOS: React.FC = () => {
                       </span>
                     </label>
                   </div>
-                </Section>
+                </SecaoFormularioOS>
               </div>
 
               {/* ─── Coluna Direita: Live Console & WhatsApp Preview (5 Colunas) ─── */}
-              <div className="lg:col-span-5 flex flex-col gap-5">
-                
-                {/* Card de Pré-visualização da O.S. (Estilo WhatsApp) */}
-                <div
-                  className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden sticky top-6 space-y-4 p-5"
-                >
-                  {/* Top Bar da Pré-visualização */}
+              <div className="xl:col-span-5 flex flex-col gap-5">
+                <div className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden sticky top-6 space-y-4 p-5">
                   <div className="flex items-center justify-between pb-3 border-b border-border">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 flex items-center justify-center">
-                        <WhatsAppIcon className="w-4 h-4 text-emerald-500" />
+                        <IconeWhatsApp className="w-4 h-4 text-emerald-500" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-bold text-foreground uppercase tracking-wider">Pré-visualização</p>
                           <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[9px] px-1.5 py-0 font-mono">
-                            Próxima do dia: #{formattedNextDailyNumber}
+                            Próxima do dia: #{proximoNumeroDiarioFormatado}
                           </Badge>
                         </div>
-                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">WhatsApp O.S. • {formattedDate}</p>
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">WhatsApp O.S. • {dataFormatada}</p>
                       </div>
                     </div>
 
@@ -1407,16 +1339,16 @@ const ISPFYNovaOS: React.FC = () => {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => setIsEditingLiveMessage(!isEditingLiveMessage)}
+                        onClick={() => setEditandoMensagemAoVivo(!editandoMensagemAoVivo)}
                         className="h-8 px-2.5 text-xs text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg gap-1 border border-border"
                       >
                         <Edit3 className="w-3 h-3 text-emerald-500" />
-                        {isEditingLiveMessage ? 'Visualizar' : 'Editar Texto'}
+                        {editandoMensagemAoVivo ? 'Visualizar' : 'Editar Texto'}
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={openTemplateModal}
+                        onClick={aoAbrirModalModelo}
                         title="Personalizar Estrutura Padrão"
                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg border border-border"
                       >
@@ -1426,16 +1358,14 @@ const ISPFYNovaOS: React.FC = () => {
                   </div>
 
                   {/* Bubble de Mensagem WhatsApp */}
-                  <div
-                    className="p-4 rounded-2xl border border-emerald-500/30 text-xs font-mono relative leading-relaxed bg-emerald-50/90 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-500/30 dark:text-emerald-100 shadow-inner"
-                  >
-                    {isEditingLiveMessage ? (
+                  <div className="p-4 rounded-2xl border border-emerald-500/30 text-xs font-mono relative leading-relaxed bg-emerald-50/90 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-500/30 dark:text-emerald-100 shadow-inner">
+                    {editandoMensagemAoVivo ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
                           <span>✏️ Modo de edição manual ativo:</span>
-                          {customOSText !== null && (
+                          {textoManualOS !== null && (
                             <button
-                              onClick={() => { setCustomOSText(null); setIsEditingLiveMessage(false); }}
+                              onClick={() => { setTextoManualOS(null); setEditandoMensagemAoVivo(false); }}
                               className="text-muted-foreground hover:text-foreground underline text-[10px]"
                             >
                               Restaurar gerado
@@ -1443,32 +1373,32 @@ const ISPFYNovaOS: React.FC = () => {
                           )}
                         </div>
                         <Textarea
-                          value={customOSText !== null ? customOSText : generateOSText()}
-                          onChange={e => setCustomOSText(e.target.value)}
+                          value={textoManualOS !== null ? textoManualOS : gerarTextoOS()}
+                          onChange={(e) => setTextoManualOS(e.target.value)}
                           rows={14}
                           className="bg-background border-emerald-500/40 text-foreground text-xs font-mono leading-relaxed rounded-xl resize-none"
                         />
                       </div>
                     ) : (
                       <div className="whitespace-pre-wrap select-text max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
-                        {effectiveMessage}
+                        {mensagemEfetiva}
                       </div>
                     )}
 
                     <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-muted-foreground">
-                      <span>{effectiveMessage.length} caracteres</span>
-                      {customOSText !== null && (
+                      <span>{mensagemEfetiva.length} caracteres</span>
+                      {textoManualOS !== null && (
                         <span className="text-amber-600 dark:text-amber-400 font-semibold">● Texto editado manualmente</span>
                       )}
                     </div>
                   </div>
 
-                  {/* Ações Rápidas (Copiar e Abrir) */}
+                  {/* Ações Rápidas */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <Button
                       variant="outline"
-                      onClick={handleCopyInfo}
-                      disabled={!selectedClient}
+                      onClick={aoCopiarInformacoes}
+                      disabled={!clienteSelecionado}
                       className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
                     >
                       <Copy className="w-3.5 h-3.5 text-emerald-500" />
@@ -1476,7 +1406,7 @@ const ISPFYNovaOS: React.FC = () => {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={openTemplateModal}
+                      onClick={aoAbrirModalModelo}
                       className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
                     >
                       <Sliders className="w-3.5 h-3.5 text-blue-500" />
@@ -1490,9 +1420,9 @@ const ISPFYNovaOS: React.FC = () => {
                       <span className="text-muted-foreground font-medium flex items-center gap-1.5">
                         <MapPin className="w-3.5 h-3.5 text-emerald-500" /> Localização do Cliente
                       </span>
-                      {mapsLink && (
+                      {linksMapa.urlDireta && (
                         <a
-                          href={mapsLink}
+                          href={linksMapa.urlDireta}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-emerald-600 dark:text-emerald-400 hover:underline text-[11px] flex items-center gap-1 transition-colors font-medium"
@@ -1502,11 +1432,11 @@ const ISPFYNovaOS: React.FC = () => {
                       )}
                     </div>
 
-                    {mapUrl ? (
+                    {linksMapa.urlIncorporada ? (
                       <div className="relative" style={{ paddingBottom: '60%' }}>
                         <iframe
-                          key={mapUrl}
-                          src={mapUrl}
+                          key={linksMapa.urlIncorporada}
+                          src={linksMapa.urlIncorporada}
                           className="absolute inset-0 w-full h-full border-0"
                           allowFullScreen
                           loading="lazy"
@@ -1526,14 +1456,14 @@ const ISPFYNovaOS: React.FC = () => {
                   <motion.button
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={handleCreate}
-                    disabled={creating || !selectedClient || !selectedSubject}
+                    onClick={aoCriarOS}
+                    disabled={criandoOS || !clienteSelecionado || !assuntoSelecionado}
                     className="w-full h-13 py-3.5 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-emerald-600/25"
                     style={{
                       background: 'linear-gradient(135deg, #059669 0%, #16a34a 100%)',
                     }}
                   >
-                    {creating ? (
+                    {criandoOS ? (
                       <><Loader2 className="w-5 h-5 animate-spin" /> Registrando e Despachando O.S....</>
                     ) : (
                       <><Send className="w-5 h-5" /> Abrir O.S. e Enviar para Grupo</>
@@ -1546,7 +1476,7 @@ const ISPFYNovaOS: React.FC = () => {
         </AnimatePresence>
 
         {/* ─── Modal de Configuração da Estrutura / Template da O.S. ─── */}
-        <Dialog open={isTemplateModalOpen} onOpenChange={setIsTemplateModalOpen}>
+        <Dialog open={modalModeloAberto} onOpenChange={setModalModeloAberto}>
           <DialogContent className="max-w-2xl bg-card border-border text-card-foreground p-6 rounded-3xl shadow-2xl">
             <DialogHeader className="space-y-1.5">
               <div className="flex items-center gap-2.5">
@@ -1563,37 +1493,35 @@ const ISPFYNovaOS: React.FC = () => {
             </DialogHeader>
 
             <div className="space-y-4 py-2">
-              {/* Tags clicáveis para inserção rápida */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-foreground font-medium">
                   Variáveis dinâmicas disponíveis (clique para inserir):
                 </Label>
                 <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto custom-scrollbar p-1">
-                  {TEMPLATE_VARIABLES.map(v => (
+                  {VARIAVEIS_TEMPLATE_OS.map((variavel) => (
                     <button
-                      key={v.tag}
+                      key={variavel.tag}
                       type="button"
-                      onClick={() => insertTagIntoTemplate(v.tag)}
-                      title={v.desc}
+                      onClick={() => inserirTagNoModelo(variavel.tag)}
+                      title={variavel.desc}
                       className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono transition-all flex items-center gap-1"
                     >
                       <span>+</span>
-                      <strong className="font-semibold">{v.label}:</strong>
-                      <span className="opacity-75">{v.tag}</span>
+                      <strong className="font-semibold">{variavel.rotulo}:</strong>
+                      <span className="opacity-75">{variavel.tag}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Textarea do Modelo */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-foreground font-medium">
                   Estrutura do Texto:
                 </Label>
                 <Textarea
-                  ref={templateInputRef}
-                  value={tempTemplateText}
-                  onChange={e => setTempTemplateText(e.target.value)}
+                  ref={campoModeloRef}
+                  value={textoTemporarioModelo}
+                  onChange={(e) => setTextoTemporarioModelo(e.target.value)}
                   rows={10}
                   className="bg-background border-input text-foreground font-mono text-xs leading-relaxed focus-visible:ring-emerald-500 rounded-xl"
                   placeholder="Defina o modelo da O.S...."
@@ -1605,7 +1533,7 @@ const ISPFYNovaOS: React.FC = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={handleRestoreDefaultTemplate}
+                onClick={aoRestaurarModeloPadrao}
                 className="bg-secondary border-border text-foreground hover:bg-secondary/80 text-xs h-10 rounded-xl"
               >
                 <RotateCcw className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
@@ -1615,14 +1543,14 @@ const ISPFYNovaOS: React.FC = () => {
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setIsTemplateModalOpen(false)}
+                  onClick={() => setModalModeloAberto(false)}
                   className="text-muted-foreground hover:text-foreground text-xs h-10 rounded-xl"
                 >
                   Cancelar
                 </Button>
                 <Button
                   type="button"
-                  onClick={handleSaveTemplate}
+                  onClick={aoSalvarModelo}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-10 px-5 rounded-xl font-semibold gap-1.5 shadow-lg shadow-emerald-600/30"
                 >
                   <Check className="w-4 h-4" />
@@ -1633,13 +1561,13 @@ const ISPFYNovaOS: React.FC = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Modal de O.S. Segmentadas de Hoje (Contagem Diária) */}
+        {/* Modal de O.S. Segmentadas de Hoje */}
         <DailyOSModal
-          open={isDailyOrdersModalOpen}
-          onOpenChange={setIsDailyOrdersModalOpen}
-          orders={dailyOrders}
-          formattedDate={formattedDate}
-          totalCount={dailyCount}
+          open={modalOrdensDoDiaAberto}
+          onOpenChange={setModalOrdensDoDiaAberto}
+          orders={ordensDoDia}
+          formattedDate={dataFormatada}
+          totalCount={contagemDiaria}
         />
       </div>
     </PageTransition>
@@ -1647,19 +1575,17 @@ const ISPFYNovaOS: React.FC = () => {
 };
 
 // ─── Subcomponentes auxiliares ────────────────────────────────────────────────
-const Section: React.FC<{
-  title: string;
-  icon: React.ReactNode;
+const SecaoFormularioOS: React.FC<{
+  titulo: string;
+  icone: React.ReactNode;
   badge?: string;
   children: React.ReactNode;
-}> = ({ title, icon, badge, children }) => (
-  <div
-    className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden"
-  >
+}> = ({ titulo, icone, badge, children }) => (
+  <div className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden">
     <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-card">
       <div className="flex items-center gap-2">
-        <span className="text-emerald-500 dark:text-emerald-400">{icon}</span>
-        <span className="text-foreground text-sm font-semibold tracking-wide">{title}</span>
+        <span className="text-emerald-500 dark:text-emerald-400">{icone}</span>
+        <span className="text-foreground text-sm font-semibold tracking-wide">{titulo}</span>
       </div>
       {badge && (
         <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 text-[10px]">
@@ -1671,14 +1597,16 @@ const Section: React.FC<{
   </div>
 );
 
-const InfoRow: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({
-  icon, label, value,
+const LinhaDetalheOS: React.FC<{ icone: React.ReactNode; rotulo: string; valor: string }> = ({
+  icone,
+  rotulo,
+  valor,
 }) => (
   <div className="flex items-start gap-2.5 rounded-xl bg-secondary/50 border border-border px-3 py-2">
-    <span className="mt-0.5 shrink-0">{icon}</span>
+    <span className="mt-0.5 shrink-0">{icone}</span>
     <div className="min-w-0 flex-1">
-      <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium">{label}</p>
-      <p className="text-foreground text-xs font-medium break-all">{value}</p>
+      <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium">{rotulo}</p>
+      <p className="text-foreground text-xs font-medium break-all">{valor}</p>
     </div>
   </div>
 );

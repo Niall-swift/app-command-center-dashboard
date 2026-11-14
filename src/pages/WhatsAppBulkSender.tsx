@@ -543,12 +543,10 @@ export default function WhatsAppBulkSender() {
         description: `Enviando para ${testPhoneNumber}`,
       });
 
-      console.log('🕵️ DEBUG FATURA TESTE:', client.fatura);
       const result = await whapiService.sendMessage({
         to: testPhoneNumber,
         body: messageBody,
         typing_time: 3000,
-        pixCode: client.fatura.pixCopiaCola,
       });
 
       if (result.sent) {

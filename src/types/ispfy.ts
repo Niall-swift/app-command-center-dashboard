@@ -26,7 +26,7 @@ export interface ISPFYContactData {
   email?: string;
   // Outros
   lead?: 'S' | 'N';
-  ativo?: 'S' | 'N';
+  ativo?: 'S' | 'N' | 's' | 'n' | '1' | '0';
   tipo_pessoa?: 'F' | 'J';
   logou_central?: string;
   conheceu_atraves?: string;
@@ -123,7 +123,7 @@ export interface ISPFYFaturaData {
   pagamento_valor?: string;
   data_vencimento?: string;
   pagamento_data?: string;
-  status?: 'A' | 'R' | 'P' | 'C'; // Aberto, Recebido/Pago, Pendente, Cancelado
+  status?: 'A' | 'R' | 'P' | 'C' | 'aberto' | 'recebido' | 'pago' | 'pendente' | 'cancelado' | string; // Aberto, Recebido/Pago, Pendente, Cancelado
   nosso_numero?: string;
   linha_digitavel?: string;
   descricao?: string;

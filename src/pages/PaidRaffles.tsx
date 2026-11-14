@@ -355,6 +355,7 @@ export default function PaidRaffles() {
         prizeDescription: '',
         prizeImageUrl: '',
         ticketPrice: '',
+        minTickets: '',
         drawDate: ''
       });
     } catch (error: any) {

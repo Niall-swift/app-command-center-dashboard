@@ -85,3 +85,79 @@ export function isToday(dateStr: string): boolean {
   
   return hoje.getTime() === data.getTime();
 }
+
+/**
+ * Retorna a data local atual no formato YYYY-MM-DD (evita virada prematura de UTC à noite).
+ */
+export function obterDataLocalIso(agora: Date = new Date()): string {
+  const ano = agora.getFullYear();
+  const mes = String(agora.getMonth() + 1).padStart(2, '0');
+  const dia = String(agora.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+/**
+ * Retorna data e hora atuais no fuso horário de São Paulo (YYYY-MM-DD HH:MM:SS).
+ */
+export function obterTimestampBrasil(): string {
+  try {
+    const formatado = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    return formatado.replace('T', ' ');
+  } catch {
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  }
+}
+
+/**
+ * Formata uma string ISO em horário curto HH:MM:SS no padrão pt-BR.
+ */
+export function formatarHorarioCurto(dataIso?: string | null): string {
+  if (!dataIso) return '--:--:--';
+  const data = new Date(dataIso);
+  if (isNaN(data.getTime())) return '--:--:--';
+  return data.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/**
+ * Formata timestamps ISPFY/ISO em DD/MM/AAAA (ou DD/MM com hora) sem deslocamento de fuso.
+ */
+export function formatarDataHoraCurta(
+  valor?: string | null,
+  opcoes: { incluirAno?: boolean; incluirSegundos?: boolean; textoSeparador?: string } = {}
+): string {
+  if (!valor) return '-';
+  const { incluirAno = true, incluirSegundos = false, textoSeparador = ' ' } = opcoes;
+  const limpo = valor.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '').trim();
+  const [parteData, parteHora = ''] = limpo.split(' ');
+  const [ano, mes, dia] = (parteData || '').split('-');
+
+  if (ano && mes && dia) {
+    const dataStr = incluirAno ? `${dia}/${mes}/${ano}` : `${dia}/${mes}`;
+    if (!parteHora) return dataStr;
+    const horaStr = incluirSegundos ? parteHora : parteHora.slice(0, 5);
+    return `${dataStr}${textoSeparador}${horaStr}`;
+  }
+
+  const dt = new Date(valor);
+  if (!isNaN(dt.getTime())) {
+    return dt.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+  return valor;
+}

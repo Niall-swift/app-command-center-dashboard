@@ -10,110 +10,148 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import {
-  aggregateRegionSummaries,
-  classifyPointConnectionHealth,
-  detectConnectionTransitions,
+  agregarResumosPorRegiao,
+  classificarSaudeConexaoPonto,
+  detectarTransicoesConexao,
 } from '@/services/ispfy/regionAuditHelpers';
 import type {
   ISPFYClientsByRegionResult,
   ISPFYConnectionTransitionEvent,
+  ISPFYLivePointStatus,
   ISPFYOverdueAnalyticsResult,
 } from '@/types/ispfy';
 
-const POLL_INTERVAL_MS = 45 * 1000;
-const OVERDUE_REFRESH_MS = 5 * 60 * 1000;
-const SOUND_STORAGE_KEY = 'avl_network_monitor_sound';
-const MONITOR_STORAGE_KEY = 'avl_network_monitor_enabled';
-const EVENTS_STORAGE_KEY = 'avl_network_monitor_events_v1';
-const MAX_STORED_EVENTS = 60;
+const INTERVALO_CONSULTA_MS = 45 * 1000;
+const INTERVALO_INADIMPLENCIA_MS = 5 * 60 * 1000;
+const CHAVE_PREF_SOM = 'avl_network_monitor_sound';
+const CHAVE_PREF_MONITOR = 'avl_network_monitor_enabled';
+const CHAVE_EVENTOS_SESSAO = 'avl_network_monitor_events_v1';
+const MAX_EVENTOS_ARMAZENADOS = 60;
+const FREQUENCIAS_BIP_ALERTA_NOC = [880, 587.33, 880];
 
-interface NetworkMonitorContextType {
-  regionData: ISPFYClientsByRegionResult | null;
-  overdueData: ISPFYOverdueAnalyticsResult | null;
-  loadingRegion: boolean;
-  loadingOverdue: boolean;
-  isPolling: boolean;
-  error: string | null;
-  lastUpdatedAt: Date | null;
-  recentEvents: ISPFYConnectionTransitionEvent[];
-  unreadDropCount: number;
-  soundEnabled: boolean;
-  monitorEnabled: boolean;
-  pollIntervalSec: number;
-  browserNotifPermission: NotificationPermission | 'unsupported';
-  requestBrowserNotifPermission: () => Promise<boolean>;
-  refreshConnections: (force?: boolean) => Promise<void>;
-  refreshOverdue: (force?: boolean) => Promise<void>;
-  refreshAll: () => Promise<void>;
-  recheckSinglePoint: (clienteId: string, pontoId: string) => Promise<void>;
-  acknowledgeAlerts: () => void;
-  clearEvents: () => void;
-  toggleSound: () => void;
-  toggleMonitor: () => void;
-  playDropAlertSound: () => void;
+/** Contrato público exposto pelo monitor global de rede em tempo real. */
+interface ContextoMonitorRede {
+  dadosRegiao: ISPFYClientsByRegionResult | null;
+  dadosInadimplencia: ISPFYOverdueAnalyticsResult | null;
+  carregandoRegiao: boolean;
+  carregandoInadimplencia: boolean;
+  verificandoAgora: boolean;
+  erro: string | null;
+  ultimaAtualizacaoEm: Date | null;
+  eventosRecentes: ISPFYConnectionTransitionEvent[];
+  quedasNaoLidas: number;
+  somAtivo: boolean;
+  monitorAtivo: boolean;
+  intervaloVerificacaoSeg: number;
+  permissaoNotificacao: NotificationPermission | 'unsupported';
+  solicitarPermissaoNotificacao: () => Promise<boolean>;
+  atualizarConexoes: (forcar?: boolean) => Promise<void>;
+  atualizarInadimplencia: (forcar?: boolean) => Promise<void>;
+  atualizarTudo: () => Promise<void>;
+  revalidarPontoAoVivo: (
+    clienteId: string,
+    pontoId: string
+  ) => Promise<ISPFYLivePointStatus | null>;
+  confirmarAlertas: () => void;
+  limparEventos: () => void;
+  alternarSom: () => void;
+  alternarMonitor: () => void;
+  tocarSomAlertaQueda: () => void;
 }
 
-const NetworkMonitorContext = createContext<
-  NetworkMonitorContextType | undefined
->(undefined);
+const ContextoMonitorRedeReact = createContext<ContextoMonitorRede | undefined>(
+  undefined
+);
 
-export const useNetworkMonitor = (): NetworkMonitorContextType => {
-  const ctx = useContext(NetworkMonitorContext);
-  if (!ctx) {
+/** Hook para consumir o estado e ações do monitoramento global de conexões. */
+export const useNetworkMonitor = (): ContextoMonitorRede => {
+  const contexto = useContext(ContextoMonitorRedeReact);
+  if (!contexto) {
     throw new Error(
       'useNetworkMonitor deve ser utilizado dentro de NetworkMonitorProvider'
     );
   }
-  return ctx;
+  return contexto;
 };
 
-function readBoolPref(key: string, defaultValue: boolean): boolean {
+function lerPreferenciaBooleana(chave: string, valorPadrao: boolean): boolean {
   try {
-    const val = localStorage.getItem(key);
-    if (val === null) return defaultValue;
-    return val === 'true';
+    const valor = localStorage.getItem(chave);
+    if (valor === null) return valorPadrao;
+    return valor === 'true';
   } catch {
-    return defaultValue;
+    return valorPadrao;
   }
 }
 
-function readStoredEvents(): ISPFYConnectionTransitionEvent[] {
+function lerEventosArmazenados(): ISPFYConnectionTransitionEvent[] {
   try {
-    const raw = sessionStorage.getItem(EVENTS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_STORED_EVENTS) : [];
+    const bruto = sessionStorage.getItem(CHAVE_EVENTOS_SESSAO);
+    if (!bruto) return [];
+    const convertido = JSON.parse(bruto);
+    return Array.isArray(convertido)
+      ? convertido.slice(0, MAX_EVENTOS_ARMAZENADOS)
+      : [];
   } catch {
     return [];
   }
 }
 
+function obterOuCriarAudioContext(
+  refAudioCtx: React.MutableRefObject<AudioContext | null>
+): AudioContext | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    if (!refAudioCtx.current) {
+      const ConstrutorAudio =
+        window.AudioContext ||
+        (window as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (ConstrutorAudio) {
+        refAudioCtx.current = new ConstrutorAudio();
+      }
+    }
+    if (refAudioCtx.current?.state === 'suspended') {
+      refAudioCtx.current.resume().catch(() => undefined);
+    }
+    return refAudioCtx.current;
+  } catch {
+    return null;
+  }
+}
+
+/** Provider global que mantém a leitura periódica de rede e alertas entre rotas. */
 export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const navigate = useNavigate();
+  const navegar = useNavigate();
+  const navegarRef = useRef(navegar);
+  navegarRef.current = navegar;
 
-  const [regionData, setRegionData] =
+  const [dadosRegiao, setDadosRegiao] =
     useState<ISPFYClientsByRegionResult | null>(null);
-  const [overdueData, setOverdueData] =
+  const [dadosInadimplencia, setDadosInadimplencia] =
     useState<ISPFYOverdueAnalyticsResult | null>(null);
-  const [loadingRegion, setLoadingRegion] = useState<boolean>(true);
-  const [loadingOverdue, setLoadingOverdue] = useState<boolean>(true);
-  const [isPolling, setIsPolling] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
-  const [recentEvents, setRecentEvents] = useState<
+  const [carregandoRegiao, setCarregandoRegiao] = useState<boolean>(true);
+  const [carregandoInadimplencia, setCarregandoInadimplencia] =
+    useState<boolean>(true);
+  const [verificandoAgora, setVerificandoAgora] = useState<boolean>(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [ultimaAtualizacaoEm, setUltimaAtualizacaoEm] = useState<Date | null>(
+    null
+  );
+  const [eventosRecentes, setEventosRecentes] = useState<
     ISPFYConnectionTransitionEvent[]
-  >(readStoredEvents);
-  const [unreadDropCount, setUnreadDropCount] = useState<number>(0);
+  >(lerEventosArmazenados);
+  const [quedasNaoLidas, setQuedasNaoLidas] = useState<number>(0);
 
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(() =>
-    readBoolPref(SOUND_STORAGE_KEY, true)
+  const [somAtivo, setSomAtivo] = useState<boolean>(() =>
+    lerPreferenciaBooleana(CHAVE_PREF_SOM, true)
   );
-  const [monitorEnabled, setMonitorEnabled] = useState<boolean>(() =>
-    readBoolPref(MONITOR_STORAGE_KEY, true)
+  const [monitorAtivo, setMonitorAtivo] = useState<boolean>(() =>
+    lerPreferenciaBooleana(CHAVE_PREF_MONITOR, true)
   );
-  const [browserNotifPermission, setBrowserNotifPermission] = useState<
+  const [permissaoNotificacao, setPermissaoNotificacao] = useState<
     NotificationPermission | 'unsupported'
   >(() =>
     typeof window !== 'undefined' && 'Notification' in window
@@ -121,143 +159,122 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       : 'unsupported'
   );
 
-  const regionDataRef = useRef<ISPFYClientsByRegionResult | null>(null);
-  const inFlightConnRef = useRef<boolean>(false);
-  const inFlightOverdueRef = useRef<boolean>(false);
-  const soundEnabledRef = useRef<boolean>(soundEnabled);
+  const dadosRegiaoRef = useRef<ISPFYClientsByRegionResult | null>(null);
+  const dadosInadimplenciaRef = useRef<ISPFYOverdueAnalyticsResult | null>(null);
+  const consultaConexaoEmAndamentoRef = useRef<boolean>(false);
+  const consultaInadimplenciaEmAndamentoRef = useRef<boolean>(false);
+  const somAtivoRef = useRef<boolean>(somAtivo);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
-    regionDataRef.current = regionData;
-  }, [regionData]);
+    dadosRegiaoRef.current = dadosRegiao;
+  }, [dadosRegiao]);
 
   useEffect(() => {
-    soundEnabledRef.current = soundEnabled;
-  }, [soundEnabled]);
+    dadosInadimplenciaRef.current = dadosInadimplencia;
+  }, [dadosInadimplencia]);
+
+  useEffect(() => {
+    somAtivoRef.current = somAtivo;
+  }, [somAtivo]);
 
   // Libera AudioContext na primeira interação do usuário para evitar bloqueio de autoplay
   useEffect(() => {
-    const unlockAudio = () => {
-      try {
-        if (!audioCtxRef.current && typeof window !== 'undefined') {
-          const Ctor =
-            window.AudioContext ||
-            (window as { webkitAudioContext?: typeof AudioContext })
-              .webkitAudioContext;
-          if (Ctor) audioCtxRef.current = new Ctor();
-        }
-        if (audioCtxRef.current?.state === 'suspended') {
-          audioCtxRef.current.resume().catch(() => undefined);
-        }
-      } catch {
-        // Ignora erro de audio context
-      }
+    const liberarAudio = () => {
+      obterOuCriarAudioContext(audioCtxRef);
     };
-    window.addEventListener('pointerdown', unlockAudio, { passive: true });
-    window.addEventListener('keydown', unlockAudio, { passive: true });
+    window.addEventListener('pointerdown', liberarAudio, { passive: true });
+    window.addEventListener('keydown', liberarAudio, { passive: true });
     return () => {
-      window.removeEventListener('pointerdown', unlockAudio);
-      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('pointerdown', liberarAudio);
+      window.removeEventListener('keydown', liberarAudio);
     };
   }, []);
 
-  const playDropAlertSound = useCallback(() => {
+  const tocarSomAlertaQueda = useCallback(() => {
     try {
-      if (typeof window === 'undefined') return;
-      if (!audioCtxRef.current) {
-        const Ctor =
-          window.AudioContext ||
-          (window as { webkitAudioContext?: typeof AudioContext })
-            .webkitAudioContext;
-        if (Ctor) audioCtxRef.current = new Ctor();
-      }
-      const ctx = audioCtxRef.current;
-      if (!ctx) return;
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => undefined);
-      }
+      const contextoAudio = obterOuCriarAudioContext(audioCtxRef);
+      if (!contextoAudio) return;
 
-      const now = ctx.currentTime;
+      const instanteAtual = contextoAudio.currentTime;
       // Sequência distinta de alerta NOC (agudo -> grave -> agudo)
-      const notes = [880, 587.33, 880];
-      notes.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.connect(gain);
-        gain.connect(ctx.destination);
+      FREQUENCIAS_BIP_ALERTA_NOC.forEach((frequencia, indice) => {
+        const oscilador = contextoAudio.createOscillator();
+        const ganho = contextoAudio.createGain();
+        oscilador.type = 'triangle';
+        oscilador.connect(ganho);
+        ganho.connect(contextoAudio.destination);
 
-        const start = now + idx * 0.14;
-        const dur = 0.12;
-        osc.frequency.setValueAtTime(freq, start);
-        gain.gain.setValueAtTime(0.001, start);
-        gain.gain.linearRampToValueAtTime(0.28, start + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
-        osc.start(start);
-        osc.stop(start + dur);
+        const inicio = instanteAtual + indice * 0.14;
+        const duracao = 0.12;
+        oscilador.frequency.setValueAtTime(frequencia, inicio);
+        ganho.gain.setValueAtTime(0.001, inicio);
+        ganho.gain.linearRampToValueAtTime(0.28, inicio + 0.015);
+        ganho.gain.exponentialRampToValueAtTime(0.001, inicio + duracao);
+        oscilador.start(inicio);
+        oscilador.stop(inicio + duracao);
       });
-    } catch (err) {
-      console.warn('Não foi possível reproduzir alerta sonoro:', err);
+    } catch (erroAudio) {
+      console.warn('Não foi possível reproduzir alerta sonoro:', erroAudio);
     }
   }, []);
 
-  const requestBrowserNotifPermission = useCallback(async () => {
+  const solicitarPermissaoNotificacao = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      setBrowserNotifPermission('unsupported');
+      setPermissaoNotificacao('unsupported');
       return false;
     }
     try {
-      const result = await Notification.requestPermission();
-      setBrowserNotifPermission(result);
-      return result === 'granted';
+      const resultado = await Notification.requestPermission();
+      setPermissaoNotificacao(resultado);
+      return resultado === 'granted';
     } catch {
       return false;
     }
   }, []);
 
-  const emitGlobalDropNotification = useCallback(
-    (dropped: ISPFYConnectionTransitionEvent[]) => {
-      if (dropped.length === 0) return;
+  const notificarQuedasGlobalmente = useCallback(
+    (quedas: ISPFYConnectionTransitionEvent[]) => {
+      if (quedas.length === 0) return;
 
-      if (soundEnabledRef.current) {
-        playDropAlertSound();
+      if (somAtivoRef.current) {
+        tocarSomAlertaQueda();
       }
 
-      const first = dropped[0];
-      const titleText =
-        dropped.length === 1
-          ? `⚠️ Cliente sem internet: ${first.nome}`
-          : `🚨 ${dropped.length} clientes ficaram sem internet agora!`;
+      const primeiraQueda = quedas[0];
+      const tituloAlerta =
+        quedas.length === 1
+          ? `⚠️ Cliente sem internet: ${primeiraQueda.nome}`
+          : `🚨 ${quedas.length} clientes ficaram sem internet agora!`;
 
-      const uniqueBairros = Array.from(
-        new Set(dropped.map((d) => d.bairroLabel).filter(Boolean))
+      const bairrosAfetados = Array.from(
+        new Set(quedas.map((queda) => queda.bairroLabel).filter(Boolean))
       );
-      const descriptionText =
-        dropped.length === 1
-          ? `${first.bairroLabel} • ${first.enderecoCompleto}${
-              first.plano ? ` (${first.plano})` : ''
+      const descricaoAlerta =
+        quedas.length === 1
+          ? `${primeiraQueda.bairroLabel} • ${primeiraQueda.enderecoCompleto}${
+              primeiraQueda.plano ? ` (${primeiraQueda.plano})` : ''
             }`
-          : `${dropped
+          : `${quedas
               .slice(0, 3)
-              .map((d) => d.nome)
+              .map((queda) => queda.nome)
               .join(', ')}${
-              dropped.length > 3 ? ` e +${dropped.length - 3}` : ''
-            } • Bairros: ${uniqueBairros.slice(0, 3).join(', ')}`;
+              quedas.length > 3 ? ` e +${quedas.length - 3}` : ''
+            } • Bairros: ${bairrosAfetados.slice(0, 3).join(', ')}`;
 
-      const targetBairroParam =
-        uniqueBairros.length === 1
-          ? `&bairro=${encodeURIComponent(dropped[0].bairroKey)}`
+      const parametroBairro =
+        bairrosAfetados.length === 1
+          ? `&bairro=${encodeURIComponent(primeiraQueda.bairroKey)}`
           : '';
+      const rotaDesconectados = `/ispfy/regiao?status=DESCONECTADO${parametroBairro}`;
 
       // 1. Toast interativo global (visível em qualquer rota do painel)
-      toast.error(titleText, {
-        description: descriptionText,
+      toast.error(tituloAlerta, {
+        description: descricaoAlerta,
         duration: 12000,
         action: {
           label: 'Ver desconectados',
-          onClick: () => {
-            navigate(`/ispfy/regiao?status=DESCONECTADO${targetBairroParam}`);
-          },
+          onClick: () => navegarRef.current(rotaDesconectados),
         },
       });
 
@@ -268,278 +285,310 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
         Notification.permission === 'granted'
       ) {
         try {
-          const notif = new Notification(titleText, {
-            body: descriptionText,
+          const notificacao = new Notification(tituloAlerta, {
+            body: descricaoAlerta,
             icon: '/favicon.ico',
             tag: `ispfy-drop-${Date.now()}`,
           });
-          notif.onclick = () => {
+          notificacao.onclick = () => {
             window.focus();
-            navigate(`/ispfy/regiao?status=DESCONECTADO${targetBairroParam}`);
-            notif.close();
+            navegarRef.current(rotaDesconectados);
+            notificacao.close();
           };
-          setTimeout(() => notif.close(), 9000);
+          setTimeout(() => notificacao.close(), 9000);
         } catch {
           // Navegador bloqueou notificação fora de foco
         }
       }
     },
-    [navigate, playDropAlertSound]
+    [tocarSomAlertaQueda]
   );
 
-  const applyNewSnapshot = useCallback(
-    (next: ISPFYClientsByRegionResult) => {
-      const prev = regionDataRef.current;
+  const aplicarNovoSnapshot = useCallback(
+    (proximoSnapshot: ISPFYClientsByRegionResult) => {
+      const snapshotAnterior = dadosRegiaoRef.current;
 
-      if (prev && prev.records.length > 0) {
-        const { dropped, reconnected } = detectConnectionTransitions(
-          prev.records,
-          next.records,
-          next.fetchedAt
+      if (snapshotAnterior && snapshotAnterior.records.length > 0) {
+        const { quedas, reconexoes } = detectarTransicoesConexao(
+          snapshotAnterior.records,
+          proximoSnapshot.records,
+          proximoSnapshot.fetchedAt
         );
 
-        if (dropped.length > 0 || reconnected.length > 0) {
-          setRecentEvents((current) => {
-            const merged = [...dropped, ...reconnected, ...current].slice(
-              0,
-              MAX_STORED_EVENTS
-            );
+        if (quedas.length > 0 || reconexoes.length > 0) {
+          setEventosRecentes((eventosAtuais) => {
+            const listaMesclada = [
+              ...quedas,
+              ...reconexoes,
+              ...eventosAtuais,
+            ].slice(0, MAX_EVENTOS_ARMAZENADOS);
             try {
-              sessionStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(merged));
+              sessionStorage.setItem(
+                CHAVE_EVENTOS_SESSAO,
+                JSON.stringify(listaMesclada)
+              );
             } catch {
-              // Ignora quota do sessionStorage
+              // Ignora limite de armazenamento da sessão
             }
-            return merged;
+            return listaMesclada;
           });
         }
 
-        if (dropped.length > 0) {
-          setUnreadDropCount((c) => c + dropped.length);
-          emitGlobalDropNotification(dropped);
+        if (quedas.length > 0) {
+          setQuedasNaoLidas((quantidade) => quantidade + quedas.length);
+          notificarQuedasGlobalmente(quedas);
         }
       }
 
-      regionDataRef.current = next;
-      setRegionData(next);
-      setLastUpdatedAt(new Date());
-      setError(null);
+      dadosRegiaoRef.current = proximoSnapshot;
+      setDadosRegiao(proximoSnapshot);
+      setUltimaAtualizacaoEm(new Date());
+      setErro(null);
     },
-    [emitGlobalDropNotification]
+    [notificarQuedasGlobalmente]
   );
 
-  const refreshConnections = useCallback(
-    async (force = false) => {
-      if (inFlightConnRef.current) return;
-      inFlightConnRef.current = true;
+  const atualizarConexoes = useCallback(
+    async (forcar = false) => {
+      if (consultaConexaoEmAndamentoRef.current) return;
+      consultaConexaoEmAndamentoRef.current = true;
 
-      const hasExisting = Boolean(regionDataRef.current);
-      if (!hasExisting) {
-        setLoadingRegion(true);
+      const possuiSnapshotAtual = Boolean(dadosRegiaoRef.current);
+      if (!possuiSnapshotAtual) {
+        setCarregandoRegiao(true);
       } else {
-        setIsPolling(true);
+        setVerificandoAgora(true);
       }
 
       try {
-        const next = hasExisting && !force
-          ? await ispfyService.pollRealtimeConnectionStatus()
-          : await ispfyService.getClientsByRegionAndStatus(undefined, force);
+        const proximoSnapshot =
+          possuiSnapshotAtual && !forcar
+            ? await ispfyService.pollRealtimeConnectionStatus()
+            : await ispfyService.getClientsByRegionAndStatus(undefined, forcar);
 
-        applyNewSnapshot(next);
-      } catch (err: any) {
-        console.error('[NetworkMonitor] Erro ao consultar conexões ISPFY:', err);
-        setError(err?.message || 'Erro ao monitorar conexões no ISPFY');
+        aplicarNovoSnapshot(proximoSnapshot);
+      } catch (erroCaptura: unknown) {
+        const mensagemErro =
+          erroCaptura instanceof Error
+            ? erroCaptura.message
+            : 'Erro ao monitorar conexões no ISPFY';
+        console.error(
+          '[MonitorRede] Erro ao consultar conexões ISPFY:',
+          erroCaptura
+        );
+        setErro(mensagemErro);
       } finally {
-        inFlightConnRef.current = false;
-        setLoadingRegion(false);
-        setIsPolling(false);
+        consultaConexaoEmAndamentoRef.current = false;
+        setCarregandoRegiao(false);
+        setVerificandoAgora(false);
       }
     },
-    [applyNewSnapshot]
+    [aplicarNovoSnapshot]
   );
 
-  const refreshOverdue = useCallback(async (force = false) => {
-    if (inFlightOverdueRef.current) return;
-    inFlightOverdueRef.current = true;
-    if (!overdueData) setLoadingOverdue(true);
+  const atualizarInadimplencia = useCallback(async (forcar = false) => {
+    if (consultaInadimplenciaEmAndamentoRef.current) return;
+    consultaInadimplenciaEmAndamentoRef.current = true;
+    if (!dadosInadimplenciaRef.current) {
+      setCarregandoInadimplencia(true);
+    }
 
     try {
-      const result = await ispfyService.getOverdueByDueDateSummary(
-        regionDataRef.current?.records,
-        force
+      const resumoAtrasos = await ispfyService.getOverdueByDueDateSummary(
+        dadosRegiaoRef.current?.records,
+        forcar
       );
-      setOverdueData(result);
-    } catch (err: any) {
-      console.error('[NetworkMonitor] Erro ao carregar inadimplência por vencimento:', err);
+      dadosInadimplenciaRef.current = resumoAtrasos;
+      setDadosInadimplencia(resumoAtrasos);
+    } catch (erroCaptura) {
+      console.error(
+        '[MonitorRede] Erro ao carregar inadimplência por vencimento:',
+        erroCaptura
+      );
     } finally {
-      inFlightOverdueRef.current = false;
-      setLoadingOverdue(false);
+      consultaInadimplenciaEmAndamentoRef.current = false;
+      setCarregandoInadimplencia(false);
     }
-  }, [overdueData]);
+  }, []);
 
-  const refreshAll = useCallback(async () => {
-    await refreshConnections(true);
-    await refreshOverdue(true);
-  }, [refreshConnections, refreshOverdue]);
+  const atualizarTudo = useCallback(async () => {
+    await atualizarConexoes(true);
+    await atualizarInadimplencia(true);
+  }, [atualizarConexoes, atualizarInadimplencia]);
 
-  const recheckSinglePoint = useCallback(
-    async (clienteId: string, pontoId: string) => {
-      if (!clienteId) return;
-      const livePoints = await ispfyService.getClientLivePointStatuses(clienteId);
-      const match =
-        livePoints.find((p) => p.idPonto === pontoId) || livePoints[0];
-      if (!match) return;
+  const revalidarPontoAoVivo = useCallback(
+    async (
+      clienteId: string,
+      pontoId: string
+    ): Promise<ISPFYLivePointStatus | null> => {
+      if (!clienteId) return null;
+      const pontosAoVivo =
+        await ispfyService.getClientLivePointStatuses(clienteId);
+      const pontoEncontrado =
+        pontosAoVivo.find((ponto) => ponto.idPonto === pontoId) ||
+        pontosAoVivo[0] ||
+        null;
+      if (!pontoEncontrado) return null;
 
-      const currentData = regionDataRef.current;
-      if (!currentData) return;
+      const dadosAtuais = dadosRegiaoRef.current;
+      if (!dadosAtuais) return pontoEncontrado;
 
-      const updatedRecords = currentData.records.map((rec) => {
-        if (rec.pontoId !== pontoId && rec.clienteId !== clienteId) return rec;
-        const pointLive =
-          livePoints.find((p) => p.idPonto === rec.pontoId) || match;
-        const health = classifyPointConnectionHealth({
-          contratoAtivo: rec.isContractActive ? 's' : 'n',
-          pontoAtivo: rec.isContractActive ? 's' : 'n',
-          bloqueadoFlag: pointLive.isBlocked,
-          sessaoConexaoStatus: pointLive.conexaoStatus,
+      const registrosAtualizados = dadosAtuais.records.map((registro) => {
+        if (registro.pontoId !== pontoId && registro.clienteId !== clienteId) {
+          return registro;
+        }
+        const statusPonto =
+          pontosAoVivo.find((ponto) => ponto.idPonto === registro.pontoId) ||
+          pontoEncontrado;
+        const saude = classificarSaudeConexaoPonto({
+          contratoAtivo: registro.isContractActive ? 's' : 'n',
+          pontoAtivo: registro.isContractActive ? 's' : 'n',
+          statusContrato: statusPonto.isBlocked ? 'bloqueado' : 'livre',
+          bloqueadoFlag: statusPonto.isBlocked,
+          sessaoConexaoStatus: statusPonto.conexaoStatus,
         });
         return {
-          ...rec,
-          sessaoConexaoStatus: pointLive.conexaoStatus,
-          connectionHealth: health.connectionHealth,
-          isOnline: health.isOnline,
-          isBlocked: health.isBlocked,
-          ipAlocado: pointLive.ipWan || (health.isOnline ? rec.ipAlocado : ''),
+          ...registro,
+          sessaoConexaoStatus: statusPonto.conexaoStatus,
+          connectionHealth: saude.connectionHealth,
+          isOnline: saude.isOnline,
+          isBlocked: saude.isBlocked,
+          plano: statusPonto.planoNome || registro.plano,
+          ipAlocado:
+            statusPonto.ipWan || (saude.isOnline ? registro.ipAlocado : ''),
           ipv6Alocado:
-            pointLive.ipv6Wan || (health.isOnline ? rec.ipv6Alocado : ''),
-          ultimoLogin: pointLive.ultimoLogin || rec.ultimoLogin,
-          uploadMesKbytes: pointLive.uploadMesKbytes,
-          downloadMesKbytes: pointLive.downloadMesKbytes,
+            statusPonto.ipv6Wan || (saude.isOnline ? registro.ipv6Alocado : ''),
+          ultimoLogin: statusPonto.ultimoLogin || registro.ultimoLogin,
+          uploadMesKbytes: statusPonto.uploadMesKbytes,
+          downloadMesKbytes: statusPonto.downloadMesKbytes,
         };
       });
 
-      const activeRecords = updatedRecords.filter((r) => r.isContractActive);
-      const summary = aggregateRegionSummaries(activeRecords);
-      const next: ISPFYClientsByRegionResult = {
-        records: updatedRecords,
-        bairros: summary.bairros,
-        ruas: summary.ruas,
+      const registrosAtivos = registrosAtualizados.filter(
+        (registro) => registro.isContractActive
+      );
+      const resumoRegiao = agregarResumosPorRegiao(registrosAtivos);
+      const proximoSnapshot: ISPFYClientsByRegionResult = {
+        records: registrosAtualizados,
+        bairros: resumoRegiao.bairros,
+        ruas: resumoRegiao.ruas,
         fetchedAt: new Date().toISOString(),
         totals: {
-          ...summary.totals,
-          totalPontos: updatedRecords.length,
-          inativos: updatedRecords.length - activeRecords.length,
+          ...resumoRegiao.totals,
+          totalPontos: registrosAtualizados.length,
+          inativos: registrosAtualizados.length - registrosAtivos.length,
         },
       };
 
-      regionDataRef.current = next;
-      setRegionData(next);
-      setLastUpdatedAt(new Date());
+      dadosRegiaoRef.current = proximoSnapshot;
+      setDadosRegiao(proximoSnapshot);
+      setUltimaAtualizacaoEm(new Date());
+
+      return pontoEncontrado;
     },
     []
   );
 
   // Carga inicial única + polling global contínuo
   useEffect(() => {
-    let mounted = true;
-    const init = async () => {
-      await refreshConnections(false);
-      if (mounted) {
-        await refreshOverdue(false);
+    let componenteMontado = true;
+    const inicializarMonitoramento = async () => {
+      await atualizarConexoes(false);
+      if (componenteMontado) {
+        await atualizarInadimplencia(false);
       }
     };
-    init();
+    inicializarMonitoramento();
 
     return () => {
-      mounted = false;
+      componenteMontado = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [atualizarConexoes, atualizarInadimplencia]);
 
   useEffect(() => {
-    if (!monitorEnabled) return;
+    if (!monitorAtivo) return;
 
-    const connTimer = window.setInterval(() => {
-      refreshConnections(false);
-    }, POLL_INTERVAL_MS);
+    const temporizadorConexoes = window.setInterval(() => {
+      atualizarConexoes(false);
+    }, INTERVALO_CONSULTA_MS);
 
-    const overdueTimer = window.setInterval(() => {
-      refreshOverdue(false);
-    }, OVERDUE_REFRESH_MS);
+    const temporizadorInadimplencia = window.setInterval(() => {
+      atualizarInadimplencia(false);
+    }, INTERVALO_INADIMPLENCIA_MS);
 
     return () => {
-      window.clearInterval(connTimer);
-      window.clearInterval(overdueTimer);
+      window.clearInterval(temporizadorConexoes);
+      window.clearInterval(temporizadorInadimplencia);
     };
-  }, [monitorEnabled, refreshConnections, refreshOverdue]);
+  }, [monitorAtivo, atualizarConexoes, atualizarInadimplencia]);
 
-  const acknowledgeAlerts = useCallback(() => {
-    setUnreadDropCount(0);
+  const confirmarAlertas = useCallback(() => {
+    setQuedasNaoLidas(0);
   }, []);
 
-  const clearEvents = useCallback(() => {
-    setRecentEvents([]);
-    setUnreadDropCount(0);
+  const limparEventos = useCallback(() => {
+    setEventosRecentes([]);
+    setQuedasNaoLidas(0);
     try {
-      sessionStorage.removeItem(EVENTS_STORAGE_KEY);
+      sessionStorage.removeItem(CHAVE_EVENTOS_SESSAO);
     } catch {
       // Ignora erro
     }
   }, []);
 
-  const toggleSound = useCallback(() => {
-    setSoundEnabled((prev) => {
-      const next = !prev;
+  const alternarSom = useCallback(() => {
+    setSomAtivo((anterior) => {
+      const proximoEstado = !anterior;
       try {
-        localStorage.setItem(SOUND_STORAGE_KEY, String(next));
+        localStorage.setItem(CHAVE_PREF_SOM, String(proximoEstado));
       } catch {
-        // Ignora
+        // Ignora erro
       }
-      return next;
+      return proximoEstado;
     });
   }, []);
 
-  const toggleMonitor = useCallback(() => {
-    setMonitorEnabled((prev) => {
-      const next = !prev;
+  const alternarMonitor = useCallback(() => {
+    setMonitorAtivo((anterior) => {
+      const proximoEstado = !anterior;
       try {
-        localStorage.setItem(MONITOR_STORAGE_KEY, String(next));
+        localStorage.setItem(CHAVE_PREF_MONITOR, String(proximoEstado));
       } catch {
-        // Ignora
+        // Ignora erro
       }
-      return next;
+      return proximoEstado;
     });
   }, []);
 
   return (
-    <NetworkMonitorContext.Provider
+    <ContextoMonitorRedeReact.Provider
       value={{
-        regionData,
-        overdueData,
-        loadingRegion,
-        loadingOverdue,
-        isPolling,
-        error,
-        lastUpdatedAt,
-        recentEvents,
-        unreadDropCount,
-        soundEnabled,
-        monitorEnabled,
-        pollIntervalSec: POLL_INTERVAL_MS / 1000,
-        browserNotifPermission,
-        requestBrowserNotifPermission,
-        refreshConnections,
-        refreshOverdue,
-        refreshAll,
-        recheckSinglePoint,
-        acknowledgeAlerts,
-        clearEvents,
-        toggleSound,
-        toggleMonitor,
-        playDropAlertSound,
+        dadosRegiao,
+        dadosInadimplencia,
+        carregandoRegiao,
+        carregandoInadimplencia,
+        verificandoAgora,
+        erro,
+        ultimaAtualizacaoEm,
+        eventosRecentes,
+        quedasNaoLidas,
+        somAtivo,
+        monitorAtivo,
+        intervaloVerificacaoSeg: INTERVALO_CONSULTA_MS / 1000,
+        permissaoNotificacao,
+        solicitarPermissaoNotificacao,
+        atualizarConexoes,
+        atualizarInadimplencia,
+        atualizarTudo,
+        revalidarPontoAoVivo,
+        confirmarAlertas,
+        limparEventos,
+        alternarSom,
+        alternarMonitor,
+        tocarSomAlertaQueda,
       }}
     >
       {children}
-    </NetworkMonitorContext.Provider>
+    </ContextoMonitorRedeReact.Provider>
   );
 };
-

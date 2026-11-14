@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { ISPFYClienteData, ISPFYFaturaData, ISPFYApiResponse, ISPFYParams } from './ispfyTypes';
+import { ISPFYClienteData, ISPFYFaturaData, ISPFYApiResponse, ISPFYParams } from './ixcTypes';
 import * as https from 'https';
 
 export class ISPFYBackendService {

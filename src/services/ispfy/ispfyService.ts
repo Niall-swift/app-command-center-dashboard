@@ -29,22 +29,21 @@ import type {
   ISPFYLivePointStatus,
   ISPFYOverdueAnalyticsResult
 } from '@/types/ispfy';
-import { syncAndDetectDeletedClients } from './auditSnapshotService';
+import { sincronizarEDetectarExcluidos } from './auditSnapshotService';
+import { calcularAnaliseInadimplencia } from './overdueHelpers';
 import {
-  buildOverdueAnalytics,
-  getTodayLocalIsoDate,
-} from './overdueHelpers';
-import {
-  EMPTY_BAIRRO_KEY,
-  EMPTY_BAIRRO_LABEL,
-  EMPTY_STREET_KEY,
-  EMPTY_STREET_LABEL,
-  aggregateRegionSummaries,
-  classifyPointConnectionHealth,
-  normalizeBairroKey,
-  normalizeStreetKey,
-  pickBestVariantLabel,
+  CHAVE_BAIRRO_VAZIO,
+  CHAVE_RUA_VAZIA,
+  ROTULO_BAIRRO_VAZIO,
+  ROTULO_RUA_VAZIA,
+  agregarResumosPorRegiao,
+  classificarSaudeConexaoPonto,
+  escolherMelhorGrafia,
+  normalizarChaveBairro,
+  normalizarChaveRua,
 } from './regionAuditHelpers';
+import { obterDataLocalIso } from '@/utils/date';
+import { isFaturaEmAberto, obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 
 // =====================================================================
 // Tipos e interfaces para a API ISPFY real (GET /api/object/*)
@@ -180,59 +179,59 @@ class ISPFYService {
     const USE_MOCKS = false; // Mude para true se quiser usar dados falsos
     
     if (USE_MOCKS) {
+      const criarRespostaMock = (registros: any[]): ISPFYApiResponse<T> => ({
+        data: registros as T[],
+        count: registros.length,
+        total: registros.length,
+        limit: 300,
+        offset: 0,
+        rows: registros as T[],
+      });
+
       if (endpoint.includes('/cliente') && !endpoint.includes('/cliente/contrato')) {
         console.log(`[MOCK ISPFY] Retornando dados falsos para ${endpoint}`);
-        return {
-          total: 1, limit: 300, offset: 0,
-          rows: [{
-            id: '12345',
-            nome: 'João da Silva (MOCK LOCAL)',
-            tipo_pessoa: 'F',
-            cnpj_cpf: '123.456.789-00',
-            fone_celular: '(11) 99999-9999',
-            fone_whatsapp: '(11) 99999-9999',
-            email: 'joao@mock.com',
-            endereco: 'Rua das Flores, 123',
-            bairro: 'Centro',
-            cidade: 'São Paulo',
-            cep: '01000-000',
-            ativo: 'S', lead: 'N', principal: 'S'
-          } as any]
-        };
+        return criarRespostaMock([{
+          id: '12345',
+          nome: 'João da Silva (MOCK LOCAL)',
+          tipo_pessoa: 'F',
+          cnpj_cpf: '123.456.789-00',
+          fone_celular: '(11) 99999-9999',
+          fone_whatsapp: '(11) 99999-9999',
+          email: 'joao@mock.com',
+          endereco: 'Rua das Flores, 123',
+          bairro: 'Centro',
+          cidade: 'São Paulo',
+          cep: '01000-000',
+          ativo: 'S', lead: 'N', principal: 'S',
+        }]);
       }
 
       if (endpoint.includes('/cliente/contrato')) {
         console.log(`[MOCK ISPFY] Retornando contrato falso para ${endpoint}`);
-        return {
-          total: 1, limit: 300, offset: 0,
-          rows: [{
-            id: '9999',
-            id_cliente: '12345',
-            descricao: 'Plano Fibra 500 Mega',
-            valor: '99.90',
-            status: 'A',
-            status_internet: 'A',
-            data_inicio: '2025-01-01',
-          } as any]
-        };
+        return criarRespostaMock([{
+          id: '9999',
+          id_cliente: '12345',
+          descricao: 'Plano Fibra 500 Mega',
+          valor: '99.90',
+          status: 'A',
+          status_internet: 'A',
+          data_inicio: '2025-01-01',
+        }]);
       }
 
       if (endpoint.includes('/cliente/contrato/cobranca')) {
         console.log(`[MOCK ISPFY] Retornando fatura falsa para ${endpoint}`);
-        return {
-          total: 1, limit: 300, offset: 0,
-          rows: [{
-            id: '8888',
-            id_cliente: '12345',
-            valor: '99.90',
-            data_vencimento: '2026-10-10',
-            status: 'A',
-            descricao: 'Mensalidade Outubro/2026',
-            gateway_link: 'https://gateway.falso.com/pagar/8888',
-            link_getwere: 'https://getwere.falso.com/8888',
-            url_boleto: 'https://boleto.falso.com/pdf/8888'
-          } as any]
-        };
+        return criarRespostaMock([{
+          id: '8888',
+          id_cliente: '12345',
+          valor: '99.90',
+          data_vencimento: '2026-10-10',
+          status: 'A',
+          descricao: 'Mensalidade Outubro/2026',
+          gateway_link: 'https://gateway.falso.com/pagar/8888',
+          link_getwere: 'https://getwere.falso.com/8888',
+          url_boleto: 'https://boleto.falso.com/pdf/8888',
+        }]);
       }
     }
     // ==========================================
@@ -833,7 +832,7 @@ class ISPFYService {
         });
       }
 
-      if (target === 'both' || target === 'client' || (!idContrato && target === 'both')) {
+      if (target === 'both' || target === 'client') {
         clientResult = await this.updateCliente(idCliente, {
           vencimento: dayStr,
           dia_vencimento: dayStr,
@@ -1055,7 +1054,7 @@ class ISPFYService {
     });
 
     const faturas = this.getRows(response);
-    const openFaturas = faturas.filter((f) => f.status === 'aberto' && !f.pagamento_data);
+    const openFaturas = faturas.filter((fatura) => isFaturaEmAberto(fatura));
 
     const clientDebt = new Map<string, { nome: string; valor: number; id_cliente: string }>();
     for (const fat of openFaturas) {
@@ -2261,11 +2260,11 @@ class ISPFYService {
 
     // 4. Sincronizar snapshot persistente na nuvem (Firestore + fallback local) e apurar lacunas globais
     onProgress?.('Sincronizando snapshot na nuvem e analisando lacunas...');
-    const snapshotResult = await syncAndDetectDeletedClients(allClientes);
+    const resultadoSnapshot = await sincronizarEDetectarExcluidos(allClientes);
     const { excluidosPeriodo, lacunasHistoricas, maiorIdBase } =
       this.computeGapAnalysis(
         allClientes,
-        snapshotResult.deletedRecords,
+        resultadoSnapshot.registrosExcluidos,
         dataInicio,
         dataFim
       );
@@ -2581,8 +2580,8 @@ class ISPFYService {
         totalBaseAtiva: allClientes.length,
         maiorIdBase: maiorIdBase,
         totalLacunasBase: lacunasHistoricas.length,
-        snapshotCloudAtivo: snapshotResult.cloudActive,
-        ultimaAtualizacaoSnapshot: snapshotResult.updatedAt,
+        snapshotCloudAtivo: resultadoSnapshot.nuvemAtiva,
+        ultimaAtualizacaoSnapshot: resultadoSnapshot.atualizadoEm,
       },
     };
   }
@@ -2741,8 +2740,8 @@ class ISPFYService {
       return this.overdueCache.data;
     }
 
-    const todayIso = getTodayLocalIsoDate();
-    const cachedContratos =
+    const dataHojeIso = obterDataLocalIso();
+    const contratosEmCache =
       !forceRefresh &&
       this.auditBaseCache &&
       Date.now() - this.auditBaseCache.fetchedAt < 3 * 60 * 1000
@@ -2755,34 +2754,34 @@ class ISPFYService {
         {
           filter: andFilters(
             buildFilter('status', 'EQ', 'aberto'),
-            buildFilter('data_vencimento', 'LT', todayIso)
+            buildFilter('data_vencimento', 'LT', dataHojeIso)
           ),
           sort: 'data_vencimento:ASC',
         }
       ),
-      cachedContratos
-        ? Promise.resolve(cachedContratos)
+      contratosEmCache
+        ? Promise.resolve(contratosEmCache)
         : this.fetchAllWithUnlimitedFallback<ISPFYContratoData>(
             '/cliente/contrato',
             { sort: 'id:ASC' }
           ),
     ]);
 
-    const result = buildOverdueAnalytics({
+    const resultado = calcularAnaliseInadimplencia({
       cobrancas,
       contratos,
       clientes:
         this.auditBaseCache?.clientes || this.regionMetadataCache?.allClientes,
-      regionRecords: regionRecords || this.regionCache?.data.records,
-      todayIso,
+      registrosRegiao: regionRecords || this.regionCache?.data.records,
+      dataHojeIso,
     });
 
     this.overdueCache = {
       fetchedAt: Date.now(),
-      data: result,
+      data: resultado,
     };
 
-    return result;
+    return resultado;
   }
 
   /**
@@ -2849,79 +2848,85 @@ class ISPFYService {
     });
 
     // Passo 1: Normalizar e coletar variantes de escrita por Bairro e Rua (para unificar acentuação/abreviação)
-    const bairroVariants = new Map<string, Map<string, number>>();
-    const streetVariants = new Map<string, Map<string, number>>();
+    const variantesBairro = new Map<string, Map<string, number>>();
+    const variantesRua = new Map<string, Map<string, number>>();
 
-    const prepared = allPontos.map((pt) => {
+    const registrarVariante = (
+      mapa: Map<string, Map<string, number>>,
+      chave: string,
+      valorBruto: string
+    ) => {
+      const contagem = mapa.get(chave) || new Map<string, number>();
+      contagem.set(valorBruto, (contagem.get(valorBruto) || 0) + 1);
+      mapa.set(chave, contagem);
+    };
+
+    const pontosPreparados = allPontos.map((pt) => {
       const pontoId = String(pt?.id || '');
       const contratoId = String(pt?.id_contrato || '');
       const contrato = contratoById.get(contratoId);
       const clienteId = String(contrato?.id_cliente || pt?.id_cliente || '');
       const cliente = clientById.get(clienteId);
 
-      const rawBairro = String(
+      const bairroBruto = String(
         pt?.bairro ||
           cliente?.endereco_cobranca_bairro ||
           cliente?.bairro ||
           ''
       ).trim();
-      const rawRua = String(
+      const ruaBruta = String(
         pt?.endereco ||
           cliente?.endereco_cobranca_rua ||
           cliente?.endereco ||
           ''
       ).trim();
 
-      const bairroKey = normalizeBairroKey(rawBairro);
-      const ruaKey = normalizeStreetKey(rawRua);
+      const bairroKey = normalizarChaveBairro(bairroBruto);
+      const ruaKey = normalizarChaveRua(ruaBruta);
 
-      if (bairroKey !== EMPTY_BAIRRO_KEY && rawBairro) {
-        const variants = bairroVariants.get(bairroKey) || new Map<string, number>();
-        variants.set(rawBairro, (variants.get(rawBairro) || 0) + 1);
-        bairroVariants.set(bairroKey, variants);
+      if (bairroKey !== CHAVE_BAIRRO_VAZIO && bairroBruto) {
+        registrarVariante(variantesBairro, bairroKey, bairroBruto);
       }
 
-      const compositeStreetKey = `${bairroKey}::${ruaKey}`;
-      if (ruaKey !== EMPTY_STREET_KEY && rawRua) {
-        const variants = streetVariants.get(compositeStreetKey) || new Map<string, number>();
-        variants.set(rawRua, (variants.get(rawRua) || 0) + 1);
-        streetVariants.set(compositeStreetKey, variants);
+      const chaveRuaComposta = `${bairroKey}::${ruaKey}`;
+      if (ruaKey !== CHAVE_RUA_VAZIA && ruaBruta) {
+        registrarVariante(variantesRua, chaveRuaComposta, ruaBruta);
       }
 
-      return { pt, pontoId, contratoId, contrato, clienteId, cliente, bairroKey, ruaKey, rawBairro, rawRua };
+      return { pt, pontoId, contratoId, contrato, clienteId, cliente, bairroKey, ruaKey };
     });
 
-    const canonicalBairroLabel = new Map<string, string>();
-    bairroVariants.forEach((variants, key) => {
-      canonicalBairroLabel.set(key, pickBestVariantLabel(variants, EMPTY_BAIRRO_LABEL));
+    const rotuloBairroCanonico = new Map<string, string>();
+    variantesBairro.forEach((variantes, chave) => {
+      rotuloBairroCanonico.set(chave, escolherMelhorGrafia(variantes, ROTULO_BAIRRO_VAZIO));
     });
 
-    const canonicalStreetLabel = new Map<string, string>();
-    streetVariants.forEach((variants, key) => {
-      canonicalStreetLabel.set(key, pickBestVariantLabel(variants, EMPTY_STREET_LABEL));
+    const rotuloRuaCanonico = new Map<string, string>();
+    variantesRua.forEach((variantes, chave) => {
+      rotuloRuaCanonico.set(chave, escolherMelhorGrafia(variantes, ROTULO_RUA_VAZIA));
     });
 
     // Passo 2: Construir lista final enriquecida
-    const records: ISPFYClientRegionRecord[] = prepared.map(
+    const registros: ISPFYClientRegionRecord[] = pontosPreparados.map(
       ({ pt, pontoId, contratoId, contrato, clienteId, cliente, bairroKey, ruaKey }) => {
         const bairroLabel =
-          bairroKey === EMPTY_BAIRRO_KEY
-            ? EMPTY_BAIRRO_LABEL
-            : canonicalBairroLabel.get(bairroKey) || EMPTY_BAIRRO_LABEL;
+          bairroKey === CHAVE_BAIRRO_VAZIO
+            ? ROTULO_BAIRRO_VAZIO
+            : rotuloBairroCanonico.get(bairroKey) || ROTULO_BAIRRO_VAZIO;
 
         const ruaLabel =
-          ruaKey === EMPTY_STREET_KEY
-            ? EMPTY_STREET_LABEL
-            : canonicalStreetLabel.get(`${bairroKey}::${ruaKey}`) || EMPTY_STREET_LABEL;
+          ruaKey === CHAVE_RUA_VAZIA
+            ? ROTULO_RUA_VAZIA
+            : rotuloRuaCanonico.get(`${bairroKey}::${ruaKey}`) || ROTULO_RUA_VAZIA;
 
         const numero = String(
           pt?.numero || cliente?.endereco_cobranca_numero || ''
         ).trim();
-        const complemento = String(
+        const complementoBruto = String(
           pt?.complemento || cliente?.endereco_cobranca_complemento || ''
         ).trim();
-        const cleanComplemento =
-          /^(n[aã]o informado|n\/i|-)$/i.test(complemento) ? '' : complemento;
+        const complemento =
+          /^(n[aã]o informado|n\/i|-)$/i.test(complementoBruto) ? '' : complementoBruto;
 
         const cep = String(
           pt?.cep || cliente?.endereco_cobranca_cep || cliente?.cep || ''
@@ -2934,21 +2939,21 @@ class ISPFYService {
           } as ISPFYClienteData) || '';
 
         const enderecoBase =
-          ruaKey === EMPTY_STREET_KEY
+          ruaKey === CHAVE_RUA_VAZIA
             ? ''
             : numero
             ? `${ruaLabel}, ${numero}`
             : ruaLabel;
-        const enderecoCompleto = [enderecoBase, cleanComplemento]
+        const enderecoCompleto = [enderecoBase, complemento]
           .filter(Boolean)
           .join(' - ');
 
-        const liveSession = onlineSessaoByPonto.get(pontoId);
+        const sessaoAtiva = onlineSessaoByPonto.get(pontoId);
         const sessaoConexaoStatus = String(
-          liveSession?.status || pt?.sessao_conexao_status || 'offline'
+          sessaoAtiva?.status || pt?.sessao_conexao_status || 'offline'
         ).toLowerCase();
 
-        const health = classifyPointConnectionHealth({
+        const saude = classificarSaudeConexaoPonto({
           contratoAtivo: contrato?.contrato_ativo,
           pontoAtivo: pt?.ativo,
           statusContrato: contrato?.status_contrato,
@@ -2969,13 +2974,7 @@ class ISPFYService {
           pontoId,
           contratoId,
           clienteId,
-          nome:
-            String(
-              cliente?.nome_razao ||
-                cliente?.nome ||
-                cliente?.razao ||
-                `Cliente #${clienteId || pontoId}`
-            ).trim(),
+          nome: obterNomeClienteISPFY(cliente, `Cliente #${clienteId || pontoId}`),
           cpfCnpj: String(cliente?.cpf_cnpj || cliente?.cnpj_cpf || '').trim(),
           telefone: this.pickBestPhoneFromContatos(
             cliente,
@@ -2986,39 +2985,39 @@ class ISPFYService {
           ruaKey,
           ruaLabel,
           numero,
-          complemento: cleanComplemento,
+          complemento,
           cep,
           cidade,
           enderecoCompleto: enderecoCompleto || bairroLabel,
           plano,
           valorMensal: String(contrato?.valor_mensal || '0.00'),
           usuarioPppoe: String(pt?.usuario || '').trim(),
-          mac: String(pt?.mac || liveSession?.mac || '').trim(),
-          nas: String(pt?.nas || liveSession?.ipv4_nas || '').trim(),
+          mac: String(pt?.mac || sessaoAtiva?.mac || '').trim(),
+          nas: String(pt?.nas || sessaoAtiva?.ipv4_nas || '').trim(),
           ipAlocado: String(
-            liveSession?.ipv4_wan_endereco_alocado ||
+            sessaoAtiva?.ipv4_wan_endereco_alocado ||
               pt?.sessao_ipv4_wan_endereco_alocado ||
               ''
           ).trim(),
           ipv6Alocado: String(
-            liveSession?.ipv6_wan_prefixo_alocado ||
+            sessaoAtiva?.ipv6_wan_prefixo_alocado ||
               pt?.sessao_ipv6_wan_prefixo_alocado ||
               ''
           ).trim(),
           bandaContratada: String(pt?.banda_contratada || '').trim(),
           sessaoConexaoStatus,
-          connectionHealth: health.connectionHealth,
-          isOnline: health.isOnline,
-          isBlocked: health.isBlocked,
-          isContractActive: health.isContractActive,
+          connectionHealth: saude.connectionHealth,
+          isOnline: saude.isOnline,
+          isBlocked: saude.isBlocked,
+          isContractActive: saude.isContractActive,
           ultimoLogin: String(
-            liveSession?.sessao_login ||
+            sessaoAtiva?.sessao_login ||
               pt?.sessao_ultimo_login ||
               pt?.ultimo_login ||
               ''
           ).trim(),
           ultimoAccounting: String(
-            liveSession?.sessao_ultimo_accounting ||
+            sessaoAtiva?.sessao_ultimo_accounting ||
               pt?.sessao_ultimo_accounting ||
               ''
           ).trim(),
@@ -3026,22 +3025,20 @@ class ISPFYService {
       }
     );
 
-    const activeRecords = records.filter((r) => r.isContractActive);
-    const activeSummary = aggregateRegionSummaries(activeRecords);
+    const registrosAtivos = registros.filter((r) => r.isContractActive);
+    const resumoAtivos = agregarResumosPorRegiao(registrosAtivos);
 
-    const result: ISPFYClientsByRegionResult = {
-      records,
-      bairros: activeSummary.bairros,
-      ruas: activeSummary.ruas,
+    return {
+      records: registros,
+      bairros: resumoAtivos.bairros,
+      ruas: resumoAtivos.ruas,
       fetchedAt: new Date().toISOString(),
       totals: {
-        ...activeSummary.totals,
-        totalPontos: records.length,
-        inativos: records.length - activeRecords.length,
+        ...resumoAtivos.totals,
+        totalPontos: registros.length,
+        inativos: registros.length - registrosAtivos.length,
       },
     };
-
-    return result;
   }
 
   /**

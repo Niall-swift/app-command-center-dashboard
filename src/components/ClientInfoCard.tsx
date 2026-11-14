@@ -116,8 +116,11 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
             ispfyService.getFaturasByCliente(client.id)
           ]);
           setContracts(clientContracts);
-          // Filtrar apenas faturas abertas (status 'aberto') e sem data de pagamento
-          const openInvoices = clientInvoices.filter(f => f.status === 'aberto' && !f.pagamento_data);
+          // Filtrar apenas faturas abertas (status 'aberto' ou 'A') e sem data de pagamento
+          const openInvoices = clientInvoices.filter((f) => {
+            const statusNormalizado = String(f.status || '').trim().toLowerCase();
+            return (statusNormalizado === 'aberto' || statusNormalizado === 'a') && !f.pagamento_data;
+          });
           setInvoices(openInvoices.slice(0, 3)); 
         }
       } catch (error) {

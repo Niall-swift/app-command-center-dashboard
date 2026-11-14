@@ -8,280 +8,244 @@ import type {
   ISPFYOverdueDueDayGroup,
   ISPFYOverdueExactDateGroup,
 } from '@/types/ispfy';
+import { obterDataLocalIso } from '@/utils/date';
+import {
+  isFaturaEmAberto,
+  obterNomeClienteISPFY,
+  obterTelefoneClienteISPFY,
+} from '@/utils/ispfyFormatters';
 
-/**
- * Retorna a data atual no fuso local em formato YYYY-MM-DD (evita virada prematura de UTC à noite).
- */
-export function getTodayLocalIsoDate(now: Date = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+interface BaldeAtraso {
+  todosClientes: Set<string>;
+  liberados: Set<string>;
+  bloqueados: Set<string>;
+  faturas: number;
+  valor: number;
 }
 
 /**
- * Calcula a diferença em dias inteiros entre duas datas ISO (newerIso - olderIso).
+ * Calcula a diferença em dias inteiros entre duas datas ISO (dataMaisNova - dataMaisAntiga).
  */
-export function diffDaysIso(olderIso: string, newerIso: string): number {
-  const [y1, m1, d1] = olderIso.slice(0, 10).split('-').map(Number);
-  const [y2, m2, d2] = newerIso.slice(0, 10).split('-').map(Number);
-  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
-  const t1 = Date.UTC(y1, m1 - 1, d1);
-  const t2 = Date.UTC(y2, m2 - 1, d2);
-  return Math.max(0, Math.round((t2 - t1) / 86400000));
+export function calcularDiferencaDiasIso(
+  dataMaisAntiga: string,
+  dataMaisNova: string
+): number {
+  const [ano1, mes1, dia1] = dataMaisAntiga.slice(0, 10).split('-').map(Number);
+  const [ano2, mes2, dia2] = dataMaisNova.slice(0, 10).split('-').map(Number);
+  if (!ano1 || !mes1 || !dia1 || !ano2 || !mes2 || !dia2) return 0;
+  const tempo1 = Date.UTC(ano1, mes1 - 1, dia1);
+  const tempo2 = Date.UTC(ano2, mes2 - 1, dia2);
+  return Math.max(0, Math.round((tempo2 - tempo1) / 86400000));
 }
 
-export function normalizeDueDayKey(rawDay?: string | number | null): string {
-  const num = parseInt(String(rawDay ?? '').trim(), 10);
-  if (isNaN(num) || num < 1 || num > 31) return 'NA';
-  return String(num).padStart(2, '0');
+export function normalizarChaveDiaVencimento(diaBruto?: string | number | null): string {
+  const numero = parseInt(String(diaBruto ?? '').trim(), 10);
+  if (isNaN(numero) || numero < 1 || numero > 31) return 'NA';
+  return String(numero).padStart(2, '0');
 }
 
-export function formatDueDayLabel(dueDayKey: string): string {
-  if (!dueDayKey || dueDayKey === 'NA') return 'Sem dia fixo';
-  return `Dia ${dueDayKey}`;
+export function formatarRotuloDiaVencimento(chaveDia: string): string {
+  if (!chaveDia || chaveDia === 'NA') return 'Sem dia fixo';
+  return `Dia ${chaveDia}`;
 }
 
-function formatBrDate(isoDate: string): string {
-  const parts = isoDate.slice(0, 10).split('-');
-  if (parts.length !== 3) return isoDate;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+function formatarDataBr(dataIso: string): string {
+  const partes = dataIso.slice(0, 10).split('-');
+  if (partes.length !== 3) return dataIso;
+  return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
 
-function isEmptyDate(value?: string | null): boolean {
-  if (!value) return true;
-  const trimmed = String(value).trim();
-  return !trimmed || trimmed === '0000-00-00' || trimmed.startsWith('0000-00-00');
+function acumularNoBaldeAtraso(
+  mapa: Map<string, BaldeAtraso>,
+  chave: string,
+  clienteId: string,
+  bloqueado: boolean,
+  valor: number
+): void {
+  let balde = mapa.get(chave);
+  if (!balde) {
+    balde = {
+      todosClientes: new Set(),
+      liberados: new Set(),
+      bloqueados: new Set(),
+      faturas: 0,
+      valor: 0,
+    };
+    mapa.set(chave, balde);
+  }
+  balde.todosClientes.add(clienteId);
+  if (bloqueado) {
+    balde.bloqueados.add(clienteId);
+  } else {
+    balde.liberados.add(clienteId);
+  }
+  balde.faturas += 1;
+  balde.valor += valor;
 }
 
 /**
  * Agrega clientes em atraso por Dia de Vencimento do Contrato e por Data Exata da Fatura.
  */
-export function buildOverdueAnalytics(params: {
+export function calcularAnaliseInadimplencia(params: {
   cobrancas: ISPFYFaturaData[];
   contratos: ISPFYContratoData[];
   clientes?: ISPFYClienteData[];
-  regionRecords?: ISPFYClientRegionRecord[];
-  todayIso?: string;
+  registrosRegiao?: ISPFYClientRegionRecord[];
+  dataHojeIso?: string;
 }): ISPFYOverdueAnalyticsResult {
-  const todayIso = params.todayIso || getTodayLocalIsoDate();
+  const dataHojeIso = params.dataHojeIso || obterDataLocalIso();
 
-  const contratoById = new Map<string, ISPFYContratoData>();
-  const baseAtivaByDueDay = new Map<string, Set<string>>();
-  const activeClientsSet = new Set<string>();
+  const contratosPorId = new Map<string, ISPFYContratoData>();
+  const baseAtivaPorDia = new Map<string, Set<string>>();
+  const clientesAtivosSet = new Set<string>();
 
-  for (const ct of params.contratos) {
-    if (!ct?.id) continue;
-    contratoById.set(String(ct.id), ct);
+  for (const contrato of params.contratos) {
+    if (!contrato?.id) continue;
+    contratosPorId.set(String(contrato.id), contrato);
 
-    const isActive = String(ct.contrato_ativo ?? 's').toLowerCase() !== 'n';
-    if (isActive) {
-      const clienteId = String(ct.id_cliente || ct.id);
-      activeClientsSet.add(clienteId);
-      const dueDayKey = normalizeDueDayKey(ct.dia_vencimento);
-      const set = baseAtivaByDueDay.get(dueDayKey) || new Set<string>();
-      set.add(clienteId);
-      baseAtivaByDueDay.set(dueDayKey, set);
+    const ativo = String(contrato.contrato_ativo ?? 's').toLowerCase() !== 'n';
+    if (ativo) {
+      const clienteId = String(contrato.id_cliente || contrato.id);
+      clientesAtivosSet.add(clienteId);
+      const chaveDia = normalizarChaveDiaVencimento(contrato.dia_vencimento);
+      const conjunto = baseAtivaPorDia.get(chaveDia) || new Set<string>();
+      conjunto.add(clienteId);
+      baseAtivaPorDia.set(chaveDia, conjunto);
     }
   }
 
-  const clienteById = new Map<string, ISPFYClienteData>();
-  for (const cli of params.clientes || []) {
-    if (cli?.id) clienteById.set(String(cli.id), cli);
+  const clientesPorId = new Map<string, ISPFYClienteData>();
+  for (const cliente of params.clientes || []) {
+    if (cliente?.id) clientesPorId.set(String(cliente.id), cliente);
   }
 
-  const regionByContrato = new Map<string, ISPFYClientRegionRecord>();
-  const regionByCliente = new Map<string, ISPFYClientRegionRecord>();
-  for (const rec of params.regionRecords || []) {
-    if (rec.contratoId && !regionByContrato.has(rec.contratoId)) {
-      regionByContrato.set(rec.contratoId, rec);
+  const regiaoPorContrato = new Map<string, ISPFYClientRegionRecord>();
+  const regiaoPorCliente = new Map<string, ISPFYClientRegionRecord>();
+  for (const registro of params.registrosRegiao || []) {
+    if (registro.contratoId && !regiaoPorContrato.has(registro.contratoId)) {
+      regiaoPorContrato.set(registro.contratoId, registro);
     }
-    if (rec.clienteId && !regionByCliente.has(rec.clienteId)) {
-      regionByCliente.set(rec.clienteId, rec);
+    if (registro.clienteId && !regiaoPorCliente.has(registro.clienteId)) {
+      regiaoPorCliente.set(registro.clienteId, registro);
     }
   }
 
-  const overdueInvoices = params.cobrancas.filter((fat) => {
-    const status = String(fat?.status || '').toLowerCase();
-    if (status && status !== 'aberto' && status !== 'a') return false;
-    if (!isEmptyDate(fat?.data_pagamento) || !isEmptyDate(fat?.pagamento_data)) return false;
-    if (!isEmptyDate(fat?.data_exclusao)) return false;
-    const dueIso = String(fat?.data_vencimento || '').slice(0, 10);
-    return dueIso.length === 10 && dueIso < todayIso;
+  const faturasVencidas = params.cobrancas.filter((fatura) => {
+    if (!isFaturaEmAberto(fatura)) return false;
+    const vencimentoIso = String(fatura?.data_vencimento || '').slice(0, 10);
+    return vencimentoIso.length === 10 && vencimentoIso < dataHojeIso;
   });
 
-  // Agrupa por cliente/contrato único para listar e contabilizar sem duplicar cliente no mesmo vencimento
-  const clientAggMap = new Map<string, ISPFYOverdueClientItem>();
-  const dueDayMap = new Map<
-    string,
-    {
-      allClients: Set<string>;
-      liberados: Set<string>;
-      bloqueados: Set<string>;
-      faturas: number;
-      valor: number;
-    }
-  >();
-  const exactDateMap = new Map<
-    string,
-    {
-      allClients: Set<string>;
-      liberados: Set<string>;
-      bloqueados: Set<string>;
-      faturas: number;
-      valor: number;
-    }
-  >();
+  // Agrupa por cliente + dia de vencimento para não duplicar o mesmo cliente no placar
+  const clientesAgregadosMap = new Map<string, ISPFYOverdueClientItem>();
+  const atrasoPorDiaMap = new Map<string, BaldeAtraso>();
+  const atrasoPorDataMap = new Map<string, BaldeAtraso>();
 
-  const globalOverdueClients = new Set<string>();
-  const globalBlockedOverdue = new Set<string>();
-  const globalLiberatedOverdue = new Set<string>();
+  const clientesEmAtrasoSet = new Set<string>();
+  const clientesAtrasoBloqueadosSet = new Set<string>();
   let totalFaturasEmAtraso = 0;
   let valorTotalAtraso = 0;
 
-  for (const fat of overdueInvoices) {
-    const contratoId = String(fat.id_contrato || '');
-    const contrato = contratoById.get(contratoId);
+  for (const fatura of faturasVencidas) {
+    const contratoId = String(fatura.id_contrato || '');
+    const contrato = contratosPorId.get(contratoId);
 
-    // Mantém consistência com clientes/contratos ativos (ignora boletos residuais de contratos já cancelados)
+    // Ignora boletos residuais de contratos já cancelados
     if (contrato && String(contrato.contrato_ativo ?? 's').toLowerCase() === 'n') {
       continue;
     }
 
-    const clienteId = String(contrato?.id_cliente || fat.id_cliente || contratoId || fat.id || '');
+    const clienteId = String(
+      contrato?.id_cliente || fatura.id_cliente || contratoId || fatura.id || ''
+    );
     if (!clienteId) continue;
 
-    const regionRec =
-      regionByContrato.get(contratoId) || regionByCliente.get(clienteId);
-    const clienteObj = clienteById.get(clienteId);
+    const registroRegiao =
+      regiaoPorContrato.get(contratoId) || regiaoPorCliente.get(clienteId);
+    const clienteObj = clientesPorId.get(clienteId);
 
-    const dueIso = String(fat.data_vencimento || '').slice(0, 10);
-    const diaVencimento = normalizeDueDayKey(
-      contrato?.dia_vencimento || dueIso.split('-')[2]
+    const vencimentoIso = String(fatura.data_vencimento || '').slice(0, 10);
+    const diaVencimento = normalizarChaveDiaVencimento(
+      contrato?.dia_vencimento || vencimentoIso.split('-')[2]
     );
-    const diaVencimentoLabel = formatDueDayLabel(diaVencimento);
+    const diaVencimentoLabel = formatarRotuloDiaVencimento(diaVencimento);
 
-    const isBlocked =
-      regionRec?.isBlocked ??
+    const bloqueado =
+      registroRegiao?.isBlocked ??
       String(contrato?.status_contrato || '').toLowerCase() === 'bloqueado';
 
-    const valor = parseFloat(String(fat.valor || '0')) || 0;
-    const daysOverdue = diffDaysIso(dueIso, todayIso);
+    const valor = parseFloat(String(fatura.valor || '0')) || 0;
+    const diasAtraso = calcularDiferencaDiasIso(vencimentoIso, dataHojeIso);
 
     totalFaturasEmAtraso += 1;
     valorTotalAtraso += valor;
-    globalOverdueClients.add(clienteId);
-    if (isBlocked) {
-      globalBlockedOverdue.add(clienteId);
-    } else {
-      globalLiberatedOverdue.add(clienteId);
+    clientesEmAtrasoSet.add(clienteId);
+    if (bloqueado) {
+      clientesAtrasoBloqueadosSet.add(clienteId);
     }
 
-    // Por Dia de Vencimento
-    let dayBucket = dueDayMap.get(diaVencimento);
-    if (!dayBucket) {
-      dayBucket = {
-        allClients: new Set(),
-        liberados: new Set(),
-        bloqueados: new Set(),
-        faturas: 0,
-        valor: 0,
-      };
-      dueDayMap.set(diaVencimento, dayBucket);
-    }
-    dayBucket.allClients.add(clienteId);
-    if (isBlocked) {
-      dayBucket.bloqueados.add(clienteId);
-    } else {
-      dayBucket.liberados.add(clienteId);
-    }
-    dayBucket.faturas += 1;
-    dayBucket.valor += valor;
+    acumularNoBaldeAtraso(atrasoPorDiaMap, diaVencimento, clienteId, bloqueado, valor);
+    acumularNoBaldeAtraso(atrasoPorDataMap, vencimentoIso, clienteId, bloqueado, valor);
 
-    // Por Data Exata do Vencimento
-    let dateBucket = exactDateMap.get(dueIso);
-    if (!dateBucket) {
-      dateBucket = {
-        allClients: new Set(),
-        liberados: new Set(),
-        bloqueados: new Set(),
-        faturas: 0,
-        valor: 0,
-      };
-      exactDateMap.set(dueIso, dateBucket);
-    }
-    dateBucket.allClients.add(clienteId);
-    if (isBlocked) {
-      dateBucket.bloqueados.add(clienteId);
-    } else {
-      dateBucket.liberados.add(clienteId);
-    }
-    dateBucket.faturas += 1;
-    dateBucket.valor += valor;
+    const chaveCliente = `${clienteId}::${diaVencimento}`;
+    const itemExistente = clientesAgregadosMap.get(chaveCliente);
 
-    // Item individual por cliente + dia de vencimento
-    const clientKey = `${clienteId}::${diaVencimento}`;
-    const existingItem = clientAggMap.get(clientKey);
-    if (!existingItem) {
-      clientAggMap.set(clientKey, {
+    if (!itemExistente) {
+      clientesAgregadosMap.set(chaveCliente, {
         clienteId,
         contratoId,
         nome:
-          regionRec?.nome ||
-          String(
-            clienteObj?.nome_razao ||
-              clienteObj?.nome ||
-              clienteObj?.razao ||
-              `Cliente #${clienteId}`
-          ).trim(),
-        telefone: regionRec?.telefone || String(clienteObj?.whatsapp || clienteObj?.celular || ''),
-        bairro: regionRec?.bairroLabel || '',
-        rua: regionRec?.ruaLabel || '',
+          registroRegiao?.nome ||
+          obterNomeClienteISPFY(clienteObj, `Cliente #${clienteId}`),
+        telefone:
+          registroRegiao?.telefone || obterTelefoneClienteISPFY(clienteObj, ''),
+        bairro: registroRegiao?.bairroLabel || '',
+        rua: registroRegiao?.ruaLabel || '',
         diaVencimento,
         diaVencimentoLabel,
-        isBlocked,
-        connectionHealth: regionRec?.connectionHealth || (isBlocked ? 'bloqueado_offline' : 'ok'),
+        isBlocked: bloqueado,
+        connectionHealth:
+          registroRegiao?.connectionHealth || (bloqueado ? 'bloqueado_offline' : 'ok'),
         faturasEmAtraso: 1,
         valorTotalAtraso: valor,
-        vencimentoMaisAntigo: dueIso,
-        vencimentoMaisRecente: dueIso,
-        diasMaxAtraso: daysOverdue,
+        vencimentoMaisAntigo: vencimentoIso,
+        vencimentoMaisRecente: vencimentoIso,
+        diasMaxAtraso: diasAtraso,
       });
     } else {
-      existingItem.faturasEmAtraso += 1;
-      existingItem.valorTotalAtraso =
-        Math.round((existingItem.valorTotalAtraso + valor) * 100) / 100;
-      if (dueIso < existingItem.vencimentoMaisAntigo) {
-        existingItem.vencimentoMaisAntigo = dueIso;
+      itemExistente.faturasEmAtraso += 1;
+      itemExistente.valorTotalAtraso =
+        Math.round((itemExistente.valorTotalAtraso + valor) * 100) / 100;
+      if (vencimentoIso < itemExistente.vencimentoMaisAntigo) {
+        itemExistente.vencimentoMaisAntigo = vencimentoIso;
       }
-      if (dueIso > existingItem.vencimentoMaisRecente) {
-        existingItem.vencimentoMaisRecente = dueIso;
+      if (vencimentoIso > itemExistente.vencimentoMaisRecente) {
+        itemExistente.vencimentoMaisRecente = vencimentoIso;
       }
-      if (daysOverdue > existingItem.diasMaxAtraso) {
-        existingItem.diasMaxAtraso = daysOverdue;
+      if (diasAtraso > itemExistente.diasMaxAtraso) {
+        itemExistente.diasMaxAtraso = diasAtraso;
       }
-      if (isBlocked) existingItem.isBlocked = true;
+      if (bloqueado) itemExistente.isBlocked = true;
     }
   }
 
-  // Garante presença de todos os dias de vencimento encontrados na base ativa ou em atraso
-  const allDueDays = new Set<string>([
-    ...baseAtivaByDueDay.keys(),
-    ...dueDayMap.keys(),
+  const todosDiasVencimento = new Set<string>([
+    ...baseAtivaPorDia.keys(),
+    ...atrasoPorDiaMap.keys(),
   ]);
 
-  const porDiaVencimento: ISPFYOverdueDueDayGroup[] = Array.from(allDueDays)
+  const porDiaVencimento: ISPFYOverdueDueDayGroup[] = Array.from(todosDiasVencimento)
     .sort((a, b) => {
       if (a === 'NA') return 1;
       if (b === 'NA') return -1;
       return a.localeCompare(b);
     })
     .map((dia) => {
-      const totalBaseAtiva = baseAtivaByDueDay.get(dia)?.size || 0;
-      const bucket = dueDayMap.get(dia);
-      const clientesEmAtraso = bucket?.allClients.size || 0;
-      const clientesAtrasoBloqueados = bucket?.bloqueados.size || 0;
-      // Cliente bloqueado prevalece caso tenha múltiplos contratos no mesmo dia
+      const totalBaseAtiva = baseAtivaPorDia.get(dia)?.size || 0;
+      const balde = atrasoPorDiaMap.get(dia);
+      const clientesEmAtraso = balde?.todosClientes.size || 0;
+      const clientesAtrasoBloqueados = balde?.bloqueados.size || 0;
+      // Cliente bloqueado prevalece caso possua múltiplos contratos no mesmo vencimento
       const clientesAtrasoLiberados = Math.max(
         0,
         clientesEmAtraso - clientesAtrasoBloqueados
@@ -293,50 +257,50 @@ export function buildOverdueAnalytics(params: {
 
       return {
         diaVencimento: dia,
-        label: formatDueDayLabel(dia),
+        label: formatarRotuloDiaVencimento(dia),
         totalBaseAtiva,
         clientesEmAtraso,
         clientesAtrasoLiberados,
         clientesAtrasoBloqueados,
-        faturasEmAtraso: bucket?.faturas || 0,
-        valorTotalAtraso: Math.round((bucket?.valor || 0) * 100) / 100,
+        faturasEmAtraso: balde?.faturas || 0,
+        valorTotalAtraso: Math.round((balde?.valor || 0) * 100) / 100,
         taxaInadimplencia,
       };
     });
 
   const porDataVencimento: ISPFYOverdueExactDateGroup[] = Array.from(
-    exactDateMap.entries()
+    atrasoPorDataMap.entries()
   )
-    .sort(([dA], [dB]) => dB.localeCompare(dA))
+    .sort(([dataA], [dataB]) => dataB.localeCompare(dataA))
     .slice(0, 14)
     .reverse()
-    .map(([dataVencimento, bucket]) => {
-      const clientesEmAtraso = bucket.allClients.size;
-      const clientesAtrasoBloqueados = bucket.bloqueados.size;
+    .map(([dataVencimento, balde]) => {
+      const clientesEmAtraso = balde.todosClientes.size;
+      const clientesAtrasoBloqueados = balde.bloqueados.size;
       return {
         dataVencimento,
-        label: formatBrDate(dataVencimento),
+        label: formatarDataBr(dataVencimento),
         clientesEmAtraso,
         clientesAtrasoLiberados: Math.max(
           0,
           clientesEmAtraso - clientesAtrasoBloqueados
         ),
         clientesAtrasoBloqueados,
-        faturasEmAtraso: bucket.faturas,
-        valorTotalAtraso: Math.round(bucket.valor * 100) / 100,
+        faturasEmAtraso: balde.faturas,
+        valorTotalAtraso: Math.round(balde.valor * 100) / 100,
       };
     });
 
-  const clientes = Array.from(clientAggMap.values()).sort(
+  const clientes = Array.from(clientesAgregadosMap.values()).sort(
     (a, b) =>
       b.diasMaxAtraso - a.diasMaxAtraso ||
       b.valorTotalAtraso - a.valorTotalAtraso ||
       a.nome.localeCompare(b.nome, 'pt-BR')
   );
 
-  const totalBaseAtiva = activeClientsSet.size;
-  const totalClientesEmAtraso = globalOverdueClients.size;
-  const totalClientesAtrasoBloqueados = globalBlockedOverdue.size;
+  const totalBaseAtiva = clientesAtivosSet.size;
+  const totalClientesEmAtraso = clientesEmAtrasoSet.size;
+  const totalClientesAtrasoBloqueados = clientesAtrasoBloqueadosSet.size;
   const totalClientesAtrasoLiberados = Math.max(
     0,
     totalClientesEmAtraso - totalClientesAtrasoBloqueados

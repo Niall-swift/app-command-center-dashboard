@@ -44,10 +44,21 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, onSnapshot } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+} from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
-interface RecentUser {
+interface TimestampFirestoreLike {
+  toMillis?: () => number;
+  toDate?: () => Date;
+}
+
+interface UsuarioRecentePreMix {
   id: string;
   name?: string;
   nome?: string;
@@ -55,19 +66,20 @@ interface RecentUser {
   cidade?: string;
   whatsapp?: string;
   telefone?: string;
-  createdAt?: any;
+  createdAt?: TimestampFirestoreLike | Date | string;
 }
 
-interface RecentRedemption {
+interface ResgateRecentePreMix {
   id: string;
+  userId?: string;
   rewardTitle?: string;
   pointsCost?: number;
   userName?: string;
-  redeemedAt?: any;
+  redeemedAt?: TimestampFirestoreLike | Date | string;
   status?: string;
 }
 
-interface ActiveWatcher {
+interface EspectadorAtivoPlay {
   id: string;
   userName: string;
   title: string;
@@ -78,208 +90,321 @@ interface ActiveWatcher {
   episodeNumber?: number | null;
 }
 
-const SECTOR_SHORTCUT_GROUPS = [
+const GRUPOS_ATALHOS_SETOR = [
   {
-    title: 'Rede & Clientes ISPFY',
-    accent: 'text-blue-600 dark:text-blue-400',
-    border: 'border-blue-500/20',
-    items: [
-      { label: 'Clientes Bairro/Rua', url: '/ispfy/regiao', icon: MapPin, color: 'text-blue-500' },
-      { label: 'Nova O.S.', url: '/ispfy/nova-os', icon: ClipboardList, color: 'text-emerald-500' },
-      { label: 'Consulta Clientes', url: '/ispfy/consulta', icon: Users, color: 'text-indigo-500' },
-      { label: 'Auditoria Base', url: '/ispfy/auditoria', icon: ShieldCheck, color: 'text-cyan-500' },
-      { label: 'Tickets / O.S.', url: '/ispfy/tickets', icon: Ticket, color: 'text-amber-500' },
-      { label: 'Mapa da Rede', url: '/network-map', icon: Map, color: 'text-violet-500' },
+    titulo: 'Rede & Clientes ISPFY',
+    corTitulo: 'text-blue-600 dark:text-blue-400',
+    bordaGrupo: 'border-blue-500/20',
+    itens: [
+      { rotulo: 'Clientes Bairro/Rua', url: '/ispfy/regiao', icone: MapPin, cor: 'text-blue-500' },
+      { rotulo: 'Nova O.S.', url: '/ispfy/nova-os', icone: ClipboardList, cor: 'text-emerald-500' },
+      { rotulo: 'Consulta Clientes', url: '/ispfy/consulta', icone: Users, cor: 'text-indigo-500' },
+      { rotulo: 'Auditoria Base', url: '/ispfy/auditoria', icone: ShieldCheck, cor: 'text-cyan-500' },
+      { rotulo: 'Tickets / O.S.', url: '/ispfy/tickets', icone: Ticket, cor: 'text-amber-500' },
+      { rotulo: 'Mapa da Rede', url: '/network-map', icone: Map, cor: 'text-violet-500' },
     ],
   },
   {
-    title: 'Financeiro & Cobrança',
-    accent: 'text-amber-600 dark:text-amber-400',
-    border: 'border-amber-500/20',
-    items: [
-      { label: 'Financeiro & Caixa', url: '/ispfy/financeiro', icon: DollarSign, color: 'text-emerald-500' },
-      { label: 'Vencimentos Massa', url: '/ispfy/vencimentos', icon: Calendar, color: 'text-amber-500' },
-      { label: 'Robô de Carência', url: '/ispfy/carencia', icon: Clock, color: 'text-rose-500' },
-      { label: 'Relatório DICI', url: '/ispfy/dici', icon: FileSpreadsheet, color: 'text-purple-500' },
-      { label: 'Exportar Ativos', url: '/ispfy/exportar-ativos', icon: Download, color: 'text-sky-500' },
+    titulo: 'Financeiro & Cobrança',
+    corTitulo: 'text-amber-600 dark:text-amber-400',
+    bordaGrupo: 'border-amber-500/20',
+    itens: [
+      { rotulo: 'Financeiro & Caixa', url: '/ispfy/financeiro', icone: DollarSign, cor: 'text-emerald-500' },
+      { rotulo: 'Vencimentos Massa', url: '/ispfy/vencimentos', icone: Calendar, cor: 'text-amber-500' },
+      { rotulo: 'Robô de Carência', url: '/ispfy/carencia', icone: Clock, cor: 'text-rose-500' },
+      { rotulo: 'Relatório DICI', url: '/ispfy/dici', icone: FileSpreadsheet, cor: 'text-purple-500' },
+      { rotulo: 'Exportar Ativos', url: '/ispfy/exportar-ativos', icone: Download, cor: 'text-sky-500' },
     ],
   },
   {
-    title: 'Atendimento & Disparos',
-    accent: 'text-emerald-600 dark:text-emerald-400',
-    border: 'border-emerald-500/20',
-    items: [
-      { label: 'Chat WhatsApp', url: '/chat', icon: MessageSquare, color: 'text-emerald-500' },
-      { label: 'Envio em Massa', url: '/whatsapp/bulk', icon: Send, color: 'text-teal-500' },
-      { label: 'Disparo Push App', url: '/notifications', icon: Bell, color: 'text-indigo-500' },
-      { label: 'Automação & Bots', url: '/bots', icon: Bot, color: 'text-blue-500' },
+    titulo: 'Atendimento & Disparos',
+    corTitulo: 'text-emerald-600 dark:text-emerald-400',
+    bordaGrupo: 'border-emerald-500/20',
+    itens: [
+      { rotulo: 'Chat WhatsApp', url: '/chat', icone: MessageSquare, cor: 'text-emerald-500' },
+      { rotulo: 'Envio em Massa', url: '/whatsapp/bulk', icone: Send, cor: 'text-teal-500' },
+      { rotulo: 'Disparo Push App', url: '/notifications', icone: Bell, cor: 'text-indigo-500' },
+      { rotulo: 'Automação & Bots', url: '/bots', icone: Bot, cor: 'text-blue-500' },
     ],
   },
   {
-    title: 'App PreMix & AVL Play',
-    accent: 'text-purple-600 dark:text-purple-400',
-    border: 'border-purple-500/20',
-    items: [
-      { label: 'Pedidos Resgate', url: '/redemption-orders', icon: Gift, color: 'text-amber-500' },
-      { label: 'Sorteios PreMix', url: '/raffle', icon: Trophy, color: 'text-purple-500' },
-      { label: 'Sorteios Pagos', url: '/paid-raffles', icon: Sparkles, color: 'text-pink-500' },
-      { label: 'Filmes AVL Play', url: '/movies', icon: Film, color: 'text-blue-500' },
-      { label: 'Métricas AVL Play', url: '/avlplay-analytics', icon: Play, color: 'text-emerald-500' },
+    titulo: 'App PreMix & AVL Play',
+    corTitulo: 'text-purple-600 dark:text-purple-400',
+    bordaGrupo: 'border-purple-500/20',
+    itens: [
+      { rotulo: 'Pedidos Resgate', url: '/redemption-orders', icone: Gift, cor: 'text-amber-500' },
+      { rotulo: 'Sorteios PreMix', url: '/raffle', icone: Trophy, cor: 'text-purple-500' },
+      { rotulo: 'Sorteios Pagos', url: '/paid-raffles', icone: Sparkles, cor: 'text-pink-500' },
+      { rotulo: 'Filmes AVL Play', url: '/movies', icone: Film, cor: 'text-blue-500' },
+      { rotulo: 'Métricas AVL Play', url: '/avlplay-analytics', icone: Play, cor: 'text-emerald-500' },
     ],
   },
 ];
 
+const CORES_AVATAR = [
+  'bg-blue-100 text-blue-700',
+  'bg-purple-100 text-purple-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-indigo-100 text-indigo-700',
+  'bg-pink-100 text-pink-700',
+  'bg-amber-100 text-amber-700',
+];
+
+function obterIniciaisNome(nome?: string): string {
+  if (!nome) return 'U';
+  const partes = nome.trim().split(' ');
+  if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
+  return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
+}
+
+function obterCorAvatarPorIniciais(iniciais: string): string {
+  let somaCodigos = 0;
+  for (let indice = 0; indice < iniciais.length; indice++) {
+    somaCodigos += iniciais.charCodeAt(indice);
+  }
+  return CORES_AVATAR[somaCodigos % CORES_AVATAR.length];
+}
+
+function extrairMilissegundos(
+  valor?: TimestampFirestoreLike | Date | string
+): number {
+  if (!valor) return 0;
+  if (typeof valor === 'object' && 'toMillis' in valor && valor.toMillis) {
+    return valor.toMillis();
+  }
+  if (valor instanceof Date) return valor.getTime();
+  const convertido = new Date(String(valor)).getTime();
+  return Number.isNaN(convertido) ? 0 : convertido;
+}
+
+/** Painel inicial executivo com saúde da rede em tempo real, inadimplência e atalhos. */
 export default function Dashboard() {
-  const navigate = useNavigate();
+  const navegar = useNavigate();
   const { user, userData } = useAuth();
   const {
-    regionData,
-    overdueData,
-    loadingRegion,
-    loadingOverdue,
-    isPolling,
-    lastUpdatedAt,
-    monitorEnabled,
-    pollIntervalSec,
-    refreshAll,
-    refreshOverdue,
+    dadosRegiao,
+    dadosInadimplencia,
+    carregandoRegiao,
+    carregandoInadimplencia,
+    verificandoAgora,
+    ultimaAtualizacaoEm,
+    monitorAtivo,
+    intervaloVerificacaoSeg,
+    atualizarTudo,
+    atualizarInadimplencia,
   } = useNetworkMonitor();
 
-  const [loadingPreMix, setLoadingPreMix] = useState(true);
-  const [totalUsersCount, setTotalUsersCount] = useState(0);
-  const [pendingRedemptionsCount, setPendingRedemptionsCount] = useState(0);
-  const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
-  const [recentRedemptions, setRecentRedemptions] = useState<RecentRedemption[]>([]);
-  const [activeWatchers, setActiveWatchers] = useState<ActiveWatcher[]>([]);
+  const [carregandoPreMix, setCarregandoPreMix] = useState(true);
+  const [totalUsuariosPreMix, setTotalUsuariosPreMix] = useState(0);
+  const [qtdResgatesPendentes, setQtdResgatesPendentes] = useState(0);
+  const [usuariosRecentes, setUsuariosRecentes] = useState<
+    UsuarioRecentePreMix[]
+  >([]);
+  const [resgatesRecentes, setResgatesRecentes] = useState<
+    ResgateRecentePreMix[]
+  >([]);
+  const [espectadoresAtivos, setEspectadoresAtivos] = useState<
+    EspectadorAtivoPlay[]
+  >([]);
 
   useEffect(() => {
-    const unsubscribeWatchers = onSnapshot(collection(db, 'activeWatchers'), (snapshot) => {
-      const now = Date.now();
-      const watchersList: ActiveWatcher[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        const updatedTime = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : 0;
-        if (now - updatedTime < 20 * 1000 && data.isPlaying) {
-          watchersList.push({
-            id: docSnap.id,
-            ...data,
-          } as ActiveWatcher);
-        }
-      });
-      setActiveWatchers(watchersList);
-    });
-
-    const unsubscribeRedemptions = onSnapshot(collection(db, 'redeemedRewards'), async (snapshot) => {
-      const allRedemptions = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          ...data,
-          redeemedAt: data.redeemedAt?.toDate ? data.redeemedAt.toDate() : data.redeemedAt,
-        };
-      }) as any[];
-
-      const pending = allRedemptions.filter((r) => r.status === 'pending');
-      setPendingRedemptionsCount(pending.length);
-
-      const recentPending = pending
-        .sort((a, b) => {
-          const dateA = a.redeemedAt ? new Date(a.redeemedAt).getTime() : 0;
-          const dateB = b.redeemedAt ? new Date(b.redeemedAt).getTime() : 0;
-          return dateB - dateA;
-        })
-        .slice(0, 4);
-
-      const enriched = await Promise.all(
-        recentPending.map(async (r) => {
-          try {
-            if (!r.userId) return r;
-            const userDoc = await getDoc(doc(db, 'users', r.userId));
-            if (userDoc.exists()) {
-              const uData = userDoc.data();
-              return { ...r, userName: uData.name || 'Usuário PreMix' };
-            }
-          } catch (e) {
-            console.error('Erro ao buscar dados do usuário para o resgate:', e);
+    const cancelarWatchers = onSnapshot(
+      collection(db, 'activeWatchers'),
+      (snapshot) => {
+        const agora = Date.now();
+        const listaAtivos: EspectadorAtivoPlay[] = [];
+        snapshot.forEach((docSnap) => {
+          const dadosDoc = docSnap.data();
+          const atualizadoEmMs = dadosDoc.updatedAt?.toMillis
+            ? dadosDoc.updatedAt.toMillis()
+            : 0;
+          if (agora - atualizadoEmMs < 20 * 1000 && dadosDoc.isPlaying) {
+            listaAtivos.push({
+              id: docSnap.id,
+              ...dadosDoc,
+            } as EspectadorAtivoPlay);
           }
-          return r;
-        })
-      );
+        });
+        setEspectadoresAtivos(listaAtivos);
+      }
+    );
 
-      setRecentRedemptions(enriched);
-    });
+    const cancelarResgates = onSnapshot(
+      collection(db, 'redeemedRewards'),
+      async (snapshot) => {
+        const todosResgates: ResgateRecentePreMix[] = snapshot.docs.map(
+          (docSnap) => {
+            const dadosDoc = docSnap.data();
+            return {
+              id: docSnap.id,
+              ...dadosDoc,
+              redeemedAt: dadosDoc.redeemedAt?.toDate
+                ? dadosDoc.redeemedAt.toDate()
+                : dadosDoc.redeemedAt,
+            } as ResgateRecentePreMix;
+          }
+        );
 
-    const fetchPreMixUsers = async () => {
+        const pendentes = todosResgates.filter(
+          (resgate) => resgate.status === 'pending'
+        );
+        setQtdResgatesPendentes(pendentes.length);
+
+        const pendentesRecentes = pendentes
+          .sort(
+            (a, b) =>
+              extrairMilissegundos(b.redeemedAt) -
+              extrairMilissegundos(a.redeemedAt)
+          )
+          .slice(0, 4);
+
+        const resgatesEnriquecidos = await Promise.all(
+          pendentesRecentes.map(async (resgate) => {
+            try {
+              if (!resgate.userId) return resgate;
+              const docUsuario = await getDoc(doc(db, 'users', resgate.userId));
+              if (docUsuario.exists()) {
+                const dadosUsuario = docUsuario.data();
+                return {
+                  ...resgate,
+                  userName: dadosUsuario.name || 'Usuário PreMix',
+                };
+              }
+            } catch (erroBusca) {
+              console.error(
+                'Erro ao buscar dados do usuário para o resgate:',
+                erroBusca
+              );
+            }
+            return resgate;
+          })
+        );
+
+        setResgatesRecentes(resgatesEnriquecidos);
+      }
+    );
+
+    const carregarUsuariosPreMix = async () => {
       try {
         const snapshot = await getDocs(collection(db, 'usuariosDoPreMix'));
-        setTotalUsersCount(snapshot.size);
+        setTotalUsuariosPreMix(snapshot.size);
 
-        const sortedUsers = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as RecentUser[];
+        const usuariosOrdenados = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        })) as UsuarioRecentePreMix[];
 
-        sortedUsers.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-          return timeB - timeA;
-        });
+        usuariosOrdenados.sort(
+          (a, b) =>
+            extrairMilissegundos(b.createdAt) -
+            extrairMilissegundos(a.createdAt)
+        );
 
-        setRecentUsers(sortedUsers.slice(0, 4));
-      } catch (error) {
-        console.error('Erro ao buscar usuários do PreMix:', error);
+        setUsuariosRecentes(usuariosOrdenados.slice(0, 4));
+      } catch (erroBusca) {
+        console.error('Erro ao buscar usuários do PreMix:', erroBusca);
       } finally {
-        setLoadingPreMix(false);
+        setCarregandoPreMix(false);
       }
     };
 
-    fetchPreMixUsers();
+    carregarUsuariosPreMix();
 
     return () => {
-      unsubscribeWatchers();
-      unsubscribeRedemptions();
+      cancelarWatchers();
+      cancelarResgates();
     };
   }, []);
 
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    const parts = name.trim().split(' ');
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  const aoNavegarRegiao = (status?: string, chaveBairro?: string) => {
+    const parametros = new URLSearchParams();
+    if (status) parametros.set('status', status);
+    if (chaveBairro) parametros.set('bairro', chaveBairro);
+    const queryString = parametros.toString();
+    navegar(queryString ? `/ispfy/regiao?${queryString}` : '/ispfy/regiao');
   };
 
-  const getAvatarBg = (initials: string) => {
-    const colors = [
-      'bg-blue-100 text-blue-700',
-      'bg-purple-100 text-purple-700',
-      'bg-emerald-100 text-emerald-700',
-      'bg-indigo-100 text-indigo-700',
-      'bg-pink-100 text-pink-700',
-      'bg-amber-100 text-amber-700',
-    ];
-    let sum = 0;
-    for (let i = 0; i < initials.length; i++) {
-      sum += initials.charCodeAt(i);
-    }
-    return colors[sum % colors.length];
-  };
+  const totaisRede = dadosRegiao?.totals;
+  const pontosAtivos = totaisRede?.totalAtivos ?? 0;
+  const pontosOk = totaisRede?.internetOk ?? 0;
+  const pontosDesconectados = totaisRede?.desconectados ?? 0;
+  const pontosBloqueados = totaisRede?.bloqueados ?? 0;
+  const pontosInativos = totaisRede?.inativos ?? 0;
+  const percentualOnline =
+    pontosAtivos > 0 ? Math.round((pontosOk / pontosAtivos) * 1000) / 10 : 0;
 
-  const handleNavigateRegion = (status?: string, bairroKey?: string) => {
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    if (bairroKey) params.set('bairro', bairroKey);
-    const qs = params.toString();
-    navigate(qs ? `/ispfy/regiao?${qs}` : '/ispfy/regiao');
-  };
+  const carregandoIndicadoresRede = carregandoRegiao && !totaisRede;
 
-  const totals = regionData?.totals;
-  const activePoints = totals?.totalAtivos ?? 0;
-  const okPoints = totals?.internetOk ?? 0;
-  const offlinePoints = totals?.desconectados ?? 0;
-  const blockedPoints = totals?.bloqueados ?? 0;
-  const inactivePoints = totals?.inativos ?? 0;
-  const onlinePct =
-    activePoints > 0 ? Math.round((okPoints / activePoints) * 1000) / 10 : 0;
+  const cardsIndicadoresRede = [
+    {
+      statusFiltro: 'ALL',
+      titulo: 'Clientes Ativos (Pontos)',
+      valor: pontosAtivos.toLocaleString('pt-BR'),
+      corBarra: 'bg-blue-500',
+      bordaHover: 'hover:border-blue-500/50',
+      corValor: 'text-foreground',
+      caixaIcone: 'bg-blue-500/10 text-blue-500',
+      Icone: Users,
+      rodape: (
+        <p className="text-xs text-muted-foreground mt-2.5 font-medium">
+          {totaisRede?.totalClientesUnicos ?? 0} assinantes únicos •{' '}
+          {pontosInativos} inativos
+        </p>
+      ),
+    },
+    {
+      statusFiltro: 'OK',
+      titulo: 'Com Internet OK',
+      valor: pontosOk.toLocaleString('pt-BR'),
+      corBarra: 'bg-emerald-500',
+      bordaHover: 'hover:border-emerald-500/50',
+      corValor: 'text-emerald-600 dark:text-emerald-400',
+      caixaIcone: 'bg-emerald-500/10 text-emerald-500',
+      Icone: Wifi,
+      rodape: (
+        <p className="text-xs text-muted-foreground mt-2.5 font-medium flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <strong>{percentualOnline}%</strong> da base ativa conectada agora
+        </p>
+      ),
+    },
+    {
+      statusFiltro: 'DESCONECTADO',
+      titulo: 'Sem Internet (Quedas)',
+      valor: pontosDesconectados.toLocaleString('pt-BR'),
+      corBarra: 'bg-rose-500',
+      bordaHover: `hover:border-rose-500/60 ${
+        pontosDesconectados > 0 ? 'ring-1 ring-rose-500/20' : ''
+      }`,
+      corValor: 'text-rose-600 dark:text-rose-400',
+      caixaIcone: 'bg-rose-500/10 text-rose-500',
+      Icone: WifiOff,
+      rodape: (
+        <p className="text-xs text-muted-foreground mt-2.5 font-medium">
+          Contratos ativos offline sem bloqueio financeiro
+        </p>
+      ),
+    },
+    {
+      statusFiltro: 'BLOQUEADO',
+      titulo: 'Bloqueados / Em Atraso',
+      valor: pontosBloqueados.toLocaleString('pt-BR'),
+      corBarra: 'bg-amber-500',
+      bordaHover: 'hover:border-amber-500/50',
+      corValor: 'text-amber-600 dark:text-amber-400',
+      caixaIcone: 'bg-amber-500/10 text-amber-500',
+      Icone: Lock,
+      rodape: (
+        <p className="text-xs text-muted-foreground mt-2.5 font-medium">
+          {totaisRede?.bloqueadosOnline ?? 0} em aviso /{' '}
+          {totaisRede?.bloqueadosOffline ?? 0} offline
+          {dadosInadimplencia
+            ? ` • ${dadosInadimplencia.totalClientesEmAtraso} clientes c/ fatura vencida`
+            : ''}
+        </p>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 text-foreground pb-10">
@@ -291,17 +416,19 @@ export default function Dashboard() {
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded-full border border-emerald-400/25">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    monitorEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'
+                    monitorAtivo
+                      ? 'bg-emerald-400 animate-pulse'
+                      : 'bg-slate-400'
                   }`}
                 />
-                {monitorEnabled
-                  ? `Monitor Global Ativo (${pollIntervalSec}s)`
+                {monitorAtivo
+                  ? `Monitor Global Ativo (${intervaloVerificacaoSeg}s)`
                   : 'Monitor Pausado'}
               </span>
-              {lastUpdatedAt && (
+              {ultimaAtualizacaoEm && (
                 <span className="text-[11px] text-slate-300 flex items-center gap-1">
                   <Clock className="w-3 h-3 text-blue-300" />
-                  Atualizado às {lastUpdatedAt.toLocaleTimeString('pt-BR')}
+                  Atualizado às {ultimaAtualizacaoEm.toLocaleTimeString('pt-BR')}
                 </span>
               )}
             </div>
@@ -318,7 +445,7 @@ export default function Dashboard() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate('/ispfy/regiao')}
+              onClick={() => navegar('/ispfy/regiao')}
               className="bg-white/10 hover:bg-white/20 border-white/20 text-white text-xs h-9"
             >
               <MapPin className="w-3.5 h-3.5 mr-1.5" />
@@ -326,13 +453,13 @@ export default function Dashboard() {
             </Button>
             <Button
               size="sm"
-              onClick={refreshAll}
-              disabled={loadingRegion || isPolling}
+              onClick={atualizarTudo}
+              disabled={carregandoRegiao || verificandoAgora}
               className="bg-blue-600 hover:bg-blue-500 text-white text-xs h-9"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 mr-1.5 ${
-                  loadingRegion || isPolling ? 'animate-spin' : ''
+                  carregandoRegiao || verificandoAgora ? 'animate-spin' : ''
                 }`}
               />
               Atualizar Painel
@@ -343,127 +470,56 @@ export default function Dashboard() {
 
       {/* ── Faixa 1: 4 KPIs Executivos da Rede (Clicáveis) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <Card
-          onClick={() => handleNavigateRegion('ALL')}
-          className="cursor-pointer hover:border-blue-500/50 transition-all bg-card border-border shadow-sm relative overflow-hidden"
-        >
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Clientes Ativos (Pontos)
-                </p>
-                <h3 className="text-3xl font-black text-foreground mt-1 tabular-nums">
-                  {loadingRegion && !totals ? '...' : activePoints.toLocaleString('pt-BR')}
-                </h3>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
-                <Users className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2.5 font-medium">
-              {totals?.totalClientesUnicos ?? 0} assinantes únicos • {inactivePoints} inativos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card
-          onClick={() => handleNavigateRegion('OK')}
-          className="cursor-pointer hover:border-emerald-500/50 transition-all bg-card border-border shadow-sm relative overflow-hidden"
-        >
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Com Internet OK
-                </p>
-                <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
-                  {loadingRegion && !totals ? '...' : okPoints.toLocaleString('pt-BR')}
-                </h3>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                <Wifi className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2.5 font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <strong>{onlinePct}%</strong> da base ativa conectada agora
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card
-          onClick={() => handleNavigateRegion('DESCONECTADO')}
-          className={`cursor-pointer hover:border-rose-500/60 transition-all bg-card border-border shadow-sm relative overflow-hidden ${
-            offlinePoints > 0 ? 'ring-1 ring-rose-500/20' : ''
-          }`}
-        >
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-rose-500" />
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Sem Internet (Quedas)
-                </p>
-                <h3 className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1 tabular-nums">
-                  {loadingRegion && !totals ? '...' : offlinePoints.toLocaleString('pt-BR')}
-                </h3>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500">
-                <WifiOff className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2.5 font-medium">
-              Contratos ativos offline sem bloqueio financeiro
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card
-          onClick={() => handleNavigateRegion('BLOQUEADO')}
-          className="cursor-pointer hover:border-amber-500/50 transition-all bg-card border-border shadow-sm relative overflow-hidden"
-        >
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500" />
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Bloqueados / Em Atraso
-                </p>
-                <h3 className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
-                  {loadingRegion && !totals ? '...' : blockedPoints.toLocaleString('pt-BR')}
-                </h3>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
-                <Lock className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2.5 font-medium">
-              {totals?.bloqueadosOnline ?? 0} em aviso / {totals?.bloqueadosOffline ?? 0} offline
-              {overdueData
-                ? ` • ${overdueData.totalClientesEmAtraso} clientes c/ fatura vencida`
-                : ''}
-            </p>
-          </CardContent>
-        </Card>
+        {cardsIndicadoresRede.map((indicador) => {
+          const IconeCard = indicador.Icone;
+          return (
+            <Card
+              key={indicador.statusFiltro}
+              onClick={() => aoNavegarRegiao(indicador.statusFiltro)}
+              className={`cursor-pointer transition-all bg-card border-border shadow-sm relative overflow-hidden ${indicador.bordaHover}`}
+            >
+              <div
+                className={`absolute top-0 left-0 w-1.5 h-full ${indicador.corBarra}`}
+              />
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {indicador.titulo}
+                    </p>
+                    <h3
+                      className={`text-3xl font-black mt-1 tabular-nums ${indicador.corValor}`}
+                    >
+                      {carregandoIndicadoresRede ? '...' : indicador.valor}
+                    </h3>
+                  </div>
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${indicador.caixaIcone}`}
+                  >
+                    <IconeCard className="w-5 h-5" />
+                  </div>
+                </div>
+                {indicador.rodape}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* ── Faixa 2: Gráficos Visuais (Status de Conexão + Saúde por Bairro) ── */}
       <NetworkHealthCharts
-        regionData={regionData}
-        loading={loadingRegion}
-        onNavigateRegion={handleNavigateRegion}
+        dadosRegiao={dadosRegiao}
+        carregando={carregandoRegiao}
+        aoNavegarRegiao={aoNavegarRegiao}
       />
 
       {/* ── Faixa 3: Inadimplência por Vencimento + Alerta & Quedas em Tempo Real ── */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-7">
           <OverdueDueDaySection
-            overdueData={overdueData}
-            loading={loadingOverdue}
-            onRefresh={() => refreshOverdue(true)}
+            dadosInadimplencia={dadosInadimplencia}
+            carregando={carregandoInadimplencia}
+            aoAtualizar={() => atualizarInadimplencia(true)}
           />
         </div>
         <div className="xl:col-span-5">
@@ -492,11 +548,14 @@ export default function Dashboard() {
               <TabsTrigger value="shortcuts" className="text-xs font-semibold">
                 Atalhos por Setor
               </TabsTrigger>
-              <TabsTrigger value="premix" className="text-xs font-semibold gap-1.5">
+              <TabsTrigger
+                value="premix"
+                className="text-xs font-semibold gap-1.5"
+              >
                 App PreMix &amp; AVL Play
-                {pendingRedemptionsCount > 0 && (
+                {qtdResgatesPendentes > 0 && (
                   <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">
-                    {pendingRedemptionsCount}
+                    {qtdResgatesPendentes}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -505,17 +564,19 @@ export default function Dashboard() {
             {/* Aba 1: Todos os atalhos bem organizados por departamento */}
             <TabsContent value="shortcuts" className="mt-0">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {SECTOR_SHORTCUT_GROUPS.map((group) => (
+                {GRUPOS_ATALHOS_SETOR.map((grupo) => (
                   <div
-                    key={group.title}
-                    className={`rounded-xl border ${group.border} bg-secondary/20 p-3.5 space-y-2.5`}
+                    key={grupo.titulo}
+                    className={`rounded-xl border ${grupo.bordaGrupo} bg-secondary/20 p-3.5 space-y-2.5`}
                   >
-                    <h4 className={`text-xs font-extrabold uppercase tracking-wider ${group.accent}`}>
-                      {group.title}
+                    <h4
+                      className={`text-xs font-extrabold uppercase tracking-wider ${grupo.corTitulo}`}
+                    >
+                      {grupo.titulo}
                     </h4>
                     <div className="space-y-1.5">
-                      {group.items.map((item) => {
-                        const Icon = item.icon;
+                      {grupo.itens.map((item) => {
+                        const IconeItem = item.icone;
                         return (
                           <Link
                             key={item.url}
@@ -523,9 +584,11 @@ export default function Dashboard() {
                             className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-card border border-border/60 hover:border-primary/40 hover:bg-secondary/50 transition-all group"
                           >
                             <span className="flex items-center gap-2 min-w-0">
-                              <Icon className={`w-4 h-4 shrink-0 ${item.color}`} />
+                              <IconeItem
+                                className={`w-4 h-4 shrink-0 ${item.cor}`}
+                              />
                               <span className="text-xs font-semibold text-foreground truncate">
-                                {item.label}
+                                {item.rotulo}
                               </span>
                             </span>
                             <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -547,7 +610,9 @@ export default function Dashboard() {
                       Cadastros no App
                     </p>
                     <p className="text-2xl font-black text-foreground mt-0.5">
-                      {loadingPreMix ? '...' : totalUsersCount.toLocaleString('pt-BR')}
+                      {carregandoPreMix
+                        ? '...'
+                        : totalUsuariosPreMix.toLocaleString('pt-BR')}
                     </p>
                   </div>
                   <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center">
@@ -561,7 +626,7 @@ export default function Dashboard() {
                       Resgates Pendentes
                     </p>
                     <p className="text-2xl font-black text-foreground mt-0.5">
-                      {loadingPreMix ? '...' : pendingRedemptionsCount}
+                      {carregandoPreMix ? '...' : qtdResgatesPendentes}
                     </p>
                   </div>
                   <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center">
@@ -575,7 +640,7 @@ export default function Dashboard() {
                       Assistindo Agora (AVL Play)
                     </p>
                     <p className="text-2xl font-black text-foreground mt-0.5">
-                      {activeWatchers.length}
+                      {espectadoresAtivos.length}
                     </p>
                   </div>
                   <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
@@ -588,41 +653,63 @@ export default function Dashboard() {
                 {/* Novos Usuários */}
                 <Card className="border-border shadow-none">
                   <CardHeader className="pb-2.5 border-b border-border/60 flex flex-row items-center justify-between">
-                    <CardTitle className="text-sm font-bold">Novos Usuários no App</CardTitle>
+                    <CardTitle className="text-sm font-bold">
+                      Novos Usuários no App
+                    </CardTitle>
                     <Link to="/raffle">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-primary px-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-primary px-2"
+                      >
                         Ver Todos
                       </Button>
                     </Link>
                   </CardHeader>
                   <CardContent className="p-0 divide-y divide-border/60">
-                    {loadingPreMix ? (
-                      <div className="p-6 text-center text-xs text-muted-foreground">Carregando...</div>
-                    ) : recentUsers.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-muted-foreground">Nenhum usuário recente.</div>
+                    {carregandoPreMix ? (
+                      <div className="p-6 text-center text-xs text-muted-foreground">
+                        Carregando...
+                      </div>
+                    ) : usuariosRecentes.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-muted-foreground">
+                        Nenhum usuário recente.
+                      </div>
                     ) : (
-                      recentUsers.map((u) => {
-                        const userName = u.name || u.nome || 'Usuário PreMix';
-                        const initials = getInitials(userName);
+                      usuariosRecentes.map((usuarioRecente) => {
+                        const nomeExibicao =
+                          usuarioRecente.name ||
+                          usuarioRecente.nome ||
+                          'Usuário PreMix';
+                        const iniciais = obterIniciaisNome(nomeExibicao);
                         return (
-                          <div key={u.id} className="p-3 flex items-center justify-between gap-2">
+                          <div
+                            key={usuarioRecente.id}
+                            className="p-3 flex items-center justify-between gap-2"
+                          >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${getAvatarBg(
-                                  initials
+                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${obterCorAvatarPorIniciais(
+                                  iniciais
                                 )}`}
                               >
-                                {initials}
+                                {iniciais}
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs font-bold truncate">{userName}</p>
+                                <p className="text-xs font-bold truncate">
+                                  {nomeExibicao}
+                                </p>
                                 <p className="text-[11px] text-muted-foreground truncate">
-                                  {u.cidade || u.city || 'Cidade N/I'}
+                                  {usuarioRecente.cidade ||
+                                    usuarioRecente.city ||
+                                    'Cidade N/I'}
                                 </p>
                               </div>
                             </div>
                             <span className="text-[11px] font-semibold text-foreground shrink-0">
-                              {u.whatsapp || u.telefone || '-'}
+                              {usuarioRecente.whatsapp ||
+                                usuarioRecente.telefone ||
+                                '-'}
                             </span>
                           </div>
                         );
@@ -634,31 +721,47 @@ export default function Dashboard() {
                 {/* Resgates Pendentes */}
                 <Card className="border-border shadow-none">
                   <CardHeader className="pb-2.5 border-b border-border/60 flex flex-row items-center justify-between">
-                    <CardTitle className="text-sm font-bold">Resgates Pendentes</CardTitle>
+                    <CardTitle className="text-sm font-bold">
+                      Resgates Pendentes
+                    </CardTitle>
                     <Link to="/redemption-orders">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-primary px-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-primary px-2"
+                      >
                         Gerenciar
                       </Button>
                     </Link>
                   </CardHeader>
                   <CardContent className="p-0 divide-y divide-border/60">
-                    {loadingPreMix ? (
-                      <div className="p-6 text-center text-xs text-muted-foreground">Carregando...</div>
-                    ) : recentRedemptions.length === 0 ? (
+                    {carregandoPreMix ? (
+                      <div className="p-6 text-center text-xs text-muted-foreground">
+                        Carregando...
+                      </div>
+                    ) : resgatesRecentes.length === 0 ? (
                       <div className="p-6 text-center text-xs text-emerald-600 dark:text-emerald-400">
                         Nenhum resgate pendente de aprovação.
                       </div>
                     ) : (
-                      recentRedemptions.map((r) => (
-                        <div key={r.id} className="p-3 flex items-center justify-between gap-2">
+                      resgatesRecentes.map((resgate) => (
+                        <div
+                          key={resgate.id}
+                          className="p-3 flex items-center justify-between gap-2"
+                        >
                           <div className="min-w-0">
-                            <p className="text-xs font-bold truncate">{r.rewardTitle}</p>
+                            <p className="text-xs font-bold truncate">
+                              {resgate.rewardTitle}
+                            </p>
                             <p className="text-[11px] text-muted-foreground truncate">
-                              Por: {r.userName}
+                              Por: {resgate.userName}
                             </p>
                           </div>
-                          <Badge variant="outline" className="text-[10px] shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400">
-                            {r.pointsCost} PTS
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400"
+                          >
+                            {resgate.pointsCost} PTS
                           </Badge>
                         </div>
                       ))
@@ -674,30 +777,36 @@ export default function Dashboard() {
                       AVL Play Online
                     </CardTitle>
                     <Link to="/avlplay-analytics">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-primary px-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-primary px-2"
+                      >
                         Métricas
                       </Button>
                     </Link>
                   </CardHeader>
                   <CardContent className="p-3 space-y-2">
-                    {activeWatchers.length === 0 ? (
+                    {espectadoresAtivos.length === 0 ? (
                       <div className="py-6 text-center text-xs text-muted-foreground">
                         Ninguém assistindo no momento.
                       </div>
                     ) : (
-                      activeWatchers.slice(0, 4).map((w) => (
+                      espectadoresAtivos.slice(0, 4).map((espectador) => (
                         <div
-                          key={w.id}
+                          key={espectador.id}
                           className="p-2.5 rounded-lg border border-border/60 bg-secondary/30 text-xs"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-bold truncate">{w.userName}</span>
+                            <span className="font-bold truncate">
+                              {espectador.userName}
+                            </span>
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                           </div>
                           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                            {w.type === 'episode'
-                              ? `${w.seriesTitle} (T${w.seasonNumber}E${w.episodeNumber})`
-                              : w.title}
+                            {espectador.type === 'episode'
+                              ? `${espectador.seriesTitle} (T${espectador.seasonNumber}E${espectador.episodeNumber})`
+                              : espectador.title}
                           </p>
                         </div>
                       ))

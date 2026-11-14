@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import admin from 'firebase-admin';
 import { WhatsAppService } from './services/whatsappService';
-import { ISPFYBackendService } from './services/ispfyService';
+import { ISPFYBackendService } from './services/ixcService';
 import { AiService } from './services/aiService';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
