@@ -4,6 +4,7 @@ import axios from "axios";
 import * as https from "https";
 import { WhapiService } from "./whapiService";
 import { getIspfyConfig, getWhapiConfig } from "./config/env";
+import { IspfyBackendService, IspfyBoletoDetalhe } from "./ispfyBackendService";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -12,6 +13,22 @@ if (admin.apps.length === 0) {
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
+
+function formatDateBr(dateStr: string): string {
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const parts = dateStr.split(" ")[0].split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  }
+  return dateStr;
+}
+
+function addDaysToIso(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + days));
+  return dt.toISOString().split("T")[0];
+}
 
 /**
  * Normaliza qualquer formato de data (YYYY-MM-DD, DD/MM/YYYY, com ou sem hora) para YYYY-MM-DD
@@ -31,15 +48,7 @@ export function extractDateOnly(dateStr?: string | null): string {
  */
 export function buildCarenciaMessage(nome: string, dataCarencia: string): string {
   const firstName = (nome || "Cliente").trim().split(" ")[0] || "Cliente";
-
-  // Formatar data caso venha em YYYY-MM-DD
-  let dataFormatada = dataCarencia;
-  if (/^\d{4}-\d{2}-\d{2}/.test(dataCarencia)) {
-    const parts = dataCarencia.split(" ")[0].split("-");
-    if (parts.length === 3) {
-      dataFormatada = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-  }
+  const dataFormatada = formatDateBr(dataCarencia);
 
   return `Olá, *${firstName}*! Tudo bem? 📶
 
@@ -56,7 +65,45 @@ _Att, Equipe AVL Telecom_`;
 }
 
 /**
- * Processa todos os contratos em carência no ISPFY e dispara WhatsApp para os não notificados.
+ * Gera a mensagem D-1 de lembrete antes do término da carência com PIX Copia e Cola.
+ */
+export function buildCarenciaD1Message(
+  nome: string,
+  dataCarencia: string,
+  boleto?: IspfyBoletoDetalhe | null
+): string {
+  const firstName = (nome || "Cliente").trim().split(" ")[0] || "Cliente";
+  const dataFormatada = formatDateBr(dataCarencia);
+
+  let paymentBlock = "";
+  if (boleto) {
+    const valorNum = Number(String(boleto.valor || "0").replace(",", "."));
+    const valorFmt = Number.isFinite(valorNum) && valorNum > 0
+      ? `R$ ${valorNum.toFixed(2).replace(".", ",")}`
+      : String(boleto.valor || "");
+    paymentBlock += `\n💵 *Fatura em aberto:* ${valorFmt} (Venc.: ${formatDateBr(boleto.vencimento || dataCarencia)})`;
+    if (boleto.pix) {
+      paymentBlock += `\n\n💠 *PIX Copia e Cola:*\n${boleto.pix}`;
+    }
+    const boletoLink = boleto.linkPublico || boleto.linkInterno;
+    if (boletoLink) {
+      paymentBlock += `\n\n🔗 *Link do Boleto:*\n${boletoLink}`;
+    }
+  }
+
+  return `Olá, *${firstName}*! Tudo bem? ⏰
+
+Lembrete importante da *AVL Telecom*: sua *liberação em carência vence AMANHÃ (${dataFormatada})*. 📅
+
+⚠️ Para evitar que sua internet seja bloqueada automaticamente após o prazo, realize a quitação até amanhã!${paymentBlock}
+
+_Se você já efetuou o pagamento via PIX ou boleto hoje, pode desconsiderar este aviso. Qualquer dúvida, estamos à disposição!_`;
+}
+
+/**
+ * Processa todos os contratos em carência no ISPFY:
+ * 1) Novas carências concedidas na data de hoje (D0) -> `carencia_notifications`
+ * 2) Carências que vencem amanhã (D-1) com envio de PIX/boleto -> `carencia_d1_notifications`
  */
 export async function processIspfyCarencias(targetDate?: string) {
   console.log("Iniciando monitoramento de carências ISPFY...");
@@ -66,6 +113,7 @@ export async function processIspfyCarencias(targetDate?: string) {
 
   const db = admin.firestore();
   const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
+  const ispfyBackend = new IspfyBackendService(ispfyHost, ispfyToken);
   const results: any[] = [];
 
   try {
@@ -74,10 +122,14 @@ export async function processIspfyCarencias(targetDate?: string) {
       new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/Sao_Paulo",
       }).format(new Date());
+    const tomorrow = addDaysToIso(today, 1);
 
-    console.log(`Buscando contratos em carência (referência: ${today})...`);
+    const automationCfgSnap = await db.collection("settings").doc("ispfy_automations").get();
+    const automationCfg = automationCfgSnap.exists ? automationCfgSnap.data() || {} : {};
+    const d1Enabled = automationCfg.carenciaD1Enabled !== false;
 
-    // 1. Buscar contratos com data_final_carencia preenchida
+    console.log(`Buscando contratos em carência (D0: ${today} | D-1: ${tomorrow})...`);
+
     const response = await axios.get(
       `${ispfyHost}/api/object/cliente/contrato`,
       {
@@ -96,38 +148,59 @@ export async function processIspfyCarencias(targetDate?: string) {
       ? response.data
       : response.data?.data || response.data?.rows || [];
 
-    // Filtra APENAS contratos cuja carência foi concedida NO DIA ATUAL (today)
-    // Exatamente como o monitor de pagamentos só notifica faturas pagas no dia atual
-    const contratos = rawContratos.filter((c: any) => {
+    const clientCache = new Map<string, { name: string; phone: string | null; cpfCnpj: string | null }>();
+    const resolveClientInfo = async (idCliente: string | null) => {
+      if (!idCliente) {
+        return { name: "Cliente", phone: null as string | null, cpfCnpj: null as string | null };
+      }
+      const cached = clientCache.get(idCliente);
+      if (cached) return cached;
+
+      let clientName = "Cliente";
+      let phone: string | null = null;
+      let cpfCnpj: string | null = null;
+
+      try {
+        const cliente = await ispfyBackend.buscarClientePorId(idCliente);
+        if (cliente) {
+          clientName = cliente.nome_razao || cliente.razao || cliente.nome || "Cliente";
+          cpfCnpj = cliente.cpf_cnpj || cliente.cnpj_cpf || null;
+          phone = await ispfyBackend.resolverMelhorTelefoneCliente(cliente);
+        }
+      } catch (err: any) {
+        console.error(`Erro ao buscar dados do cliente ${idCliente}:`, err.message);
+      }
+
+      const resolved = { name: clientName, phone, cpfCnpj };
+      clientCache.set(idCliente, resolved);
+      return resolved;
+    };
+
+    // 1. Concessões de hoje (D0)
+    const contratosHoje = rawContratos.filter((c: any) => {
       const ultimaCarencia = extractDateOnly(c.data_ultima_carencia);
       const finalDate = extractDateOnly(c.data_final_carencia);
-
-      // Deve ter sido concedida na data alvo (hoje) e ter prazo final válido
-      const foiConcedidaHoje = ultimaCarencia === today;
-      const temFinalValido = finalDate && finalDate !== "0000-00-00" && finalDate >= today;
-
-      return foiConcedidaHoje && temFinalValido;
+      return ultimaCarencia === today && !!finalDate && finalDate !== "0000-00-00" && finalDate >= today;
     });
 
     console.log(
-      `${contratos.length} contrato(s) com carência concedida em ${today} (de ${rawContratos.length} contratos analisados no ISPFY).`
+      `${contratosHoje.length} contrato(s) com carência concedida em ${today} (de ${rawContratos.length} analisados).`
     );
 
-    for (const contrato of contratos) {
+    for (const contrato of contratosHoje) {
       const contratoId = String(contrato.id);
       const dataFinalCarencia = extractDateOnly(contrato.data_final_carencia);
       const idCliente = contrato.id_cliente ? String(contrato.id_cliente) : null;
 
       if (!dataFinalCarencia) continue;
 
-      // Chave única para este agendamento específico de carência
       const notificationDocId = `${contratoId}_${dataFinalCarencia}`;
       const docRef = db.collection("carencia_notifications").doc(notificationDocId);
       const docSnap = await docRef.get();
 
       if (docSnap.exists) {
-        console.log(`Carência do contrato ${contratoId} (${dataFinalCarencia}) já notificada. Pulando.`);
         results.push({
+          type: "d0",
           contratoId,
           dataFinalCarencia,
           status: "skipped",
@@ -136,67 +209,9 @@ export async function processIspfyCarencias(targetDate?: string) {
         continue;
       }
 
-      // Buscar nome do cliente e contatos
-      let clientName = "Cliente";
-      let phone: string | null = null;
-      let cpfCnpj: string | null = null;
-
-      if (idCliente) {
-        try {
-          // Busca dados do cliente
-          const clientResp = await axios.get(
-            `${ispfyHost}/api/object/cliente`,
-            {
-              headers: { Token: ispfyToken },
-              params: { filter: `id:EQ:${idCliente}`, pagination: "FALSE" },
-              timeout: 10000,
-              httpsAgent,
-            }
-          );
-          const clientes = Array.isArray(clientResp.data)
-            ? clientResp.data
-            : clientResp.data?.data || clientResp.data?.rows || [];
-          if (clientes.length > 0) {
-            clientName = clientes[0]?.nome_razao || clientes[0]?.nome || "Cliente";
-            cpfCnpj = clientes[0]?.cpf_cnpj || clientes[0]?.cnpj_cpf || null;
-            if (clientes[0]?.fone_whatsapp) {
-              phone = clientes[0].fone_whatsapp;
-            } else if (clientes[0]?.fone_celular) {
-              phone = clientes[0].fone_celular;
-            }
-          }
-
-          // Se não encontrou telefone no cliente, busca na tabela de contatos
-          if (!phone) {
-            const contatoResp = await axios.get(
-              `${ispfyHost}/api/object/cliente/contato`,
-              {
-                headers: { Token: ispfyToken },
-                params: {
-                  filter: `id_cliente:EQ:${idCliente}`,
-                  pagination: "FALSE",
-                },
-                timeout: 10000,
-                httpsAgent,
-              }
-            );
-            const contatos = Array.isArray(contatoResp.data)
-              ? contatoResp.data
-              : contatoResp.data?.data || contatoResp.data?.rows || [];
-            const validContato = contatos.find(
-              (ct: any) => ct.contato && ct.pode_enviar_mensagem !== "n"
-            );
-            if (validContato) {
-              phone = validContato.contato;
-            }
-          }
-        } catch (err: any) {
-          console.error(`Erro ao buscar dados do cliente ${idCliente}:`, err.message);
-        }
-      }
+      const { name: clientName, phone, cpfCnpj } = await resolveClientInfo(idCliente);
 
       if (!phone) {
-        console.log(`Cliente ${idCliente} sem telefone válido para contrato ${contratoId}.`);
         await docRef.set({
           contratoId,
           clienteId: idCliente,
@@ -207,18 +222,12 @@ export async function processIspfyCarencias(targetDate?: string) {
           motivo: "sem_telefone",
           processadoEm: admin.firestore.FieldValue.serverTimestamp(),
         });
-        results.push({
-          contratoId,
-          clienteId: idCliente,
-          status: "skipped",
-          reason: "no_phone",
-        });
+        results.push({ type: "d0", contratoId, clienteId: idCliente, status: "skipped", reason: "no_phone" });
         continue;
       }
 
-      // Montar mensagem e disparar
       const messageBody = buildCarenciaMessage(clientName, dataFinalCarencia);
-      console.log(`Enviando mensagem de carência para ${clientName} (${phone}) - Contrato ${contratoId}`);
+      console.log(`Enviando carência D0 para ${clientName} (${phone}) - Contrato ${contratoId}`);
 
       const sendResult = await whapiService.sendCustomMessage(phone, messageBody);
 
@@ -238,6 +247,7 @@ export async function processIspfyCarencias(targetDate?: string) {
         });
 
         results.push({
+          type: "d0",
           contratoId,
           clienteNome: clientName,
           telefone: phone,
@@ -245,7 +255,6 @@ export async function processIspfyCarencias(targetDate?: string) {
           status: "sent",
           messageId: sendResult.id,
         });
-        console.log(`✅ Notificação de carência enviada com sucesso para ${clientName}!`);
       } else {
         await docRef.set({
           contratoId,
@@ -257,18 +266,104 @@ export async function processIspfyCarencias(targetDate?: string) {
           erro: sendResult.error || "Falha no envio da mensagem",
           tentadoEm: admin.firestore.FieldValue.serverTimestamp(),
         });
-
-        results.push({
-          contratoId,
-          clienteNome: clientName,
-          status: "failed",
-          error: sendResult.error,
-        });
-        console.error(`❌ Falha ao enviar para ${clientName}:`, sendResult.error);
+        results.push({ type: "d0", contratoId, clienteNome: clientName, status: "failed", error: sendResult.error });
       }
 
-      // Intervalo de segurança anti-ban entre disparos (1.5 segundos)
       await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    // 2. Lembrete D-1 para carências que vencem amanhã
+    if (d1Enabled) {
+      const contratosVencendoAmanha = rawContratos.filter((c: any) => {
+        const finalDate = extractDateOnly(c.data_final_carencia);
+        const isAtivo = String(c.status || "").toLowerCase() !== "cancelado" && c.ativo !== false;
+        return finalDate === tomorrow && isAtivo;
+      });
+
+      console.log(`${contratosVencendoAmanha.length} contrato(s) com carência vencendo amanhã (${tomorrow}).`);
+
+      for (const contrato of contratosVencendoAmanha) {
+        const contratoId = String(contrato.id);
+        const dataFinalCarencia = extractDateOnly(contrato.data_final_carencia);
+        const idCliente = contrato.id_cliente ? String(contrato.id_cliente) : null;
+        if (!dataFinalCarencia) continue;
+
+        const d1DocId = `${contratoId}_${dataFinalCarencia}`;
+        const d1Ref = db.collection("carencia_d1_notifications").doc(d1DocId);
+        const d1Snap = await d1Ref.get();
+        if (d1Snap.exists) continue;
+
+        const { name: clientName, phone, cpfCnpj } = await resolveClientInfo(idCliente);
+        if (!phone) {
+          await d1Ref.set({
+            contratoId,
+            clienteId: idCliente,
+            clienteNome: clientName,
+            dataFinalCarencia,
+            status: "skipped",
+            motivo: "sem_telefone",
+            processadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          continue;
+        }
+
+        let firstOpenBoleto: IspfyBoletoDetalhe | null = null;
+        if (cpfCnpj) {
+          const boletos = await ispfyBackend
+            .consultarBoletosAssinante(cpfCnpj, { status: "aberto" })
+            .catch(() => []);
+          firstOpenBoleto = boletos[0] || null;
+        }
+
+        const d1Message = buildCarenciaD1Message(clientName, dataFinalCarencia, firstOpenBoleto);
+        console.log(`Enviando lembrete D-1 carência para ${clientName} (${phone}) - Contrato ${contratoId}`);
+        const sendResult = await whapiService.sendCustomMessage(phone, d1Message);
+
+        if (sendResult.sent) {
+          await d1Ref.set({
+            contratoId,
+            clienteId: idCliente,
+            clienteNome: clientName,
+            clienteCpfCnpj: cpfCnpj,
+            telefone: phone,
+            dataFinalCarencia,
+            hasPix: Boolean(firstOpenBoleto?.pix),
+            mensagem: d1Message,
+            messageId: sendResult.id || null,
+            status: "sent",
+            enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          results.push({
+            type: "d1",
+            contratoId,
+            clienteNome: clientName,
+            telefone: phone,
+            dataFinalCarencia,
+            status: "sent",
+            messageId: sendResult.id,
+          });
+        } else {
+          await d1Ref.set({
+            contratoId,
+            clienteId: idCliente,
+            clienteNome: clientName,
+            telefone: phone,
+            dataFinalCarencia,
+            status: "error",
+            erro: sendResult.error || "Falha no envio da mensagem D-1",
+            tentadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          results.push({
+            type: "d1",
+            contratoId,
+            clienteNome: clientName,
+            status: "failed",
+            error: sendResult.error,
+          });
+        }
+
+        await new Promise((r) => setTimeout(r, 1500));
+      }
     }
 
     return results;

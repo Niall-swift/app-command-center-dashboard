@@ -22,7 +22,7 @@ const ROUTE_INFO: Record<string, { title: string; subtitle: string; category?: s
   '/technical-support': { title: 'Suporte Técnico', subtitle: 'Chamados e diagnósticos de suporte técnico', category: 'Operação' },
   '/network-map': { title: 'Mapa da Rede', subtitle: 'Topologia geográfica e monitoramento de infraestrutura', category: 'Rede' },
   '/analytics': { title: 'Gráficos & BI', subtitle: 'Métricas analíticas e inteligência de dados', category: 'Analytics' },
-  '/bots': { title: 'Automação & Bots', subtitle: 'Gerenciamento de fluxos e atendimento inteligente', category: 'Automação' },
+  '/bots': { title: 'Central de Automações & Bot', subtitle: 'Bot WhatsApp, Josué IA, Régua de Cobrança, Carência e Ferramentas ISPFY', category: 'Automação' },
   '/raffle': { title: 'Sorteios PreMix', subtitle: 'Gerenciamento de sorteios gratuitos e premiados', category: 'Engajamento' },
   '/paid-raffles': { title: 'Sorteios Pagos', subtitle: 'Campanhas de bilhetes e sorteios pagos', category: 'Engajamento' },
   '/movies': { title: 'Catálogo de Filmes', subtitle: 'Gestão de filmes e acervo do AVL Play', category: 'AVL Play' },

@@ -46,7 +46,11 @@ import {
   Phone,
   RefreshCw,
   Search,
+  Send,
+  ShieldAlert,
   Users,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -215,7 +219,27 @@ export default function ISPFYClientesRegiao() {
     carregandoRegiao,
     atualizarConexoes,
     revalidarPontoAoVivo,
+    rompimentosEmMassa,
+    rompimentosConfirmados,
+    outagesMonitorados,
+    outageConfig,
+    sireneAtiva,
+    sireneSilenciada,
+    tocarSireneRompimento,
+    pararSirene,
+    ativarAlertaRompimentoRegiao,
+    resolverRompimentoRegiao,
+    enviarAlertaRompimentoGrupo,
   } = useNetworkMonitor();
+
+  const [agoraMs, setAgoraMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const temPendente = outagesMonitorados.some((w) => w.active && !w.whatsappSentAtMs);
+    if (!temPendente) return;
+    setAgoraMs(Date.now());
+    const id = setInterval(() => setAgoraMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [outagesMonitorados]);
 
   const [recarregamentoManual, setRecarregamentoManual] =
     useState<boolean>(false);
@@ -611,6 +635,216 @@ export default function ISPFYClientesRegiao() {
             </div>
           )}
         </motion.div>
+
+        {/* ── Detector de Rompimentos em Massa & Incidentes Regionais ── */}
+        {(rompimentosEmMassa.length > 0 || rompimentosConfirmados.length > 0) && (
+          <Card className="border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-rose-500/5 to-transparent shadow-md">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-bold text-foreground">
+                      Detector de Rompimentos em Massa &amp; Avisos Regionais
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Dispara alerta e sirene quando uma rua (&ge; {outageConfig.minPercentualRua}% offline, mín. {outageConfig.minClientesOfflineRua} clientes únicos) ou bairro (&ge; {outageConfig.minPercentualBairro}%, mín. {outageConfig.minClientesOfflineBairro}) concentra quedas recentes. Acima de 5 minutos contínuos e confirmação ao vivo, envia WhatsApp para <strong>EQUIPE AVL</strong>.
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs border-amber-500/40"
+                    onClick={() => tocarSireneRompimento(2)}
+                  >
+                    <Volume2 className="w-3.5 h-3.5 mr-1.5" />
+                    Testar Sirene
+                  </Button>
+                  {rompimentosEmMassa.length > 0 && (sireneAtiva || !sireneSilenciada) && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-8 text-xs font-bold animate-pulse"
+                      onClick={() => pararSirene(true)}
+                    >
+                      <VolumeX className="w-3.5 h-3.5 mr-1.5" />
+                      Parar Sirene
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {rompimentosConfirmados.map((incidente) => (
+                <div
+                  key={incidente.id}
+                  className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge className="bg-emerald-600 text-white text-[10px]">
+                        Aviso Ativo no Bot/IA
+                      </Badge>
+                      <span className="font-bold text-sm text-foreground">
+                        {incidente.bairros.join(', ')}
+                      </span>
+                      {incidente.previsaoRetorno && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Previsão: {incidente.previsaoRetorno}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {incidente.mensagem}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs shrink-0 border-emerald-500/40 hover:bg-emerald-500/20"
+                    onClick={() => resolverRompimentoRegiao(incidente.id)}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-500" />
+                    Marcar Normalizado
+                  </Button>
+                </div>
+              ))}
+
+              {rompimentosEmMassa.map((alerta) => {
+                const jaAtivo = rompimentosConfirmados.some((c) =>
+                  c.bairros.some(
+                    (b) => b.toLowerCase() === alerta.bairroLabel.toLowerCase()
+                  )
+                );
+                const watch = outagesMonitorados.find(
+                  (w) => w.incidentKey === alerta.incidentKey
+                );
+                const elapsedSec = watch?.firstDetectedAtMs
+                  ? Math.max(0, Math.floor((agoraMs - watch.firstDetectedAtMs) / 1000))
+                  : null;
+                const mins = elapsedSec !== null ? Math.floor(elapsedSec / 60) : 0;
+                const secs = elapsedSec !== null ? elapsedSec % 60 : 0;
+                const rp = alerta.ruaPrincipal;
+
+                return (
+                  <div
+                    key={alerta.incidentKey}
+                    className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-background/80 p-3.5"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {alerta.tipoAlerta === 'rua_e_bairro' && rp && (
+                          <Badge className="bg-rose-600 text-white text-[11px] font-bold">
+                            Rua: {rp.desconectados} / {rp.totalAtivos} off ({rp.percentualOffline}%)
+                          </Badge>
+                        )}
+                        <Badge
+                          variant={alerta.tipoAlerta === 'rua_e_bairro' ? 'outline' : 'destructive'}
+                          className="text-[11px] font-bold border-rose-500/40 text-rose-600 dark:text-rose-300"
+                        >
+                          Bairro: {alerta.desconectados} / {alerta.totalAtivosNoBairro} off ({alerta.percentualOffline}%)
+                        </Badge>
+                        <span className="font-bold text-sm text-foreground">
+                          {alerta.tipoAlerta === 'rua_e_bairro' && rp
+                            ? `${rp.ruaLabel} — ${alerta.bairroLabel}`
+                            : alerta.bairroLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                        {watch?.whatsappSentAtMs ? (
+                          <Badge className="bg-emerald-600/90 text-white text-[10px] gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            EQUIPE AVL notificada às{' '}
+                            {new Date(watch.whatsappSentAtMs).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </Badge>
+                        ) : watch?.whatsappBlockedReason ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/50 text-amber-700 dark:text-amber-300 text-[10px] gap-1"
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            Envio retido: {watch.whatsappBlockedReason}
+                          </Badge>
+                        ) : elapsedSec !== null ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/50 text-amber-700 dark:text-amber-300 text-[10px] gap-1"
+                          >
+                            <Clock className="w-3 h-3" />
+                            Persistência: {mins}m {String(secs).padStart(2, '0')}s / 5m 00s
+                            {typeof watch?.consecutiveHits === 'number'
+                              ? ` • ${watch.consecutiveHits}/${outageConfig.minChecagensConsecutivas} checagens`
+                              : ''}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] gap-1">
+                            <Clock className="w-3 h-3" />
+                            Iniciando contagem de 5 min para EQUIPE AVL...
+                          </Badge>
+                        )}
+                        {(alerta.offlineAntigosIgnorados ?? 0) > 0 && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {alerta.offlineAntigosIgnorados} offline antigo(s) ignorado(s)
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Ruas afetadas:{' '}
+                        {alerta.ruasAfetadas
+                          .slice(0, 4)
+                          .map(
+                            (r) =>
+                              `${r.ruaLabel} (${r.desconectados}/${r.totalAtivos} off • ${r.percentualOffline}%)`
+                          )
+                          .join(' • ')}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => {
+                          setBairroSelecionado(alerta.bairroKey);
+                          setFiltroStatus('DESCONECTADO');
+                          setPaginaAtual(1);
+                        }}
+                      >
+                        Filtrar Bairro
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs border-blue-500/40 text-blue-600 dark:text-blue-400"
+                        onClick={() => enviarAlertaRompimentoGrupo(alerta)}
+                      >
+                        <Send className="w-3.5 h-3.5 mr-1.5" />
+                        Alertar EQUIPE AVL
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={jaAtivo ? 'secondary' : 'default'}
+                        className="h-8 text-xs"
+                        disabled={jaAtivo}
+                        onClick={() => ativarAlertaRompimentoRegiao(alerta)}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                        {jaAtivo ? 'Bot já avisando' : 'Ativar Aviso no Bot/IA'}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── 4 KPIs do Recorte Selecionado ───────────────────────── */}
         {dadosRegiao && (

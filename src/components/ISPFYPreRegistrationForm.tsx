@@ -1,20 +1,41 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import axios from 'axios';
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, UserPlus, Wifi } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, UserPlus, Wifi, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/config/firebase';
+import { ispfyService } from '@/services/ispfy/ispfyService';
 import type { UserDetails } from '@/types/dashboard';
-import type { ISPFYContactData, ISPFYPreRegistrationFormData } from '@/types/ispfy';
 
 interface ISPFYPreRegistrationFormProps {
   userDetails: UserDetails;
@@ -33,17 +54,28 @@ const ispfySchema = z.object({
   bairro: z.string().min(2, 'Bairro é obrigatório'),
   cep: z.string().min(8, 'CEP é obrigatório'),
   cidade: z.string().min(2, 'Cidade é obrigatória'),
+  cidade_id: z.string().optional(),
   observacoes: z.string().optional(),
-  // Campos para configuração da API
-  host: z.string().url('URL da API é obrigatória').default('https://192.168.27.90/webservice/v1'),
-  token: z.string().min(1, 'Token da API é obrigatório'),
+  abrir_os_instalacao: z.boolean().default(true),
+  assunto_os: z.string().optional(),
 });
 
 type ISPFYFormData = z.infer<typeof ispfySchema>;
 
-export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISPFYPreRegistrationFormProps) {
+interface IspfyCityOption {
+  id: string;
+  razao: string;
+  nome_fantasia: string;
+}
+
+export default function ISPFYPreRegistrationForm({
+  userDetails,
+  requestId,
+}: ISPFYPreRegistrationFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [cities, setCities] = useState<IspfyCityOption[]>([]);
+  const [loadingCities, setLoadingCities] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<ISPFYFormData>({
@@ -58,73 +90,108 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
       bairro: '',
       cep: userDetails.cep || '',
       cidade: userDetails.city || '',
+      cidade_id: '',
       observacoes: '',
-      host: 'https://192.168.27.90/webservice/v1',
-      token: '',
+      abrir_os_instalacao: true,
+      assunto_os: 'Instalação de Internet Fibra Óptica',
     },
   });
+
+  useEffect(() => {
+    if (!isOpen || cities.length > 0) return;
+    setLoadingCities(true);
+    ispfyService
+      .getFiliais()
+      .then((rows) => {
+        setCities(rows || []);
+        if (rows?.length && !form.getValues('cidade_id')) {
+          const match = rows.find((c) =>
+            (c.nome_fantasia || c.razao || '')
+              .toLowerCase()
+              .includes((userDetails.city || '').toLowerCase())
+          );
+          if (match) {
+            form.setValue('cidade_id', String(match.id));
+            form.setValue('cidade', match.nome_fantasia || match.razao || userDetails.city || '');
+          }
+        }
+      })
+      .catch((err) => console.warn('Aviso ao carregar cidades ISPFY:', err))
+      .finally(() => setLoadingCities(false));
+  }, [isOpen, cities.length, form, userDetails.city]);
 
   const handleISPFYPreRegistration = async (data: ISPFYFormData) => {
     setIsLoading(true);
 
     try {
-      // Mapear dados do formulário para o formato esperado pela API do ISPFY
-      const ispfyData: ISPFYContactData = {
-        principal: 'N',
-        nome: data.nome,
+      const cpfDigits = data.cnpj_cpf.replace(/\D/g, '');
+      const phoneDigits = data.telefone.replace(/\D/g, '');
+      const cepDigits = data.cep.replace(/\D/g, '');
+
+      const payload: Record<string, unknown> = {
+        nome_razao: data.nome.trim(),
+        razao: data.nome.trim(),
+        nome: data.nome.trim(),
         tipo_pessoa: data.tipo_pessoa,
-        cnpj_cpf: data.cnpj_cpf,
-        fone_whatsapp: data.telefone,
-        fone_celular: data.telefone,
-        fone_residencial: data.telefone,
-        email: data.email || '',
-        endereco: data.endereco,
-        bairro: data.bairro,
-        cep: data.cep,
-        cidade: data.cidade,
-        obs: data.observacoes || '',
-        lead: 'S',
-        ativo: 'S',
+        cpf_cnpj: cpfDigits,
+        cnpj_cpf: cpfDigits,
+        fone_whatsapp: phoneDigits,
+        fone_celular: phoneDigits,
+        email: data.email || undefined,
+        endereco: data.endereco.trim(),
+        bairro: data.bairro.trim(),
+        cep: cepDigits,
+        cidade: data.cidade.trim(),
+        ...(data.cidade_id ? { id_cidade: data.cidade_id } : {}),
+        observacao:
+          data.observacoes?.trim() ||
+          `Lead convertido da solicitação #${requestId} via AVL Command Center`,
       };
 
-      console.log('Dados para envio ao ISPFY:', ispfyData);
-
-      // Chamada real para a API do ISPFY
-      const response = await axios.post(`${data.host}/contato`, ispfyData, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${data.token}`,
-          'ispfysoft': data.token, // ISPFY pode usar este header também
-        },
-        timeout: 30000, // 30 segundos de timeout
+      const actionFn = httpsCallable<
+        Record<string, unknown>,
+        {
+          success?: boolean;
+          created?: { id?: string; message?: string };
+          ticketResult?: { id?: string };
+        }
+      >(functions, 'ispfyToolActions');
+      const res = await actionFn({
+        action: 'create_lead_client',
+        payload,
+        openInstallTicket: data.abrir_os_instalacao,
+        ticketAssunto: data.assunto_os?.trim() || 'Instalação de Novo Assinante',
+        ticketDescricao: data.observacoes?.trim()
+          ? `Instalação para ${data.nome} — ${data.endereco}, ${data.bairro} (${data.cidade}). Obs: ${data.observacoes}`
+          : `Instalação para ${data.nome} — ${data.endereco}, ${data.bairro} (${data.cidade}).`,
       });
 
-      console.log('Resposta da API ISPFY:', response.data);
+      const result = res.data;
+      if (!result?.success) {
+        throw new Error(result?.created?.message || 'Erro ao cadastrar cliente no ISPFY.');
+      }
+
+      const clientIdLabel = result.created?.id ? ` (ID #${result.created.id})` : '';
+      const ticketLabel = result.ticketResult?.id
+        ? ` e O.S. de instalação #${result.ticketResult.id} aberta`
+        : '';
 
       toast({
-        title: "Pré-cadastro ISPFY realizado com sucesso!",
-        description: `Cliente ${data.nome} foi cadastrado no sistema ISPFY como lead`,
+        title: 'Cliente cadastrado direto no ISPFY!',
+        description: `${data.nome}${clientIdLabel} integrado com sucesso${ticketLabel}.`,
       });
 
       setIsOpen(false);
       form.reset();
-    } catch (error) {
-      console.error('Erro na chamada da API ISPFY:', error);
-      
-      let errorMessage = "Não foi possível realizar o cadastro no ISPFY. Tente novamente.";
-      
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          errorMessage = `Erro da API ISPFY: ${error.response.status} - ${error.response.data?.message || error.response.statusText}`;
-        } else if (error.request) {
-          errorMessage = "Erro de conexão com a API ISPFY. Verifique a URL e conectividade.";
-        }
-      }
-
+    } catch (error: unknown) {
+      console.error('Erro ao cadastrar assinante no ISPFY:', error);
       toast({
-        title: "Erro no pré-cadastro ISPFY",
-        description: errorMessage,
-        variant: "destructive",
+        title: 'Erro no cadastro ISPFY',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Não foi possível concluir a integração automática no ISPFY.',
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
@@ -134,69 +201,35 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button
-          size="sm"
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
+        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
           <UserPlus className="w-4 h-4 mr-1" />
-          Cadastrar ISPFY
+          Cadastrar no ISPFY
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wifi className="w-5 h-5 text-blue-600" />
-            Pré-cadastro ISPFYSoft
+            Cadastro Direto no ISPFY (Lead → Assinante)
           </DialogTitle>
           <DialogDescription>
-            Cadastre o cliente {userDetails.name} no sistema ISPFY como lead
+            Integre {userDetails.name} diretamente na base do ISPFY sem digitar tokens ou IPs, com opção de abrir O.S. de instalação automaticamente.
           </DialogDescription>
         </DialogHeader>
-        
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleISPFYPreRegistration)} className="space-y-4">
-            <motion.div 
+            <motion.div
               className="space-y-4"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.25 }}
             >
-              {/* Configuração da API */}
-              <div className="p-4 bg-gray-50 rounded-lg border">
-                <h3 className="font-semibold text-gray-900 mb-3">Configuração da API ISPFY</h3>
-                <div className="grid grid-cols-1 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="host"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>URL da API ISPFY *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="https://seu-servidor.com/webservice/v1" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="token"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Token da API *</FormLabel>
-                        <FormControl>
-                          <Input 
-                            type="password" 
-                            placeholder="Seu token de acesso à API ISPFY" 
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+              <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20 flex items-center gap-2.5 text-xs text-blue-800 dark:text-blue-200">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  Conexão segura automática via servidor Cloud Functions (`POST /api/tool/cliente/novo`).
+                </span>
               </div>
 
               {/* Dados do cliente */}
@@ -206,7 +239,7 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                   name="nome"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nome Completo *</FormLabel>
+                      <FormLabel>Nome Completo / Razão Social *</FormLabel>
                       <FormControl>
                         <Input placeholder="Nome completo do cliente" {...field} />
                       </FormControl>
@@ -242,7 +275,7 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                   name="cnpj_cpf"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>CPF/CNPJ *</FormLabel>
+                      <FormLabel>CPF / CNPJ *</FormLabel>
                       <FormControl>
                         <Input placeholder="000.000.000-00" {...field} />
                       </FormControl>
@@ -256,7 +289,7 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                   name="telefone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Telefone/WhatsApp *</FormLabel>
+                      <FormLabel>Telefone / WhatsApp *</FormLabel>
                       <FormControl>
                         <Input placeholder="(00) 00000-0000" {...field} />
                       </FormControl>
@@ -323,19 +356,62 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="cidade"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cidade *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Nome da cidade" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {cities.length > 0 ? (
+                  <FormField
+                    control={form.control}
+                    name="cidade_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cidade / Filial ISPFY *</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={(val) => {
+                            field.onChange(val);
+                            const found = cities.find((c) => String(c.id) === val);
+                            if (found) {
+                              form.setValue('cidade', found.nome_fantasia || found.razao || '');
+                            }
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  loadingCities ? 'Carregando cidades...' : 'Selecione a cidade'
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {cities.map((c) => (
+                              <SelectItem key={c.id} value={String(c.id)}>
+                                {c.nome_fantasia || c.razao}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <FormField
+                    control={form.control}
+                    name="cidade"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cidade *</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={loadingCities ? 'Carregando cidades...' : 'Nome da cidade'}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </div>
 
               <FormField
@@ -345,10 +421,10 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                   <FormItem>
                     <FormLabel>Observações</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        placeholder="Observações adicionais sobre o cliente ou solicitação"
-                        className="min-h-[80px]"
-                        {...field} 
+                      <Textarea
+                        placeholder="Ponto de referência, melhor horário de instalação, CTO próxima..."
+                        className="min-h-[75px]"
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -356,7 +432,42 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                 )}
               />
 
-              <div className="flex gap-2 pt-4">
+              <div className="p-3.5 rounded-lg border bg-muted/40 space-y-3">
+                <FormField
+                  control={form.control}
+                  name="abrir_os_instalacao"
+                  render={({ field }) => (
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold">
+                          Abrir O.S. de Instalação automaticamente no ISPFY
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Gera o ticket técnico vinculado ao novo assinante logo após o cadastro.
+                        </p>
+                      </div>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </div>
+                  )}
+                />
+
+                {form.watch('abrir_os_instalacao') && (
+                  <FormField
+                    control={form.control}
+                    name="assunto_os"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Assunto da O.S.</FormLabel>
+                        <FormControl>
+                          <Input className="h-8 text-xs" {...field} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -369,12 +480,12 @@ export default function ISPFYPreRegistrationForm({ userDetails, requestId }: ISP
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                 >
                   {isLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Cadastrando...
+                      Integrando ao ISPFY...
                     </>
                   ) : (
                     <>

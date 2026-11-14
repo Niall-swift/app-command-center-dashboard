@@ -3,21 +3,32 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '@/config/firebase';
 import { ispfyService } from '@/services/ispfy/ispfyService';
+import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import {
+  DEFAULT_OUTAGE_DETECTION_CONFIG,
   agregarResumosPorRegiao,
   classificarSaudeConexaoPonto,
+  detectarRompimentosEmMassa,
   detectarTransicoesConexao,
 } from '@/services/ispfy/regionAuditHelpers';
 import type {
+  ISPFYActiveRegionOutage,
   ISPFYClientsByRegionResult,
   ISPFYConnectionTransitionEvent,
   ISPFYLivePointStatus,
+  ISPFYMassOutageAlert,
+  ISPFYOutageDetectionConfig,
+  ISPFYOutageWatchRecord,
   ISPFYOverdueAnalyticsResult,
 } from '@/types/ispfy';
 
@@ -28,6 +39,7 @@ const CHAVE_PREF_MONITOR = 'avl_network_monitor_enabled';
 const CHAVE_EVENTOS_SESSAO = 'avl_network_monitor_events_v1';
 const MAX_EVENTOS_ARMAZENADOS = 60;
 const FREQUENCIAS_BIP_ALERTA_NOC = [880, 587.33, 880];
+const ID_GRUPO_EQUIPE_AVL = '120363040961050323-group';
 
 /** Contrato público exposto pelo monitor global de rede em tempo real. */
 interface ContextoMonitorRede {
@@ -41,9 +53,15 @@ interface ContextoMonitorRede {
   eventosRecentes: ISPFYConnectionTransitionEvent[];
   quedasNaoLidas: number;
   somAtivo: boolean;
+  sireneAtiva: boolean;
+  sireneSilenciada: boolean;
   monitorAtivo: boolean;
   intervaloVerificacaoSeg: number;
   permissaoNotificacao: NotificationPermission | 'unsupported';
+  outageConfig: ISPFYOutageDetectionConfig;
+  rompimentosEmMassa: ISPFYMassOutageAlert[];
+  rompimentosConfirmados: ISPFYActiveRegionOutage[];
+  outagesMonitorados: ISPFYOutageWatchRecord[];
   solicitarPermissaoNotificacao: () => Promise<boolean>;
   atualizarConexoes: (forcar?: boolean) => Promise<void>;
   atualizarInadimplencia: (forcar?: boolean) => Promise<void>;
@@ -57,6 +75,14 @@ interface ContextoMonitorRede {
   alternarSom: () => void;
   alternarMonitor: () => void;
   tocarSomAlertaQueda: () => void;
+  tocarSireneRompimento: (cycles?: number) => void;
+  pararSirene: (silenciarIncidenteAtual?: boolean) => void;
+  ativarAlertaRompimentoRegiao: (
+    alerta: ISPFYMassOutageAlert,
+    previsaoRetorno?: string
+  ) => Promise<boolean>;
+  resolverRompimentoRegiao: (outageId: string) => Promise<boolean>;
+  enviarAlertaRompimentoGrupo: (alerta: ISPFYMassOutageAlert) => Promise<boolean>;
 }
 
 const ContextoMonitorRedeReact = createContext<ContextoMonitorRede | undefined>(
@@ -158,6 +184,25 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       ? Notification.permission
       : 'unsupported'
   );
+  const [rompimentosConfirmados, setRompimentosConfirmados] = useState<
+    ISPFYActiveRegionOutage[]
+  >([]);
+  const [outagesMonitorados, setOutagesMonitorados] = useState<
+    ISPFYOutageWatchRecord[]
+  >([]);
+  const [outageConfig, setOutageConfig] = useState<ISPFYOutageDetectionConfig>(
+    DEFAULT_OUTAGE_DETECTION_CONFIG
+  );
+  const [sireneAtiva, setSireneAtiva] = useState<boolean>(false);
+  const [sireneSilenciada, setSireneSilenciada] = useState<boolean>(false);
+  const chavesAlertadasSessaoRef = useRef<Set<string>>(new Set());
+  const sireneSilenciadaRef = useRef<boolean>(false);
+  const sireneOscsRef = useRef<OscillatorNode[]>([]);
+  const sireneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sireneLoopIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sincronizandoOutageRef = useRef<boolean>(false);
+  const lastSyncedDigestRef = useRef<string>('');
+  const qtdWatchesAtivosRef = useRef<number>(0);
 
   const dadosRegiaoRef = useRef<ISPFYClientsByRegionResult | null>(null);
   const dadosInadimplenciaRef = useRef<ISPFYOverdueAnalyticsResult | null>(null);
@@ -178,6 +223,10 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
     somAtivoRef.current = somAtivo;
   }, [somAtivo]);
 
+  useEffect(() => {
+    sireneSilenciadaRef.current = sireneSilenciada;
+  }, [sireneSilenciada]);
+
   // Libera AudioContext na primeira interação do usuário para evitar bloqueio de autoplay
   useEffect(() => {
     const liberarAudio = () => {
@@ -190,6 +239,38 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       window.removeEventListener('keydown', liberarAudio);
     };
   }, []);
+
+  const pararNosOsciladoresSirene = useCallback(() => {
+    if (sireneTimeoutRef.current) {
+      clearTimeout(sireneTimeoutRef.current);
+      sireneTimeoutRef.current = null;
+    }
+    sireneOscsRef.current.forEach((osc) => {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch {
+        // oscilador já encerrado
+      }
+    });
+    sireneOscsRef.current = [];
+  }, []);
+
+  const pararSirene = useCallback(
+    (silenciarIncidenteAtual = true) => {
+      pararNosOsciladoresSirene();
+      if (sireneLoopIntervalRef.current) {
+        clearInterval(sireneLoopIntervalRef.current);
+        sireneLoopIntervalRef.current = null;
+      }
+      setSireneAtiva(false);
+      if (silenciarIncidenteAtual) {
+        sireneSilenciadaRef.current = true;
+        setSireneSilenciada(true);
+      }
+    },
+    [pararNosOsciladoresSirene]
+  );
 
   const tocarSomAlertaQueda = useCallback(() => {
     try {
@@ -206,10 +287,10 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
         ganho.connect(contextoAudio.destination);
 
         const inicio = instanteAtual + indice * 0.14;
-        const duracao = 0.12;
+        const duracao = 0.14;
         oscilador.frequency.setValueAtTime(frequencia, inicio);
         ganho.gain.setValueAtTime(0.001, inicio);
-        ganho.gain.linearRampToValueAtTime(0.28, inicio + 0.015);
+        ganho.gain.linearRampToValueAtTime(0.45, inicio + 0.015);
         ganho.gain.exponentialRampToValueAtTime(0.001, inicio + duracao);
         oscilador.start(inicio);
         oscilador.stop(inicio + duracao);
@@ -218,6 +299,100 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       console.warn('Não foi possível reproduzir alerta sonoro:', erroAudio);
     }
   }, []);
+
+  /**
+   * Sirene sonora alta e contínua de emergência NOC para possíveis rompimentos em massa.
+   * Utiliza oscilador duplo (sawtooth + square) com compressor dinâmico para máxima clareza auditiva.
+   */
+  const tocarSireneRompimento = useCallback(
+    (cycles = 3) => {
+      try {
+        const contextoAudio = obterOuCriarAudioContext(audioCtxRef);
+        if (!contextoAudio) return;
+
+        pararNosOsciladoresSirene();
+
+        const qtdCiclos = Math.min(6, Math.max(1, cycles));
+        const duracaoCicloSeg = 1.25;
+        const duracaoTotalSeg = qtdCiclos * duracaoCicloSeg;
+        const agora = contextoAudio.currentTime;
+
+        const compressor = contextoAudio.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-16, agora);
+        compressor.knee.setValueAtTime(6, agora);
+        compressor.ratio.setValueAtTime(12, agora);
+        compressor.attack.setValueAtTime(0.003, agora);
+        compressor.release.setValueAtTime(0.15, agora);
+
+        const masterGain = contextoAudio.createGain();
+        masterGain.gain.setValueAtTime(0.001, agora);
+        masterGain.gain.linearRampToValueAtTime(0.92, agora + 0.06);
+        masterGain.gain.setValueAtTime(0.92, Math.max(agora + 0.08, agora + duracaoTotalSeg - 0.12));
+        masterGain.gain.exponentialRampToValueAtTime(0.001, agora + duracaoTotalSeg);
+
+        const oscPrincipal = contextoAudio.createOscillator();
+        const oscHarmonica = contextoAudio.createOscillator();
+        const subGain = contextoAudio.createGain();
+        subGain.gain.setValueAtTime(0.42, agora);
+
+        oscPrincipal.type = 'sawtooth';
+        oscHarmonica.type = 'square';
+
+        for (let c = 0; c < qtdCiclos; c++) {
+          const t0 = agora + c * duracaoCicloSeg;
+          const tMeio = t0 + duracaoCicloSeg * 0.52;
+          const tFim = t0 + duracaoCicloSeg;
+
+          oscPrincipal.frequency.setValueAtTime(620, t0);
+          oscPrincipal.frequency.linearRampToValueAtTime(1380, tMeio);
+          oscPrincipal.frequency.linearRampToValueAtTime(620, tFim);
+
+          oscHarmonica.frequency.setValueAtTime(930, t0);
+          oscHarmonica.frequency.linearRampToValueAtTime(690, tMeio);
+          oscHarmonica.frequency.linearRampToValueAtTime(930, tFim);
+        }
+
+        oscPrincipal.connect(compressor);
+        oscHarmonica.connect(subGain);
+        subGain.connect(compressor);
+        compressor.connect(masterGain);
+        masterGain.connect(contextoAudio.destination);
+
+        oscPrincipal.start(agora);
+        oscHarmonica.start(agora);
+        oscPrincipal.stop(agora + duracaoTotalSeg + 0.02);
+        oscHarmonica.stop(agora + duracaoTotalSeg + 0.02);
+
+        sireneOscsRef.current = [oscPrincipal, oscHarmonica];
+        setSireneAtiva(true);
+
+        sireneTimeoutRef.current = setTimeout(() => {
+          sireneOscsRef.current = [];
+          sireneTimeoutRef.current = null;
+          setSireneAtiva(false);
+        }, duracaoTotalSeg * 1000 + 80);
+      } catch (erroAudio) {
+        console.warn('Não foi possível reproduzir sirene NOC:', erroAudio);
+      }
+    },
+    [pararNosOsciladoresSirene]
+  );
+
+  useEffect(() => {
+    if (!somAtivo) {
+      pararSirene(false);
+    }
+  }, [somAtivo, pararSirene]);
+
+  useEffect(() => {
+    return () => {
+      pararNosOsciladoresSirene();
+      if (sireneLoopIntervalRef.current) {
+        clearInterval(sireneLoopIntervalRef.current);
+        sireneLoopIntervalRef.current = null;
+      }
+    };
+  }, [pararNosOsciladoresSirene]);
 
   const solicitarPermissaoNotificacao = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -560,6 +735,367 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
     });
   }, []);
 
+  // Sincroniza incidentes de rompimento regional confirmados no Firestore (`active_region_outages`)
+  useEffect(() => {
+    const q = query(
+      collection(db, 'active_region_outages'),
+      where('ativa', '==', true)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: ISPFYActiveRegionOutage[] = snap.docs.map((d) => {
+          const raw = d.data() || {};
+          const bairros = Array.isArray(raw.bairros)
+            ? raw.bairros.map(String)
+            : raw.bairro
+            ? [String(raw.bairro)]
+            : [];
+          return {
+            id: d.id,
+            ativo: raw.ativa !== false && raw.ativo !== false,
+            bairros,
+            cidade: raw.cidade ? String(raw.cidade) : null,
+            titulo: String(raw.titulo || raw.motivo || 'Manutenção Regional'),
+            mensagem: String(
+              raw.mensagem || raw.motivo || 'Equipe técnica em atuação na região.'
+            ),
+            previsaoRetorno: raw.previsao || raw.previsaoRetorno || null,
+            updatedAt: raw.updatedAt,
+          };
+        });
+        setRompimentosConfirmados(list);
+      },
+      () => {
+        // Permissão ou ausência inicial não-bloqueante
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Sincroniza critérios anti-falso-positivo configurados em settings/ispfy_automations
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'ispfy_automations'),
+      (snap) => {
+        if (!snap.exists()) return;
+        const raw = (snap.data()?.outageConfig || {}) as Partial<ISPFYOutageDetectionConfig>;
+        setOutageConfig({
+          ...DEFAULT_OUTAGE_DETECTION_CONFIG,
+          ...raw,
+        });
+      },
+      () => {
+        // fallback silencioso para critérios padrão
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const rompimentosEmMassa = useMemo(
+    () => (dadosRegiao ? detectarRompimentosEmMassa(dadosRegiao.records, outageConfig) : []),
+    [dadosRegiao, outageConfig]
+  );
+
+  // Escuta incidentes em observação (> 5 min para envio automático ao grupo EQUIPE AVL)
+  useEffect(() => {
+    const q = query(
+      collection(db, 'outage_watch'),
+      where('active', '==', true)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: ISPFYOutageWatchRecord[] = snap.docs.map((d) => {
+          const data = d.data() as Omit<ISPFYOutageWatchRecord, 'incidentKey'>;
+          return {
+            ...data,
+            incidentKey: d.id,
+          };
+        });
+        qtdWatchesAtivosRef.current = list.length;
+        setOutagesMonitorados(list);
+      },
+      (err) => {
+        console.warn('Listener outage_watch indisponível:', err.message);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Reporta snapshot atual de rompimentos ao backend apenas 1x por ciclo de atualização
+  const fetchedAtSnapshot = dadosRegiao?.fetchedAt || '';
+  useEffect(() => {
+    if (!fetchedAtSnapshot) return;
+    if (rompimentosEmMassa.length === 0 && qtdWatchesAtivosRef.current === 0) return;
+
+    const digest = `${fetchedAtSnapshot}|${rompimentosEmMassa
+      .map((r) => `${r.incidentKey}:${r.desconectados}:${r.ruaPrincipal?.desconectados ?? 0}`)
+      .join(',')}`;
+    if (lastSyncedDigestRef.current === digest || sincronizandoOutageRef.current) {
+      return;
+    }
+
+    lastSyncedDigestRef.current = digest;
+    sincronizandoOutageRef.current = true;
+    const callable = httpsCallable<
+      {
+        fullScan: boolean;
+        source: string;
+        observedAlerts: ISPFYMassOutageAlert[];
+      },
+      { whatsappSentKeys?: string[] }
+    >(functions, 'syncMassOutageWatch');
+
+    callable({
+      fullScan: true,
+      source: 'frontend_poll',
+      observedAlerts: rompimentosEmMassa,
+    })
+      .then((res) => {
+        const enviados = res.data?.whatsappSentKeys || [];
+        if (enviados.length > 0) {
+          toast.success(
+            `📲 Alerta automático enviado para o grupo EQUIPE AVL (${enviados.length} rompimento(s) > 5 min)`
+          );
+        }
+      })
+      .catch((err) => {
+        lastSyncedDigestRef.current = '';
+        console.warn('Falha ao sincronizar outage_watch:', err);
+      })
+      .finally(() => {
+        sincronizandoOutageRef.current = false;
+      });
+  }, [fetchedAtSnapshot, rompimentosEmMassa]);
+
+  // Agenda rechecagem ao vivo exatamente quando o primeiro incidente completar 5 minutos contínuos
+  useEffect(() => {
+    const pendentes = outagesMonitorados.filter(
+      (w) => w.active && !w.whatsappSentAtMs && w.firstDetectedAtMs > 0
+    );
+    if (pendentes.length === 0) return;
+
+    const earliestStart = Math.min(...pendentes.map((w) => w.firstDetectedAtMs));
+    const alvoMs = earliestStart + 5 * 60 * 1000 + 2000;
+    const delayMs = alvoMs - Date.now();
+    if (delayMs <= 0 || delayMs > 6 * 60 * 1000) return;
+
+    const timer = setTimeout(() => {
+      atualizarConexoes(true);
+    }, delayMs);
+    return () => clearTimeout(timer);
+  }, [outagesMonitorados, atualizarConexoes]);
+
+  // Toast NOC automático + Sirene sonora alta ao detectar rompimento de rua/bairro
+  useEffect(() => {
+    if (rompimentosEmMassa.length === 0) {
+      chavesAlertadasSessaoRef.current.clear();
+      sireneSilenciadaRef.current = false;
+      setSireneSilenciada(false);
+      pararSirene(false);
+      return;
+    }
+
+    let detectouNovoRompimento = false;
+    for (const alerta of rompimentosEmMassa) {
+      if (!chavesAlertadasSessaoRef.current.has(alerta.incidentKey)) {
+        chavesAlertadasSessaoRef.current.add(alerta.incidentKey);
+        detectouNovoRompimento = true;
+        if (dadosRegiaoRef.current) {
+          const rp = alerta.ruaPrincipal;
+          const tituloToast =
+            alerta.tipoAlerta === 'rua_e_bairro' && rp
+              ? `🚨 Rompimento: ${rp.ruaLabel} — ${alerta.bairroLabel}`
+              : `🚨 Possível Rompimento em Massa: ${alerta.bairroLabel}`;
+          const descToast =
+            rp && alerta.tipoAlerta === 'rua_e_bairro'
+              ? `Rua: ${rp.desconectados}/${rp.totalAtivos} off (${rp.percentualOffline}%) • Bairro: ${alerta.desconectados}/${alerta.totalAtivosNoBairro} off (${alerta.percentualOffline}%)`
+              : `${alerta.desconectados}/${alerta.totalAtivosNoBairro} clientes offline (${alerta.percentualOffline}%). Ruas: ${alerta.ruasAfetadas
+                  .slice(0, 2)
+                  .map((r) => r.ruaLabel)
+                  .join(', ')}`;
+
+          toast.error(tituloToast, {
+            description: descToast,
+            duration: 15000,
+            action: {
+              label: 'Ver Região',
+              onClick: () =>
+                navegarRef.current(
+                  `/ispfy/regiao?status=DESCONECTADO&bairro=${encodeURIComponent(
+                    alerta.bairroKey
+                  )}`
+                ),
+            },
+          });
+
+          if (
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted'
+          ) {
+            try {
+              new Notification(tituloToast, {
+                body: descToast,
+                tag: `avl-rompimento-${alerta.incidentKey}`,
+              });
+            } catch {
+              // navegador bloqueou notificação em segundo plano
+            }
+          }
+        }
+      }
+    }
+
+    if (detectouNovoRompimento) {
+      sireneSilenciadaRef.current = false;
+      setSireneSilenciada(false);
+      if (somAtivoRef.current) {
+        tocarSireneRompimento(3);
+      }
+    }
+  }, [rompimentosEmMassa, pararSirene, tocarSireneRompimento]);
+
+  // Repete pulsos da sirene a cada 18s enquanto o rompimento estiver ativo e não silenciado
+  useEffect(() => {
+    if (sireneLoopIntervalRef.current) {
+      clearInterval(sireneLoopIntervalRef.current);
+      sireneLoopIntervalRef.current = null;
+    }
+
+    if (rompimentosEmMassa.length === 0 || !somAtivo || sireneSilenciada) {
+      return;
+    }
+
+    sireneLoopIntervalRef.current = setInterval(() => {
+      if (somAtivoRef.current && !sireneSilenciadaRef.current) {
+        tocarSireneRompimento(2);
+      }
+    }, 18000);
+
+    return () => {
+      if (sireneLoopIntervalRef.current) {
+        clearInterval(sireneLoopIntervalRef.current);
+        sireneLoopIntervalRef.current = null;
+      }
+    };
+  }, [rompimentosEmMassa.length, somAtivo, sireneSilenciada, tocarSireneRompimento]);
+
+  const ativarAlertaRompimentoRegiao = useCallback(
+    async (alerta: ISPFYMassOutageAlert, previsaoRetorno?: string) => {
+      try {
+        const callable = httpsCallable(functions, 'ispfyToolActions');
+        const topRuas = alerta.ruasAfetadas
+          .slice(0, 3)
+          .map((r) => r.ruaLabel)
+          .join(', ');
+        await callable({
+          action: 'set_region_outage',
+          bairros: [alerta.bairroLabel],
+          titulo: `Instabilidade / Rompimento de Fibra em ${alerta.bairroLabel}`,
+          mensagem: `Detectamos uma interrupção de sinal na região de ${alerta.bairroLabel}${
+            topRuas ? ` (${topRuas})` : ''
+          }. Nossa equipe técnica já está mobilizada no local.`,
+          previsaoRetorno: previsaoRetorno || 'Em verificação em campo',
+          clientesAfetados: alerta.desconectados,
+        });
+        toast.success(
+          `Aviso automático no WhatsApp/Josué ativado para ${alerta.bairroLabel}!`
+        );
+        return true;
+      } catch (err: unknown) {
+        toast.error(
+          err instanceof Error ? err.message : 'Erro ao registrar rompimento no Firestore.'
+        );
+        return false;
+      }
+    },
+    []
+  );
+
+  const resolverRompimentoRegiao = useCallback(async (outageId: string) => {
+    try {
+      const callable = httpsCallable(functions, 'ispfyToolActions');
+      await callable({
+        action: 'set_region_outage',
+        id: outageId,
+        resolve: true,
+      });
+      toast.success('Incidente regional marcado como normalizado!');
+      return true;
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao encerrar incidente regional.');
+      return false;
+    }
+  }, []);
+
+  const enviarAlertaRompimentoGrupo = useCallback(
+    async (alerta: ISPFYMassOutageAlert) => {
+      try {
+        const callable = httpsCallable<
+          {
+            fullScan: boolean;
+            source: string;
+            observedAlerts: ISPFYMassOutageAlert[];
+            forceSendIncidentKey: string;
+          },
+          { whatsappSentKeys?: string[] }
+        >(functions, 'syncMassOutageWatch');
+        const callRes = await callable({
+          fullScan: false,
+          source: 'manual_button',
+          observedAlerts: [alerta],
+          forceSendIncidentKey: alerta.incidentKey,
+        });
+
+        if (callRes.data?.whatsappSentKeys?.includes(alerta.incidentKey)) {
+          toast.success('Alerta enviado para o grupo EQUIPE AVL!');
+          return true;
+        }
+      } catch (cloudErr) {
+        console.warn('Fallback Z-API direto após erro na função:', cloudErr);
+      }
+
+      try {
+        const equipeAvlGroup =
+          DEFAULT_AVL_WHATSAPP_GROUPS.find((g) => g.phone === ID_GRUPO_EQUIPE_AVL) ||
+          DEFAULT_AVL_WHATSAPP_GROUPS[1] ||
+          DEFAULT_AVL_WHATSAPP_GROUPS[0];
+        const rp = alerta.ruaPrincipal;
+        const ruasTxt = alerta.ruasAfetadas
+          .slice(0, 5)
+          .map(
+            (r) =>
+              `• ${r.ruaLabel}: *${r.desconectados}* off de ${r.totalAtivos} (*${r.percentualOffline}%*)`
+          )
+          .join('\n');
+        const msg =
+          `🚨 *ALERTA NOC AVL — POSSÍVEL ROMPIMENTO*\n\n` +
+          `📍 *Bairro:* ${alerta.bairroLabel}\n` +
+          (rp
+            ? `🛣️ *Rua:* ${rp.ruaLabel}\n` +
+              `👥 *Na Rua:* *${rp.desconectados}* offline de *${rp.totalAtivos}* clientes (*${rp.percentualOffline}%*)\n`
+            : '') +
+          `🏘️ *No Bairro (${alerta.bairroLabel}):* *${alerta.desconectados}* offline de *${alerta.totalAtivosNoBairro}* clientes (*${alerta.percentualOffline}%*)\n` +
+          (ruasTxt ? `\n📌 *Detalhamento por rua:*\n${ruasTxt}\n` : '') +
+          `\n⚠️ _Verificar CTO / splitter / fibra óptica da região com prioridade!_`;
+
+        const res = await whapiService.sendGroupMessage(equipeAvlGroup.phone, msg);
+        if (res.sent) {
+          toast.success(`Alerta enviado para ${equipeAvlGroup.name.trim()}!`);
+          return true;
+        }
+        toast.error(res.error || 'Falha ao enviar alerta para o grupo EQUIPE AVL.');
+        return false;
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Erro ao enviar alerta ao WhatsApp.');
+        return false;
+      }
+    },
+    []
+  );
+
   return (
     <ContextoMonitorRedeReact.Provider
       value={{
@@ -573,9 +1109,15 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
         eventosRecentes,
         quedasNaoLidas,
         somAtivo,
+        sireneAtiva,
+        sireneSilenciada,
         monitorAtivo,
         intervaloVerificacaoSeg: INTERVALO_CONSULTA_MS / 1000,
         permissaoNotificacao,
+        outageConfig,
+        rompimentosEmMassa,
+        rompimentosConfirmados,
+        outagesMonitorados,
         solicitarPermissaoNotificacao,
         atualizarConexoes,
         atualizarInadimplencia,
@@ -586,6 +1128,11 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
         alternarSom,
         alternarMonitor,
         tocarSomAlertaQueda,
+        tocarSireneRompimento,
+        pararSirene,
+        ativarAlertaRompimentoRegiao,
+        resolverRompimentoRegiao,
+        enviarAlertaRompimentoGrupo,
       }}
     >
       {children}

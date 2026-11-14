@@ -19,10 +19,13 @@ import {
   X,
   Bot,
   Sparkles,
-  Zap
+  Zap,
+  Wifi,
+  WifiOff,
+  Rocket
 } from "lucide-react";
 import { ispfyService } from "@/services/ispfy/ispfyService";
-import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData } from "@/types/ispfy";
+import { ISPFYClienteData, ISPFYContratoData, ISPFYFaturaData, ISPFYLivePointStatus } from "@/types/ispfy";
 import { db } from "@/config/firebase";
 import { doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, collection, addDoc } from "firebase/firestore";
 import { toast } from "sonner";
@@ -47,6 +50,7 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
   const [ispfyData, setIspfyData] = useState<ISPFYClienteData | null>(null);
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
   const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
+  const [livePoints, setLivePoints] = useState<ISPFYLivePointStatus[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>([]);
 
   // Carregar tags e status da IA do Firestore em tempo real
@@ -110,12 +114,13 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
 
         if (client) {
           setIspfyData(client);
-          // Buscar contratos e faturas
-          const [clientContracts, clientInvoices] = await Promise.all([
+          const [clientContracts, clientInvoices, pointsStatus] = await Promise.all([
             ispfyService.getContratosByCliente(client.id),
-            ispfyService.getFaturasByCliente(client.id)
+            ispfyService.getFaturasByCliente(client.id),
+            ispfyService.getClientLivePointStatuses(client.id).catch(() => []),
           ]);
           setContracts(clientContracts);
+          setLivePoints(pointsStatus);
           // Filtrar apenas faturas abertas (status 'aberto' ou 'A') e sem data de pagamento
           const openInvoices = clientInvoices.filter((f) => {
             const statusNormalizado = String(f.status || '').trim().toLowerCase();
@@ -151,17 +156,47 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
     
     try {
       toast.loading("Gerando PIX...", { id: 'pix-task' });
-      const pixData = await ispfyService.getPixQrCode(faturaId);
-      
-      if (pixData && pixData.qrcode_text) {
-        const message = `✅ *Código PIX Gerado*\n\n💰 *Valor:* R$ ${valor}\n📅 *Vencimento:* ${vencimento}\n\n👇 *Copia e Cola:*\n\n${pixData.qrcode_text}\n\n_Para pagar, abra o app do seu banco e escolha a opção "PIX Copia e Cola"._`;
+      const cpf = ispfyData?.cpf_cnpj || ispfyData?.cnpj_cpf;
+      const pixData = await ispfyService.getPixQrCode(faturaId, cpf);
+      const pixCode = pixData?.pix_copia_cola || pixData?.qrcode_text || pixData?.qr_code;
+
+      if (pixCode) {
+        const message = `✅ *Código PIX Gerado*\n\n💰 *Valor:* R$ ${valor}\n📅 *Vencimento:* ${vencimento}\n\n👇 *Copia e Cola:*\n\n${pixCode}\n\n_Para pagar, abra o app do seu banco e escolha a opção "PIX Copia e Cola"._`;
         onSendMessage(message);
-        toast.success("PIX enviado com sucesso!", { id: 'pix-task' });
+        navigator.clipboard?.writeText(pixCode).catch(() => undefined);
+        toast.success("PIX enviado e copiado com sucesso!", { id: 'pix-task' });
       } else {
         toast.error("Não foi possível gerar o PIX para esta fatura.", { id: 'pix-task' });
       }
     } catch (error) {
       toast.error("Erro ao gerar PIX.", { id: 'pix-task' });
+    }
+  };
+
+  const handleActivateQuickTurbo = async (idPonto: string) => {
+    try {
+      toast.loading("Consultando planos de Turbo...", { id: 'turbo-task' });
+      const plans = await ispfyService.getTestablePlans(idPonto, false, false);
+      if (!plans || plans.length === 0) {
+        toast.error("Nenhum plano superior disponível para Turbo neste ponto.", { id: 'turbo-task' });
+        return;
+      }
+      const sorted = [...plans].sort(
+        (a, b) => Number(b.velocidade_download || 0) - Number(a.velocidade_download || 0)
+      );
+      const topPlan = sorted[0];
+      const finalDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const res = await ispfyService.activatePlanTest(idPonto, String(topPlan.id), finalDate);
+      if (res.success) {
+        toast.success(`Turbo (${topPlan.nome || topPlan.plano || 'Upgrade'}) ativado por 7 dias!`, { id: 'turbo-task' });
+        if (onSendMessage) {
+          onSendMessage(`🚀 *Presente AVL Telecom!* Acabamos de ativar um *Turbo de Velocidade* na sua internet válido até *${finalDate.split('-').reverse().join('/')}*! Aproveite! ⚡`);
+        }
+      } else {
+        toast.error(res.message, { id: 'turbo-task' });
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao ativar Turbo.", { id: 'turbo-task' });
     }
   };
 
@@ -278,41 +313,77 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
                   Contratos Ativos
                 </p>
                 {contracts.length > 0 ? (
-                  contracts.map(c => (
-                    <div key={c.id} className="p-2 bg-blue-50/50 rounded-lg border border-blue-100/50">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-bold text-blue-900 truncate flex-1">{c.contrato || 'Plano de Internet'}</span>
-                        <Badge className={`text-[9px] h-4 ${c.status_contrato === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {c.status_contrato === 'ativo' ? 'Ativo' : 'Bloqueado'}
-                        </Badge>
+                  contracts.map((c) => {
+                    const statusStr = String(c.status_contrato || c.status || '').toLowerCase();
+                    const isAtivo = statusStr === 'ativo' || (c.ativo === 's' && !statusStr.includes('bloq'));
+                    const isBlocked = !isAtivo || statusStr.includes('bloq');
+                    return (
+                      <div key={c.id} className="p-2 bg-blue-50/50 rounded-lg border border-blue-100/50 space-y-1.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-bold text-blue-900 truncate flex-1">{c.contrato || 'Plano de Internet'}</span>
+                          <Badge className={`text-[9px] h-4 ${isAtivo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {isAtivo ? 'Ativo' : 'Bloqueado'}
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-blue-600 font-medium">Logon: {c.login || 'N/A'}</p>
+                        
+                        {isBlocked && (
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="w-full h-6 text-[9px] border-orange-200 text-orange-600 hover:bg-orange-50 font-bold gap-1.5"
+                            onClick={async () => {
+                              toast.loading("Realizando desbloqueio...", { id: 'unlock-task' });
+                              const res = await ispfyService.unlockContract(c.id!);
+                              if (res.success) {
+                                toast.success(res.message, { id: 'unlock-task' });
+                                if (onSendMessage) onSendMessage(`✅ *Aviso:* Sua conexão foi liberada em confiança! Por favor, reinicie seu equipamento em alguns minutos.`);
+                              } else {
+                                toast.error(res.message, { id: 'unlock-task' });
+                              }
+                            }}
+                          >
+                            <Clock className="w-3 h-3" />
+                            DESBLOQUEIO EM CONFIANÇA
+                          </Button>
+                        )}
                       </div>
-                      <p className="text-[10px] text-blue-600 font-medium mb-2">Logon: {c.login || 'N/A'}</p>
-                      
-                      {c.status !== 'A' && (
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="w-full h-6 text-[9px] border-orange-200 text-orange-600 hover:bg-orange-50 font-bold gap-1.5"
-                          onClick={async () => {
-                            toast.loading("Realizando desbloqueio...", { id: 'unlock-task' });
-                            const res = await ispfyService.unlockContract(c.id!);
-                            if (res.success) {
-                              toast.success(res.message, { id: 'unlock-task' });
-                              // Opcional: enviar mensagem avisando o cliente
-                              if (onSendMessage) onSendMessage(`✅ *Aviso:* Sua conexão foi liberada em confiança! Por favor, reinicie seu equipamento em alguns minutos.`);
-                            } else {
-                              toast.error(res.message, { id: 'unlock-task' });
-                            }
-                          }}
-                        >
-                          <Clock className="w-3 h-3" />
-                          DESBLOQUEIO EM CONFIANÇA
-                        </Button>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="text-[10px] text-gray-400 italic">Nenhum contrato encontrado.</p>
+                )}
+
+                {livePoints.length > 0 && (
+                  <div className="pt-1 space-y-1.5">
+                    {livePoints.map((pt) => (
+                      <div key={pt.idPonto} className="p-2 rounded-lg border bg-slate-50 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                            {pt.conexaoStatus === 'online' ? (
+                              <Wifi className="w-3 h-3 text-emerald-600" />
+                            ) : (
+                              <WifiOff className="w-3 h-3 text-rose-600" />
+                            )}
+                            <span className={pt.conexaoStatus === 'online' ? 'text-emerald-700' : 'text-rose-700'}>
+                              {pt.conexaoStatus.toUpperCase()}
+                            </span>
+                            {pt.ipWan && <span className="text-gray-400 font-mono truncate">{pt.ipWan}</span>}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[9px] bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold gap-1 shrink-0"
+                          onClick={() => handleActivateQuickTurbo(pt.idPonto)}
+                          title="Aplicar Turbo de Velocidade por 7 dias no ISPFY"
+                        >
+                          <Rocket className="w-3 h-3" />
+                          TURBO 7D
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -345,18 +416,21 @@ export default function ClientInfoCard({ clientId, clientPhone, clientName, onSe
                             size="sm" 
                             variant="ghost" 
                             className="h-6 text-[9px] bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold gap-1"
-                            onClick={() => {
-                              const paymentLink = f.gateway_link || f.link_getwere || f.url_boleto;
+                            onClick={async () => {
+                              toast.loading("Obtendo link do boleto...", { id: 'link-task' });
+                              const cpf = ispfyData?.cpf_cnpj || ispfyData?.cnpj_cpf;
+                              let paymentLink = f.gateway_link || f.link_getwere || f.url_boleto;
+                              if (!paymentLink && f.id) {
+                                const res = await ispfyService.getBoletoPdf(f.id, cpf).catch(() => null);
+                                paymentLink = res?.url;
+                              }
                               if (onSendMessage && paymentLink) {
                                 const message = `🔗 *Link de Pagamento*\n\n💰 *Valor:* R$ ${f.valor}\n📅 *Vencimento:* ${f.data_vencimento}\n\nPara pagar, acesse o link abaixo:\n${paymentLink}`;
                                 onSendMessage(message);
-                                
-                                // Copiar para área de transferência também
-                                navigator.clipboard.writeText(paymentLink);
-                                toast.success("Link enviado e copiado!");
+                                navigator.clipboard?.writeText(paymentLink).catch(() => undefined);
+                                toast.success("Link enviado e copiado!", { id: 'link-task' });
                               } else {
-                                toast.error("Link de pagamento não disponível nesta fatura.");
-                                console.log("Dados da fatura sem link:", f);
+                                toast.error("Link de pagamento não disponível nesta fatura.", { id: 'link-task' });
                               }
                             }}
                           >

@@ -141,6 +141,10 @@ export interface ISPFYFaturaData {
 export interface ISPFYPixData {
   qrcode: string;
   qrcode_text: string;
+  qr_code?: string;
+  pix_copia_cola?: string;
+  linha_digitavel?: string;
+  link_boleto?: string;
   id_pix?: string;
   status?: string;
 }
@@ -641,6 +645,176 @@ export interface ISPFYOverdueAnalyticsResult {
   porDataVencimento: ISPFYOverdueExactDateGroup[];
   clientes: ISPFYOverdueClientItem[];
 }
+
+export interface ISPFYBoletoToolDetalhe {
+  id: string;
+  vencimento: string;
+  valor: string;
+  linha: string;
+  link: string;
+  pix: string;
+}
+
+export interface ISPFYBandwidthSummary30d {
+  idPonto: string;
+  dataInicial: string;
+  dataFinal: string;
+  downloadKbytes: number;
+  uploadKbytes: number;
+  downloadGb: number;
+  uploadGb: number;
+}
+
+export interface ISPFYPlanoTeste {
+  id: string | number;
+  nome?: string;
+  plano?: string;
+  descricao?: string;
+  velocidade_download?: number | string;
+  velocidade_upload?: number | string;
+  valor?: number | string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYPopDevice {
+  id: string;
+  id_pop?: string;
+  nome?: string;
+  modelo?: string;
+  ip?: string;
+  fabricante?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYPopDeviceInterface {
+  id: string;
+  id_dispositivo?: string;
+  id_pop?: string;
+  nome?: string;
+  descricao?: string;
+  velocidade?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYGeoFiberSplitter {
+  id: string;
+  id_caixa?: string;
+  id_cto?: string;
+  nome?: string;
+  tipo?: string;
+  capacidade?: number | string;
+  portas?: number | string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYGeoFiberSplitterVia {
+  id: string;
+  id_splitter?: string;
+  porta?: number | string;
+  status?: string;
+  id_ponto?: string;
+  id_cliente?: string;
+  observacao?: string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYCarteira {
+  id: string;
+  nome?: string;
+  descricao?: string;
+  banco?: string;
+  ativo?: string;
+  [key: string]: unknown;
+}
+
+export interface ISPFYOutageDetectionConfig {
+  minClientesOfflineRua: number;
+  minPercentualRua: number;
+  minClientesOfflineBairro: number;
+  minPercentualBairro: number;
+  ignorarOfflineAntigoHoras: number;
+  confirmarAoVivoAntesEnviar: boolean;
+  minChecagensConsecutivas: number;
+}
+
+export interface ISPFYMassOutageStreetItem {
+  ruaKey: string;
+  ruaLabel: string;
+  desconectados: number;
+  totalAtivos: number;
+  percentualOffline: number;
+  atingiuMetadeOuMais: boolean;
+  totalClientesUnicos?: number;
+  clientesOfflineUnicos?: number;
+  clienteIdsOffline?: string[];
+  offlineAntigosIgnorados?: number;
+}
+
+export interface ISPFYMassOutageAlert {
+  incidentKey: string;
+  tipoAlerta: 'rua_e_bairro' | 'bairro';
+  bairroKey: string;
+  bairroLabel: string;
+  totalAtivosNoBairro: number;
+  desconectadosNoBairro: number;
+  desconectados: number;
+  percentualOffline: number;
+  ruaPrincipal?: ISPFYMassOutageStreetItem | null;
+  ruasAfetadas: ISPFYMassOutageStreetItem[];
+  pontoIds: string[];
+  clientesNomes: string[];
+  clienteIdsOffline?: string[];
+  totalClientesUnicos?: number;
+  offlineAntigosIgnorados?: number;
+}
+
+export interface ISPFYOutageWatchRecord {
+  incidentKey: string;
+  active: boolean;
+  tipoAlerta: 'rua_e_bairro' | 'bairro';
+  bairroKey: string;
+  bairroLabel: string;
+  ruaKey?: string;
+  ruaLabel?: string | null;
+  totalRua: number;
+  offlineRua: number;
+  percentualRua: number;
+  totalBairro: number;
+  offlineBairro: number;
+  percentualBairro: number;
+  firstDetectedAtMs: number;
+  lastSeenAtMs: number;
+  consecutiveHits?: number;
+  offlineAntigosIgnorados?: number;
+  totalClientesUnicosRua?: number;
+  offlineClientesUnicosRua?: number;
+  totalClientesUnicosBairro?: number;
+  offlineClientesUnicosBairro?: number;
+  verifiedLiveOfflineCount?: number | null;
+  whatsappBlockedReason?: string | null;
+  whatsappSentAtMs?: number | null;
+  whatsappGroupId?: string | null;
+  whatsappGroupName?: string | null;
+  whatsappError?: string | null;
+  resolvedAtMs?: number | null;
+}
+
+export interface ISPFYActiveRegionOutage {
+  id: string;
+  ativo: boolean;
+  ativa?: boolean;
+  bairros: string[];
+  bairro?: string;
+  cidade?: string | null;
+  titulo: string;
+  motivo?: string;
+  mensagem: string;
+  previsaoRetorno?: string | null;
+  updatedAt?: unknown;
+}
+
 
 
 

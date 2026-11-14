@@ -1,7 +1,9 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import {ClientData, WelcomeMessageLog, UserSession} from "./types";
-import { IXCBackendService } from "./ixcService";
+import {ClientData, WelcomeMessageLog} from "./types";
+import { IspfyBackendService } from "./ispfyBackendService";
+import { runJosueChat } from "./aiProxy";
+import { processIspfyPayments } from "./ispfyPaymentMonitor";
 import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
 import { WhapiService } from "./whapiService";
@@ -192,135 +194,140 @@ async function handleAppUninstall(userId: string, token: string, userData: any) 
  * ⏰ Tarefa Agendada: Verificação Diária de Faturas
  * Roda todos os dias às 08:00 AM
  */
+function parseInvoiceDateMs(rawDate?: string | null): number | null {
+  if (!rawDate) return null;
+  const clean = String(rawDate).trim().split(" ")[0];
+  let iso = clean;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(clean)) {
+    const [d, m, y] = clean.split("/");
+    iso = `${y}-${m}-${d}`;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [year, month, day] = iso.split("-").map(Number);
+  return Date.UTC(year, (month || 1) - 1, day || 1);
+}
+
+/**
+ * Núcleo compartilhado para envio de Push FCM (D-2, D-1, D0, D+1..15) consultando faturas no ISPFY.
+ */
+async function executePushDueInvoicesCheck(cleanupInvalidTokens: boolean): Promise<number> {
+  const usersRef = admin.firestore().collection("users");
+  const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
+
+  if (querySnapshot.empty) {
+    console.log("ℹ️ Nenhum usuário com token FCM encontrado.");
+    return 0;
+  }
+
+  const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
+  const ispfy = new IspfyBackendService(ispfyHost, ispfyToken);
+
+  const todayIso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+  const todayMs = parseInvoiceDateMs(todayIso) ?? Date.now();
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  const notifications: Promise<any>[] = [];
+
+  for (const userDoc of querySnapshot.docs) {
+    const userData = userDoc.data();
+    const userId = userDoc.id;
+    const fcmToken = userData.fcmToken;
+    const cpf = userData.cpf || userData.cnpj_cpf;
+    const clientIdCandidate = userData.ispfyId || userData.clientId || userId;
+
+    try {
+      let cliente: any = null;
+      if (cpf) {
+        cliente = await ispfy.buscarClientePorDocumento(String(cpf));
+      }
+      if (!cliente && clientIdCandidate && /^\d+$/.test(String(clientIdCandidate))) {
+        cliente = await ispfy.buscarClientePorId(String(clientIdCandidate));
+      }
+
+      if (!cliente?.id) continue;
+
+      const invoices = await ispfy.buscarFaturasAbertasPorCliente(cliente.id);
+
+      for (const inv of invoices) {
+        if (inv.data_pagamento || String(inv.status || "").toLowerCase() === "cancelado") continue;
+        const dueMs = parseInvoiceDateMs(inv.data_vencimento);
+        if (dueMs === null) continue;
+
+        const diffDays = Math.round((dueMs - todayMs) / msPerDay);
+
+        let shouldNotify = false;
+        let title = "⚠️ Fatura AVL";
+        let body = "";
+        let color = "#F59E0B";
+
+        if (diffDays === 1 || diffDays === 2) {
+          shouldNotify = true;
+          title = "⏰ Lembrete de Fatura";
+          body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
+        } else if (diffDays === 0) {
+          shouldNotify = true;
+          title = "🚨 Vence HOJE";
+          body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
+          color = "#EF4444";
+        } else if (diffDays < 0 && diffDays >= -15) {
+          shouldNotify = true;
+          title = "🚫 Fatura Vencida";
+          body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
+          color = "#B91C1C";
+        }
+
+        if (shouldNotify) {
+          const message = {
+            notification: { title, body },
+            data: {
+              type: "invoice_reminder",
+              screen: "Boletos",
+              invoiceId: String(inv.id),
+              valor: String(inv.valor || ""),
+            },
+            android: {
+              priority: "high" as any,
+              notification: {
+                channelId: "alerts",
+                color,
+              },
+            },
+            token: fcmToken,
+          };
+
+          notifications.push(
+            admin.messaging().send(message).catch((e) => {
+              console.error(`Erro ao notificar token ${fcmToken}:`, e.message);
+              if (
+                cleanupInvalidTokens &&
+                (e.code === "messaging/registration-token-not-registered" ||
+                  e.code === "messaging/invalid-registration-token")
+              ) {
+                handleAppUninstall(userId, fcmToken, userData);
+              }
+            })
+          );
+        }
+      }
+    } catch (userError: any) {
+      console.error(`❌ Erro ao verificar faturas ISPFY para usuário ${userId}:`, userError.message);
+    }
+  }
+
+  await Promise.all(notifications);
+  return notifications.length;
+}
+
 export const checkDueInvoices = functions.pubsub
   .schedule("0 8 * * *")
   .timeZone("America/Sao_Paulo")
   .onRun(async () => {
-    console.log("⏰ Iniciando verificação diária de faturas...");
-
+    console.log("⏰ Iniciando verificação diária de faturas via ISPFY...");
     try {
-      const usersRef = admin.firestore().collection("users");
-      const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
-
-      if (querySnapshot.empty) {
-        console.log("ℹ️ Nenhum usuário com token FCM encontrado.");
-        return null;
-      }
-
-      const { token: IXC_TOKEN } = getIxcConfig();
-      const auth = Buffer.from(IXC_TOKEN).toString("base64");
-
-      const notifications: Promise<any>[] = [];
-
-      for (const doc of querySnapshot.docs) {
-        const userData = doc.data();
-        const userId = doc.id;
-        const ixcId = userData.clientId || userId;
-        const token = userData.fcmToken;
-
-        try {
-          const response = await axios.post(
-            "https://coopertecisp.com.br/webservice/v1/fn_areceber",
-            {
-              qtype: "fn_areceber.id_cliente",
-              query: ixcId,
-              oper: "=",
-              page: "1",
-              rp: "50",
-              sortname: "fn_areceber.data_vencimento",
-              sortorder: "asc",
-              grid_param: JSON.stringify([
-                {TB: "fn_areceber.liberado", OP: "=", P: "S"},
-                {TB: "fn_areceber.status", OP: "=", P: "A"},
-              ]),
-            },
-            {
-              headers: {Authorization: `Basic ${auth}`, ixcsoft: "listar"},
-              timeout: 10000,
-            }
-          );
-
-          const invoices = response.data?.registros || [];
-
-          for (const inv of invoices) {
-            // Ignorar se não estiver aberta
-            if (inv.status !== "A") continue;
-
-            // Suporta YYYY-MM-DD (vinda do IXC) ou DD/MM/YYYY
-            let dueDate: Date;
-            if (inv.data_vencimento.includes("-")) {
-              const [year, month, day] = inv.data_vencimento.split("-");
-              dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-            } else {
-              const [day, month, year] = inv.data_vencimento.split("/");
-              dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-            }
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const diffTime = dueDate.getTime() - today.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            let shouldNotify = false;
-            let title = "⚠️ Fatura AVL";
-            let body = "";
-            let color = "#F59E0B";
-
-            if (diffDays === 1 || diffDays === 2) {
-              shouldNotify = true;
-              title = "⏰ Lembrete de Fatura";
-              body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
-            } else if (diffDays === 0) {
-              shouldNotify = true;
-              title = "🚨 Vence HOJE";
-              body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
-              color = "#EF4444";
-            } else if (diffDays < 0 && diffDays >= -15) {
-              shouldNotify = true;
-              title = "🚫 Fatura Vencida";
-              body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
-              color = "#B91C1C";
-            }
-
-            if (shouldNotify) {
-              const message = {
-                notification: {
-                  title: title,
-                  body: body,
-                },
-                data: {
-                  type: "invoice_reminder",
-                  screen: "Boletos",
-                  invoiceId: inv.id,
-                  valor: inv.valor,
-                },
-                android: {
-                  priority: "high" as any,
-                  notification: {
-                    channelId: "alerts",
-                    color: color,
-                  },
-                },
-                token: token,
-              };
-              notifications.push(
-                admin.messaging().send(message).catch((e) => {
-                  console.error(`Erro ao notificar token ${token}:`, e.message);
-                  if (e.code === "messaging/registration-token-not-registered" || e.code === "messaging/invalid-registration-token") {
-                    handleAppUninstall(userId, token, userData);
-                  }
-                })
-              );
-            }
-          }
-        } catch (userError: any) {
-          console.error(`❌ Erro ao verificar faturas para usuário ${userId}:`, userError.message);
-        }
-      }
-
-      await Promise.all(notifications);
-      console.log(`✅ Verificação concluída. Enviadas ${notifications.length} notificações.`);
+      const total = await executePushDueInvoicesCheck(true);
+      console.log(`✅ Verificação diária concluída. Enviadas ${total} notificações.`);
       return null;
     } catch (error) {
       console.error("❌ Erro global no checkDueInvoices:", error);
@@ -850,9 +857,9 @@ export const whatsappWebhook = functions.runWith({
     // DEBUG: Log do objeto completo para entender a estrutura de mídia que está chegando
     console.log(`📩 [WHAPI-DEBUG] Mensagem de ${from}:`, JSON.stringify(messageData));
 
-    const { host: ixcHost, token: ixcToken } = getIxcConfig();
+    const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
     const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
-    const ixcService = new IXCBackendService(ixcHost, ixcToken);
+    const ispfyService = new IspfyBackendService(ispfyHost, ispfyToken);
     const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
@@ -926,48 +933,57 @@ export const whatsappWebhook = functions.runWith({
     console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
     
     const sessionRef = db.collection("bot_sessions").doc(cleanPhone);
-    const sessionSnap = await sessionRef.get();
-    const session = sessionSnap.data() as UserSession | undefined;
+    const [sessionSnap, chatSnap, automationsSnap] = await Promise.all([
+      sessionRef.get(),
+      db.collection("chat").doc(cleanPhone).get(),
+      db.collection("settings").doc("ispfy_automations").get(),
+    ]);
+    const session = sessionSnap.data() as any;
+    const chatData = chatSnap.data() as any;
+    const automationsCfg = automationsSnap.exists ? automationsSnap.data() || {} : {};
 
-    // --- BUSCA CLIENTE ANTES DO DASHBOARD COM OTIMIZAÇÃO E CACHE ---
+    // --- BUSCA CLIENTE NO ISPFY COM OTIMIZAÇÃO E CACHE DE 24H ---
     let cliente: any = null;
-    if (session?.ixcCliente && session?.ixcClienteUpdatedAt) {
-      const lastUpdate = session.ixcClienteUpdatedAt.toDate ? session.ixcClienteUpdatedAt.toDate() : new Date(session.ixcClienteUpdatedAt);
-      // Se o cache for mais recente que 24 horas, reutiliza!
+    const cachedClient = session?.ispfyCliente || session?.ixcCliente;
+    const cachedUpdatedAt = session?.ispfyClienteUpdatedAt || session?.ixcClienteUpdatedAt;
+    if (cachedClient && cachedUpdatedAt) {
+      const lastUpdate = cachedUpdatedAt.toDate ? cachedUpdatedAt.toDate() : new Date(cachedUpdatedAt);
       if (Date.now() - lastUpdate.getTime() < 24 * 60 * 60 * 1000) {
-        cliente = session.ixcCliente;
-        console.log(`⚡ Usando cliente do cache da sessão para ${cleanPhone}: ${cliente.razao}`);
+        cliente = cachedClient;
+        console.log(`⚡ Usando cliente ISPFY do cache para ${cleanPhone}: ${cliente.razao || cliente.nome}`);
       }
     }
 
     if (!cliente) {
-      // Tentar buscar o ixc_id no histórico do chat do Firestore
-      const chatSnap = await db.collection("chat").doc(cleanPhone).get();
-      const chatData = chatSnap.data();
-      if (chatData?.ixc_id) {
-        console.log(`🔍 Buscando cliente por ixc_id (${chatData.ixc_id}) salvo no chat...`);
-        cliente = await ixcService.getClienteById(chatData.ixc_id);
+      const savedIspfyId = chatData?.ispfy_id || chatData?.ixc_id;
+      if (savedIspfyId) {
+        console.log(`🔍 Buscando cliente ISPFY por ID (${savedIspfyId}) salvo no chat...`);
+        cliente = await ispfyService.buscarClientePorId(String(savedIspfyId));
       }
 
-      // Se ainda não achou, faz a busca robusta por telefone
       if (!cliente) {
-        cliente = await ixcService.getClienteByPhone(cleanPhone);
+        cliente = await ispfyService.buscarClientePorTelefone(cleanPhone, db);
       }
 
-      // Se achou, atualiza o cache da sessão e do chat
       if (cliente) {
+        const clienteNome = cliente.razao || cliente.nome_razao || cliente.nome || senderName;
+        const normalizedCliente = { ...cliente, razao: clienteNome };
+        cliente = normalizedCliente;
+
         await sessionRef.set({
-          ixcCliente: cliente,
-          ixcClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+          ispfyCliente: normalizedCliente,
+          ispfyClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
         
         await db.collection("chat").doc(cleanPhone).set({
-          ixc_id: cliente.id
+          ispfy_id: String(cliente.id),
+          ixc_id: String(cliente.id),
         }, { merge: true });
       }
     }
 
-    const firstName = cliente?.razao ? cliente.razao.split(' ')[0] : senderName.split(' ')[0];
+    const clienteDisplayName = cliente?.razao || cliente?.nome_razao || cliente?.nome || senderName;
+    const firstName = clienteDisplayName.split(' ')[0];
 
     // --- LOG PARA DASHBOARD ---
     await logMessageToDashboard(cleanPhone, content, false, "whatsapp", firstName, cliente, mediaUrl, mediaType);
@@ -984,15 +1000,28 @@ export const whatsappWebhook = functions.runWith({
       await waService.sendTextMessage(from, "✅ *Robô ATIVADO.*");
       res.status(200).send("OK"); return;
     }
+    if (normalizedText === "#josue:on") {
+      await db.collection("chat").doc(cleanPhone).set({ aiEnabled: true }, { merge: true });
+      await waService.sendTextMessage(from, "🤖 *Josué IA ativado* para esta conversa.");
+      res.status(200).send("OK"); return;
+    }
+    if (normalizedText === "#josue:off") {
+      await db.collection("chat").doc(cleanPhone).set({ aiEnabled: false }, { merge: true });
+      await waService.sendTextMessage(from, "👤 *Josué IA desativado* para esta conversa.");
+      res.status(200).send("OK"); return;
+    }
 
     // Verificar Ativo
     const botConfig = await db.collection("bot_config").doc("global").get();
     if (botConfig.exists && botConfig.data()?.active === false) {
       res.status(200).send("Disabled"); return;
     }
+    if (automationsCfg.botEnabled === false) {
+      res.status(200).send("Disabled"); return;
+    }
 
     if (text?.startsWith("#debug")) {
-      await waService.sendTextMessage(from, `🛠️ DEBUG: ${cleanPhone} | ID: ${cliente?.id || "N/A"}`);
+      await waService.sendTextMessage(from, `🛠️ DEBUG ISPFY: ${cleanPhone} | ID: ${cliente?.id || "N/A"} | Bairro: ${cliente?.bairro || "N/A"}`);
       res.status(200).send("OK"); return;
     }
 
@@ -1009,34 +1038,101 @@ export const whatsappWebhook = functions.runWith({
     const isOnlyDigits = /^\d+$/.test((text || "").trim());
     const pureNumbers = (text || "").replace(/\D/g, "");
     if (session?.state === "WAITING_FOR_CPF" || (isOnlyDigits && (pureNumbers.length === 11 || pureNumbers.length === 14))) {
-      await waService.sendTextMessage(from, "🔍 Buscando cadastro...");
-      const clienteByDoc = await ixcService.getClienteByCpfCnpj(pureNumbers);
-      if (clienteByDoc) {
+      await waService.sendTextMessage(from, "🔍 Buscando cadastro no ISPFY...");
+      const clienteByDocRaw = await ispfyService.buscarClientePorDocumento(pureNumbers);
+      if (clienteByDocRaw) {
+        const clienteByDoc = {
+          ...clienteByDocRaw,
+          razao: clienteByDocRaw.razao || clienteByDocRaw.nome_razao || clienteByDocRaw.nome || senderName,
+        };
         await sessionRef.set({ 
           state: "IDLE", 
           pendingAction: null,
-          ixcCliente: clienteByDoc,
-          ixcClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+          ispfyCliente: clienteByDoc,
+          ispfyClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
         
         await db.collection("chat").doc(cleanPhone).set({
-          ixc_id: clienteByDoc.id,
+          ispfy_id: String(clienteByDoc.id),
+          ixc_id: String(clienteByDoc.id),
           name: clienteByDoc.razao,
-          phone: cleanPhone
+          phone: cleanPhone,
         }, { merge: true });
         
         if (session?.pendingAction === "trust_unlock") {
-          await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, clienteByDoc);
+          await processTrustUnlockRequest(from, cleanPhone, ispfyService, waService, sessionRef, clienteByDoc);
         } else if (session?.pendingAction === "request_invoice") {
-          await handleInvoiceRequest(clienteByDoc, from, ixcService, waService);
+          await handleInvoiceRequest(clienteByDoc, from, ispfyService, waService, cleanPhone);
         } else {
-          const firstName = clienteByDoc.razao ? clienteByDoc.razao.split(' ')[0] : undefined;
-          await sendWelcomeMenu(from, waService, false, firstName);
+          const foundFirstName = clienteByDoc.razao ? clienteByDoc.razao.split(' ')[0] : undefined;
+          await sendWelcomeMenu(from, waService, false, foundFirstName);
         }
       } else {
-        await waService.sendTextMessage(from, "❌ Não localizado. Verifique se o CPF/CNPJ está correto e digite novamente.");
+        await waService.sendTextMessage(from, "❌ Não localizado no ISPFY. Verifique se o CPF/CNPJ está correto e digite novamente.");
       }
       res.status(200).send("OK"); return;
+    }
+
+    // --- MODO JOSUÉ IA AUTÔNOMO (PER-CHAT OU GLOBAL SE LIGADO) ---
+    const useJosueAutonomously =
+      !selectionId &&
+      Boolean(geminiApiKey) &&
+      (chatData?.aiEnabled === true ||
+        (automationsCfg?.josueAutoReply === true && chatData?.aiEnabled !== false));
+
+    if (useJosueAutonomously && text) {
+      try {
+        const recentMsgsSnap = await db
+          .collection("chat")
+          .doc(cleanPhone)
+          .collection("mensagens")
+          .orderBy("timestamp", "desc")
+          .limit(10)
+          .get();
+
+        const orderedMsgs = recentMsgsSnap.docs
+          .map((d) => d.data())
+          .reverse()
+          .map((m: any) => ({
+            isAdmin: Boolean(m.isAdmin),
+            content: String(m.content || ""),
+          }));
+
+        if (orderedMsgs.length === 0) {
+          orderedMsgs.push({ isAdmin: false, content: text });
+        }
+
+        const outage = cliente
+          ? await ispfyService.verificarManutencaoAtivaNaRegiao(db, cliente.bairro, cliente.cidade)
+          : null;
+
+        const contextLines = [
+          `Telefone do contato: ${cleanPhone}`,
+          cliente
+            ? `Cliente identificado no ISPFY: ID=${cliente.id}, Nome=${clienteDisplayName}, CPF/CNPJ=${cliente.cpf_cnpj || "N/A"}, Bairro=${cliente.bairro || "N/A"}, Cidade=${cliente.cidade || "N/A"}`
+            : "Cliente ainda não vinculado a um CPF/CNPJ pelo telefone.",
+          outage
+            ? `ALERTA DE ROMPIMENTO REGIONAL ATIVO no bairro ${(outage.bairros || [outage.bairro]).join(", ")}: ${outage.titulo || outage.motivo || "Manutenção"} - ${outage.mensagem || outage.motivo || "Equipe em atuação"}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const josueReply = await runJosueChat({
+          messages: orderedMsgs,
+          clientName: firstName,
+          contextInfo: contextLines,
+        });
+
+        if (josueReply && josueReply.trim()) {
+          await waService.sendTextMessage(from, josueReply);
+          await logMessageToDashboard(cleanPhone, josueReply, true, "josue_ai");
+          res.status(200).send("OK");
+          return;
+        }
+      } catch (josueErr: any) {
+        console.error("⚠️ Falha no modo autônomo do Josué, seguindo fluxo padrão:", josueErr.message);
+      }
     }
 
     // --- DETECÇÃO DE INTENÇÃO ---
@@ -1052,17 +1148,48 @@ export const whatsappWebhook = functions.runWith({
       finalIntent = aiResult.intent;
     }
 
+    // --- VERIFICAÇÃO PROATIVA DE ROMPIMENTO REGIONAL PARA QUEDA/SUPORTE ---
+    const isConnectionReport =
+      finalIntent === "human_support" ||
+      finalIntent === "trust_unlock" ||
+      (normalizedText &&
+        (normalizedText.includes("sem internet") ||
+          normalizedText.includes("caiu") ||
+          normalizedText.includes("rompimento") ||
+          normalizedText.includes("lenta")));
+
+    if (cliente && isConnectionReport) {
+      const outage = await ispfyService.verificarManutencaoAtivaNaRegiao(
+        db,
+        cliente.bairro,
+        cliente.cidade
+      );
+      if (outage) {
+        const previsao = outage.previsao ? `\n⏱️ *Previsão de retorno:* ${outage.previsao}` : "";
+        const outageMsg =
+          `⚠️ *Comunicado Técnico — ${cliente.bairro || "Sua Região"}*\n\n` +
+          `Identificamos uma *${outage.titulo || outage.motivo || "Manutenção Regional"}* afetando a sua região no momento.\n` +
+          `${outage.mensagem || outage.motivo || "Equipe técnica em campo trabalhando no restabelecimento."}${previsao}\n\n` +
+          `Nossa equipe de campo já está atuando para restabelecer o sinal o mais rápido possível! 🙏`;
+        await waService.sendTextMessage(from, outageMsg);
+        await logMessageToDashboard(cleanPhone, outageMsg, true, "system", firstName);
+        if (finalIntent !== "request_invoice") {
+          res.status(200).send("OK");
+          return;
+        }
+      }
+    }
+
     // --- RESPOSTA ---
     if (finalIntent === "request_invoice") {
-      await processInvoiceRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
+      await processInvoiceRequest(from, cleanPhone, ispfyService, waService, sessionRef, cliente);
     } else if (finalIntent === "trust_unlock") {
-      await processTrustUnlockRequest(from, cleanPhone, ixcService, waService, sessionRef, cliente);
+      await processTrustUnlockRequest(from, cleanPhone, ispfyService, waService, sessionRef, cliente);
     } else if (finalIntent === "human_support") {
       const msg = "🎧 Vou te transferir para um atendente humano. Aguarde um instante.";
       await waService.sendTextMessage(from, msg);
       await logMessageToDashboard(cleanPhone, msg, true, "system");
       
-      // Pausa o bot por 1 hora (3600000 ms) para este cliente
       const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
       await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
       console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: human_support)`);
@@ -1077,18 +1204,15 @@ export const whatsappWebhook = functions.runWith({
           await waService.sendTextMessage(from, msg);
           await logMessageToDashboard(cleanPhone, msg, true, "system");
           
-          // Pausa o bot por 1 hora (3600000 ms) para este cliente
           const pauseUntil = admin.firestore.Timestamp.fromMillis(Date.now() + 3600000);
           await sessionRef.set({ pausedUntil: pauseUntil, state: "IDLE" }, { merge: true });
           console.log(`⏸️ Bot pausado por 1 hora para ${cleanPhone} (Intent: other, Escalado pela IA)`);
         } else {
-          // Envia resposta da IA e mantém o bot ativo
           await waService.sendTextMessage(from, faqResult.response);
           await logMessageToDashboard(cleanPhone, faqResult.response, true, "system");
           console.log(`✅ FAQ do Gemini respondido para ${cleanPhone}. Bot continua ativo.`);
         }
       } else {
-        // Fallback se não tiver chave do Gemini
         const msg = "Entendi. Vou te transferir para um de nossos especialistas. Aguarde um momento. 🎧";
         await waService.sendTextMessage(from, msg);
         await logMessageToDashboard(cleanPhone, msg, true, "system");
@@ -1119,9 +1243,9 @@ function detectIntentLocal(text: string): { intent: string } {
   return { intent: 'other' };
 }
 
-async function processInvoiceRequest(from: string, cleanPhone: string, ixcService: IXCBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
+async function processInvoiceRequest(from: string, cleanPhone: string, ispfyService: IspfyBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
   if (cliente) {
-    await handleInvoiceRequest(cliente, from, ixcService, waService);
+    await handleInvoiceRequest(cliente, from, ispfyService, waService, cleanPhone);
   } else {
     await sessionRef.set({ state: "WAITING_FOR_CPF", pendingAction: "request_invoice", phone: cleanPhone }, { merge: true });
     const msg = "🤔 Não achei seu cadastro pelo telefone. Me informe seu *CPF ou CNPJ* (apenas números).";
@@ -1169,9 +1293,12 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
 
     if (!isAdmin) {
       update.unreadCount = admin.firestore.FieldValue.increment(1);
-      update.name = firstName || cliente?.razao || "Cliente WhatsApp";
+      update.name = firstName || cliente?.razao || cliente?.nome_razao || cliente?.nome || "Cliente WhatsApp";
       update.phone = cleanPhone;
-      if (cliente?.id) update.ixc_id = cliente.id;
+      if (cliente?.id) {
+        update.ispfy_id = String(cliente.id);
+        update.ixc_id = String(cliente.id);
+      }
       update.isOnline = true;
     }
 
@@ -1180,7 +1307,7 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
     console.log("📡 [LOG-DASHBOARD] Documento principal atualizado. Gravando mensagem...");
 
     await chatRef.collection("mensagens").add({
-      user: isAdmin ? "AVL Bot" : (firstName || "Cliente"),
+      user: isAdmin ? (source === "josue_ai" ? "Josué IA" : "AVL Bot") : (firstName || "Cliente"),
       content,
       timestamp: serverTimestamp,
       isAdmin,
@@ -1195,35 +1322,53 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
   }
 }
 
-async function handleInvoiceRequest(cliente: any, from: string, ixcService: IXCBackendService, waService: WhatsAppService) {
-  const faturas = await ixcService.getFaturasAbertas(cliente.id);
-  if (faturas.length === 0) {
-    const msg = `✅ ${cliente.razao}, não encontrei faturas abertas em seu nome.`;
+async function handleInvoiceRequest(cliente: any, from: string, ispfyService: IspfyBackendService, waService: WhatsAppService, cleanPhone?: string) {
+  const targetPhone = cleanPhone || from.replace(/\D/g, "");
+  const nome = cliente.razao || cliente.nome_razao || cliente.nome || "Cliente";
+  const firstName = nome.split(" ")[0];
+  const cpf = String(cliente.cpf_cnpj || cliente.cnpj_cpf || "").trim();
+
+  let boletos = cpf
+    ? await ispfyService.consultarBoletosAssinante(cpf, { status: "aberto" }).catch(() => [])
+    : [];
+
+  if (boletos.length === 0 && cliente.id) {
+    const faturasObj = await ispfyService.buscarFaturasAbertasPorCliente(cliente.id);
+    boletos = faturasObj.map((f: any) => ({
+      id: String(f.id),
+      vencimento: String(f.data_vencimento || ""),
+      valor: String(f.valor || ""),
+      linha: String(f.linha_digitavel || ""),
+      linkPublico: String(f.link_boleto || f.link || ""),
+      pix: String(f.pix_copia_cola || f.qr_code || ""),
+    }));
+  }
+
+  if (boletos.length === 0) {
+    const msg = `✅ ${nome}, não encontrei faturas abertas em seu nome no ISPFY.`;
     await waService.sendTextMessage(from, msg);
-    await logMessageToDashboard(cliente.phone || from, msg, true, "system", cliente.razao?.split(' ')[0]);
+    await logMessageToDashboard(targetPhone, msg, true, "system", firstName);
     return;
   }
-  await waService.sendTextMessage(from, `🗓️ Localizei ${faturas.length} fatura(s).`);
-  for (const fat of faturas) {
-    await ixcService.sendEmailFatura(fat.id);
-    const pix = fat.pix_copia_e_cola || await ixcService.getPix(fat.id);
-    
-    // Evitar [Function: link]
-    let link: string | null = fat.gateway_link || fat.link_getwere || fat.url_boleto || null;
-    if (typeof link !== 'string' || link.trim() === '') {
-      link = await ixcService.getBoleto(fat.id);
-    }
-    
-    let msg = `📅 *Vencimento: ${fat.data_vencimento}*\n💰 *Valor: R$ ${fat.valor}*\n📧 Fatura enviada por e-mail.`;
-    if (pix && typeof pix === 'string') msg += `\n\n💎 *PIX:*\n\`${pix}\``;
-    if (link && typeof link === 'string' && link.startsWith('http')) msg += `\n\n💳 *Link do Boleto:*\n${link}`;
+
+  await waService.sendTextMessage(from, `🗓️ Localizei *${boletos.length}* fatura(s) em aberto no sistema.`);
+  for (const fat of boletos.slice(0, 4)) {
+    const valorNum = Number(String(fat.valor || "0").replace(",", "."));
+    const valorFmt = Number.isFinite(valorNum) && valorNum > 0
+      ? valorNum.toFixed(2).replace(".", ",")
+      : fat.valor;
+    let msg = `📅 *Vencimento:* ${fat.vencimento}\n💰 *Valor:* R$ ${valorFmt}`;
+    if (fat.pix) msg += `\n\n💎 *PIX Copia e Cola:*\n${fat.pix}`;
+    if (fat.linha) msg += `\n\n📄 *Linha Digitável:*\n${fat.linha}`;
+    const fatLink = fat.linkPublico || fat.linkInterno;
+    if (fatLink && fatLink.startsWith("http")) msg += `\n\n💳 *Link do Boleto:*\n${fatLink}`;
 
     await waService.sendTextMessage(from, msg);
-    await logMessageToDashboard(cliente.phone || from, msg, true, "system", cliente.razao?.split(' ')[0]);
+    await logMessageToDashboard(targetPhone, msg, true, "system", firstName);
   }
 }
 
-async function processTrustUnlockRequest(from: string, cleanPhone: string, ixcService: IXCBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
+async function processTrustUnlockRequest(from: string, cleanPhone: string, ispfyService: IspfyBackendService, waService: WhatsAppService, sessionRef: admin.firestore.DocumentReference, cliente?: any) {
   if (!cliente) {
     await sessionRef.set({ state: "WAITING_FOR_CPF", pendingAction: "trust_unlock", phone: cleanPhone }, { merge: true });
     const msg = "🤔 Para liberar a sua internet, me informe seu *CPF ou CNPJ* (apenas números).";
@@ -1232,31 +1377,52 @@ async function processTrustUnlockRequest(from: string, cleanPhone: string, ixcSe
     return;
   }
 
-  await waService.sendTextMessage(from, `⏳ ${cliente.razao?.split(' ')[0] || "Cliente"}, aguarde um momento. Verificando possibilidade de desbloqueio...`);
+  const nome = cliente.razao || cliente.nome_razao || cliente.nome || "Cliente";
+  const firstName = nome.split(" ")[0] || "Cliente";
 
-  // Busca contratos
-  const contratos = await ixcService.getContratosByCliente(cliente.id);
-  if (contratos.length === 0) {
-    const msg = "❌ Não encontramos nenhum contrato ativo para este cadastro.";
+  // Verificar se há rompimento regional antes de gerar falsa expectativa
+  const outage = await ispfyService.verificarManutencaoAtivaNaRegiao(
+    db,
+    cliente.bairro,
+    cliente.cidade
+  );
+  if (outage) {
+    const previsao = outage.previsao ? `\n⏱️ *Previsão:* ${outage.previsao}` : "";
+    const msg =
+      `⚠️ *Aviso Regional — ${cliente.bairro || "Sua Região"}*\n\n` +
+      `Identificamos uma *${outage.titulo || outage.motivo || "Manutenção Regional"}* na sua região: ${outage.mensagem || outage.motivo || "Equipe em atuação"}${previsao}\n\n` +
+      `O desbloqueio financeiro não restabelece o sinal durante manutenção física da rede. Nossa equipe já está atuando!`;
     await waService.sendTextMessage(from, msg);
-    await logMessageToDashboard(cleanPhone, msg, true, "system", cliente.razao?.split(' ')[0]);
+    await logMessageToDashboard(cleanPhone, msg, true, "system", firstName);
     return;
   }
 
-  // Tenta o primeiro contrato. Em cenários reais, poderia buscar qual está bloqueado especificamente.
-  const contratoAlvo = contratos.find((c: any) => c.status === 'CM' || c.status === 'B' || c.status_internet === 'CM') || contratos[0];
-  
-  const result = await ixcService.unlockContract(contratoAlvo.id);
-  
+  await waService.sendTextMessage(from, `⏳ ${firstName}, aguarde um momento. Verificando seu contrato no ISPFY...`);
+
+  const contratos = await ispfyService.buscarContratosPorCliente(cliente.id);
+  if (contratos.length === 0) {
+    const msg = "❌ Não encontramos nenhum contrato ativo para este cadastro.";
+    await waService.sendTextMessage(from, msg);
+    await logMessageToDashboard(cleanPhone, msg, true, "system", firstName);
+    return;
+  }
+
+  const contratoAlvo =
+    contratos.find((c: any) => String(c.status || "").toLowerCase().includes("bloq")) ||
+    contratos.find((c: any) => c.ativo !== false && String(c.status || "").toLowerCase() !== "cancelado") ||
+    contratos[0];
+
+  const result = await ispfyService.liberarEmConfianca(String(contratoAlvo.id));
+
   let msg = "";
   if (result.success) {
-    msg = `✅ *Sinal Liberado!*\n\n${result.message}\n\nPor favor, **reinicie seu roteador** (tire da tomada por 10 segundos) e aguarde a conexão estabilizar.`;
+    msg = `✅ *Sinal Liberado!*\n\n${result.message}\n\nPor favor, *reinicie seu roteador* (tire da tomada por 10 segundos) e aguarde a conexão estabilizar.`;
   } else {
     msg = `⚠️ *Aviso:*\n\n${result.message}\n\nCaso já tenha realizado o pagamento, ele será compensado em breve. Se precisar de ajuda, escolha a opção "Suporte Humano".`;
   }
 
   await waService.sendTextMessage(from, msg);
-  await logMessageToDashboard(cleanPhone, msg, true, "system", cliente.razao?.split(' ')[0]);
+  await logMessageToDashboard(cleanPhone, msg, true, "system", firstName);
 }
 
 /**
@@ -1359,129 +1525,20 @@ export const ixcProxy = functions.https.onRequest(async (req, res) => {
 /**
  * 🚀 Função invocável para disparar a verificação de faturas manualmente.
  */
-export const triggerInvoiceCheckManual = functions.https.onCall(async (data, context) => {
+export const triggerInvoiceCheckManual = functions.https.onCall(async (_data, context) => {
   verifyAuth(context);
-  console.log("⏰ Iniciando verificação MANUAL de faturas solicitada pelo Dashboard...");
+  console.log("⏰ Iniciando verificação MANUAL de faturas via ISPFY solicitada pelo Dashboard...");
 
   try {
-    const usersRef = admin.firestore().collection("users");
-    const querySnapshot = await usersRef.where("fcmToken", "!=", null).get();
-
-    if (querySnapshot.empty) {
-      console.log("ℹ️ Nenhum usuário com token FCM encontrado.");
-      return { success: true, sent: 0, message: "Nenhum usuário com token FCM encontrado." };
-    }
-
-    const { token: IXC_TOKEN } = getIxcConfig();
-    const auth = Buffer.from(IXC_TOKEN).toString("base64");
-
-    const notifications: Promise<any>[] = [];
-
-    for (const doc of querySnapshot.docs) {
-      const userData = doc.data();
-      const userId = doc.id;
-      const ixcId = userData.clientId || userId;
-      const token = userData.fcmToken;
-
-      try {
-        const response = await axios.post(
-          "https://coopertecisp.com.br/webservice/v1/fn_areceber",
-          {
-            qtype: "fn_areceber.id_cliente",
-            query: ixcId,
-            oper: "=",
-            page: "1",
-            rp: "50",
-            sortname: "fn_areceber.data_vencimento",
-            sortorder: "asc",
-            grid_param: JSON.stringify([
-              {TB: "fn_areceber.liberado", OP: "=", P: "S"},
-              {TB: "fn_areceber.status", OP: "=", P: "A"},
-            ]),
-          },
-          {
-            headers: {Authorization: `Basic ${auth}`, ixcsoft: "listar"},
-            timeout: 10000,
-          }
-        );
-
-        const invoices = response.data?.registros || [];
-
-        for (const inv of invoices) {
-          if (inv.status !== "A") continue;
-
-          let dueDate: Date;
-          if (inv.data_vencimento.includes("-")) {
-            const [year, month, day] = inv.data_vencimento.split("-");
-            dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-          } else {
-            const [day, month, year] = inv.data_vencimento.split("/");
-            dueDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-          }
-
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-
-          const diffTime = dueDate.getTime() - today.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          let shouldNotify = false;
-          let title = "⚠️ Fatura AVL";
-          let body = "";
-          let color = "#F59E0B";
-
-          if (diffDays === 1 || diffDays === 2) {
-            shouldNotify = true;
-            title = "⏰ Lembrete de Fatura";
-            body = `Sua fatura de R$ ${inv.valor} vence em ${diffDays} dia(s) (${inv.data_vencimento}).`;
-          } else if (diffDays === 0) {
-            shouldNotify = true;
-            title = "🚨 Vence HOJE";
-            body = `Sua fatura de R$ ${inv.valor} vence hoje! Pague agora para evitar interrupções.`;
-            color = "#EF4444";
-          } else if (diffDays < 0 && diffDays >= -15) {
-            shouldNotify = true;
-            title = "🚫 Fatura Vencida";
-            body = `Sua fatura de R$ ${inv.valor} está vencida há ${Math.abs(diffDays)} dia(s). Regularize agora!`;
-            color = "#B91C1C";
-          }
-
-          if (shouldNotify) {
-            const message = {
-              notification: {
-                title: title,
-                body: body,
-              },
-              data: {
-                type: "invoice_reminder",
-                screen: "Boletos",
-                invoiceId: inv.id,
-                valor: inv.valor,
-              },
-              android: {
-                priority: "high" as any,
-                notification: {
-                  channelId: "alerts",
-                  color: color,
-                },
-              },
-              token: token,
-            };
-            notifications.push(
-              admin.messaging().send(message).catch((e) => {
-                console.error(`Erro ao notificar token ${token}:`, e.message);
-              })
-            );
-          }
-        }
-      } catch (userError: any) {
-        console.error(`❌ Erro ao verificar faturas para usuário ${userId}:`, userError.message);
-      }
-    }
-
-    await Promise.all(notifications);
-    console.log(`✅ Verificação MANUAL concluída. Enviadas ${notifications.length} notificações.`);
-    return { success: true, sent: notifications.length, message: `Foram enviadas ${notifications.length} notificações.` };
+    const totalSent = await executePushDueInvoicesCheck(false);
+    console.log(`✅ Verificação MANUAL ISPFY concluída. Enviadas ${totalSent} notificações.`);
+    return {
+      success: true,
+      sent: totalSent,
+      message: totalSent > 0
+        ? `Foram enviadas ${totalSent} notificações.`
+        : "Nenhuma notificação pendente encontrada.",
+    };
   } catch (error: any) {
     console.error("❌ Erro global no triggerInvoiceCheckManual:", error);
     throw new functions.https.HttpsError("internal", error.message);
@@ -1579,70 +1636,32 @@ export const sendCustomNotification = functions.https.onCall(async (data, contex
  * Robô Sentinela: Verifica faturas pagas a cada 10 minutos
  * e envia agradecimento via WhatsApp se ainda não enviou.
  */
-export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes").onRun(async (context) => {
-  console.log("⏰ [CRON] Iniciando verificação de faturas pagas...");
-  
+/**
+ * Trigger agendado legado mantido para compatibilidade de deploy;
+ * delega de forma idempotente para o monitor oficial ISPFY (`monitorIspfyPayments`).
+ */
+export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes").onRun(async () => {
+  console.log("ℹ️ [CRON] checkPaidInvoicesCron delegando de forma segura ao processIspfyPayments...");
   try {
-    const { host: ixcHost, token: ixcToken } = getIxcConfig();
-    const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
-    const ixcService = new IXCBackendService(ixcHost, ixcToken);
-    const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
-    
-    const faturasPagas = await ixcService.getFaturasPagasHoje();
-    if (faturasPagas.length === 0) {
-      console.log("ℹ️ [CRON] Nenhuma fatura paga encontrada para o dia de hoje.");
+    const lockRef = db.collection("settings").doc("payment_cron_lock");
+    const shouldRun = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(lockRef);
+      const lastRunMs = snap.exists && snap.data()?.lastRunMs ? Number(snap.data()!.lastRunMs) : 0;
+      // Evita duplicação caso monitorIspfyPayments já tenha rodado nos últimos 8 minutos
+      if (Date.now() - lastRunMs < 8 * 60 * 1000) {
+        return false;
+      }
+      tx.set(lockRef, { lastRunMs: Date.now() }, { merge: true });
+      return true;
+    });
+
+    if (!shouldRun) {
+      console.log("⏭️ [CRON] Execução recente de pagamentos ISPFY já em andamento/concluída.");
       return;
     }
-
-    console.log(`🔍 [CRON] Encontradas ${faturasPagas.length} faturas pagas hoje. Verificando notificações...`);
-
-    const notifiedRef = db.collection("notified_payments");
-    
-    for (const fatura of faturasPagas) {
-      const doc = await notifiedRef.doc(fatura.id).get();
-      if (doc.exists) {
-        // Já notificado
-        continue;
-      }
-
-      // Notificar cliente
-      const idCliente = fatura.id_cliente;
-      if (!idCliente) continue;
-
-      const cliente = await ixcService.getClienteById(idCliente);
-      if (!cliente) continue;
-
-      const phone = cliente.telefone_celular || cliente.fone_whatsapp;
-      if (!phone) continue;
-
-      const cleanPhone = phone.replace(/\D/g, "");
-      if (cleanPhone.length < 10) continue;
-
-      const firstName = cliente.razao ? cliente.razao.split(" ")[0] : "Cliente";
-      const valorStr = fatura.valor_pago || fatura.valor;
-      let msg = `✅ *Olá, ${firstName}!*\n\nPassando para avisar que nosso sistema identificou e deu baixa no pagamento da sua fatura`;
-      if (valorStr) {
-        msg += ` no valor de *R$ ${valorStr}*`;
-      }
-      msg += `.\n\nMuito obrigado! A AVL Telecom agradece a sua parceria. 🚀`;
-
-      console.log(`💬 [CRON] Enviando agradecimento para ${cleanPhone} (Fatura ${fatura.id})`);
-      await waService.sendTextMessage(cleanPhone, msg);
-      
-      // Registrar no dashboard para histórico
-      await logMessageToDashboard(cleanPhone, msg, true, "system", firstName, cliente);
-
-      // Marcar como notificado
-      await notifiedRef.doc(fatura.id).set({
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        phone: cleanPhone,
-        valor: valorStr
-      });
-    }
-
-    console.log("✅ [CRON] Verificação finalizada com sucesso.");
+    await processIspfyPayments();
   } catch (error: any) {
-    console.error("❌ [CRON] Erro durante a execução:", error.message);
+    console.error("❌ [CRON] Erro durante execução delegada ao ISPFY:", error.message);
   }
 });
 
@@ -2060,30 +2079,56 @@ export const ispfyProxy = functions.https.onRequest(async (req, res) => {
       httpsAgent: new https.Agent({
         rejectUnauthorized: false
       }),
+      validateStatus: () => true,
       timeout: 120000,
     });
+
+    // O ISPFY retorna o próprio ID numérico do ticket criado (ex: 2710) como HTTP status code,
+    // o que quebraria Express `res.status(2710)`. Normalizamos para 200 preserving `id`.
+    if (response.status < 100 || response.status > 599) {
+      res.status(200).send({
+        type: "success",
+        id: String(response.status),
+        recoveredFromStatus: response.status,
+        data: response.data,
+      });
+      return;
+    }
 
     res.status(response.status).send(response.data);
   } catch (error: any) {
     console.error(`[ISPFY Proxy] Erro na requisição para ${url}:`, error.message);
     if (error.response) {
-      res.status(error.response.status).send(error.response.data);
+      const errStatus = Number(error.response.status);
+      if (errStatus < 100 || errStatus > 599) {
+        res.status(200).send({
+          type: "success",
+          id: String(errStatus),
+          recoveredFromStatus: errStatus,
+          data: error.response.data,
+        });
+        return;
+      }
+      res.status(errStatus).send(error.response.data);
     } else {
       res.status(500).send({ error: "Erro interno no proxy do ISPFY", details: error.message });
     }
   }
 });
-// --- 5. SECURE API PROXY FOR MOBILE APP ---
+// --- 5. SECURE API PROXY FOR MOBILE APP & ISPFY AUTOMATIONS ---
 export {
   smartOltRebootOnu,
   smartOltGetWifiDetails,
   smartOltSetWifiDetails,
   ixcFetchClient,
+  ispfyAuthSubscriber,
   spinPreMixRoulette,
   createCustomToken
 } from "./apiProxy";
 
 export * from "./ispfyPaymentMonitor";
 
-export * from './ispfyCarenciaMonitor';
+export * from "./ispfyCarenciaMonitor";
+export * from "./ispfyAutomations";
+export * from "./ispfyOutageMonitor";
 export { aiGenerateCopy, aiChatJosue } from "./aiProxy";

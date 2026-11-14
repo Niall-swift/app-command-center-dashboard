@@ -27,7 +27,15 @@ import type {
   ISPFYClientRegionRecord,
   ISPFYClientsByRegionResult,
   ISPFYLivePointStatus,
-  ISPFYOverdueAnalyticsResult
+  ISPFYOverdueAnalyticsResult,
+  ISPFYBoletoToolDetalhe,
+  ISPFYBandwidthSummary30d,
+  ISPFYPlanoTeste,
+  ISPFYPopDevice,
+  ISPFYPopDeviceInterface,
+  ISPFYGeoFiberSplitter,
+  ISPFYGeoFiberSplitterVia,
+  ISPFYCarteira
 } from '@/types/ispfy';
 import { sincronizarEDetectarExcluidos } from './auditSnapshotService';
 import { calcularAnaliseInadimplencia } from './overdueHelpers';
@@ -303,6 +311,53 @@ class ISPFYService {
 
   private getTotal(response: ISPFYApiResponse<unknown>): number {
     return response.count ?? response.total ?? 0;
+  }
+
+  private async callToolRequest<T = any>(
+    method: 'get' | 'post' | 'delete',
+    path: string,
+    options?: {
+      params?: Record<string, any>;
+      data?: Record<string, any>;
+      responseType?: 'json' | 'text';
+    }
+  ): Promise<T> {
+    const headers = this.token ? { Token: this.token } : {};
+    const exec = () =>
+      this.client.request<T>({
+        method,
+        url: path,
+        params: options?.params,
+        data: options?.data,
+        responseType: options?.responseType || 'json',
+        headers,
+      });
+
+    const resp = await exec();
+    if (
+      options?.responseType !== 'text' &&
+      typeof resp.data === 'string' &&
+      resp.data.trim().startsWith('<')
+    ) {
+      if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
+        this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
+        const retry = await exec();
+        return retry.data;
+      }
+      throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
+    }
+    return resp.data;
+  }
+
+  private formatCpfCnpjForTool(rawDoc: string): string {
+    const clean = rawDoc.replace(/\D/g, '');
+    if (clean.length === 11) {
+      return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    }
+    if (clean.length === 14) {
+      return clean.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    }
+    return rawDoc.trim();
   }
 
   // =====================================================================
@@ -1158,12 +1213,101 @@ class ISPFYService {
   }
 
   // =====================================================================
-  // PIX / BOLETO
+  // PIX / BOLETO (Tool Oficial + Fallback Object)
   // =====================================================================
 
-  async getPixQrCode(idFatura: string): Promise<ISPFYPixData | null> {
+  async getBoletosAssinante(
+    cpfCnpj: string,
+    options?: { status?: 'aberto' | 'vencido' | 'pago' | string; tipo?: 'fatura' | 'carne' | string }
+  ): Promise<ISPFYBoletoToolDetalhe[]> {
+    const digits = cpfCnpj.replace(/\D/g, '');
+    if (!digits) return [];
+    const masked = this.formatCpfCnpjForTool(digits);
+    const tipo = options?.tipo || 'fatura';
+
+    const run = async (docParam: string) => {
+      const baseParams: Record<string, any> = { doc: docParam, tipo };
+      if (options?.status) baseParams.status = options.status;
+
+      const [detalhesRaw, linksRaw] = await Promise.all([
+        this.callToolRequest<any>('get', '/api/tool/assinante/boleto', {
+          params: { ...baseParams, retorno: 'linha_detalhes_json' },
+        }).catch(() => null),
+        this.callToolRequest<any>('get', '/api/tool/assinante/boleto', {
+          params: { ...baseParams, retorno: 'link_json' },
+        }).catch(() => null),
+      ]);
+
+      const cobrancas: any[] = Array.isArray(detalhesRaw?.cobrancas) ? detalhesRaw.cobrancas : [];
+      const links: string[] = Array.isArray(linksRaw?.links) ? linksRaw.links : [];
+
+      return cobrancas.map((item, idx) => {
+        const idStr = String(item?.id || '');
+        const matchedLink =
+          links.find((l) => idStr && String(l).endsWith(`/${idStr}`)) ||
+          links[idx] ||
+          item?.link ||
+          '';
+        return {
+          id: idStr,
+          vencimento: String(item?.vencimento || ''),
+          valor: String(item?.valor || ''),
+          linha: String(item?.linha || ''),
+          link: String(matchedLink || ''),
+          pix: String(item?.pix || ''),
+        };
+      });
+    };
+
+    const viaMask = await run(masked);
+    if (viaMask.length > 0 || masked === digits) return viaMask;
+    return run(digits);
+  }
+
+  private async resolveCpfByInvoiceId(idFatura: string): Promise<string | null> {
     try {
-      console.log(`💎 Gerando PIX para fatura ${idFatura}...`);
+      const invResp = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: buildFilter('id', 'EQ', idFatura),
+        limit: 1,
+      });
+      const inv = this.getRows(invResp)[0];
+      if (!inv?.id_contrato) return null;
+
+      const cResp = await this.makeRequest<ISPFYContratoData>('/cliente/contrato', {
+        filter: buildFilter('id', 'EQ', inv.id_contrato),
+        limit: 1,
+      });
+      const contrato = this.getRows(cResp)[0];
+      if (!contrato?.id_cliente) return null;
+
+      const cliResp = await this.makeRequest<ISPFYClienteData>('/cliente', {
+        filter: buildFilter('id', 'EQ', contrato.id_cliente),
+        limit: 1,
+      });
+      return this.getRows(cliResp)[0]?.cpf_cnpj || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getPixQrCode(idFatura: string, cpfCnpj?: string): Promise<ISPFYPixData | null> {
+    try {
+      const doc = cpfCnpj || (await this.resolveCpfByInvoiceId(idFatura));
+      if (doc) {
+        const boletos = await this.getBoletosAssinante(doc).catch(() => []);
+        const match = boletos.find((b) => b.id === String(idFatura)) || boletos[0];
+        if (match?.pix || match?.linha) {
+          return {
+            qrcode: match.pix || '',
+            qrcode_text: match.pix || '',
+            qr_code: match.pix || '',
+            pix_copia_cola: match.pix || '',
+            linha_digitavel: match.linha || '',
+            link_boleto: match.link || '',
+          };
+        }
+      }
+
       const response = await this.client.post<ISPFYPixData>(
         `/api/object/get_pix_qrcode/${idFatura}`,
         { id: idFatura },
@@ -1176,8 +1320,21 @@ class ISPFYService {
     }
   }
 
-  async getBoletoPdf(idFatura: string): Promise<{ url: string } | null> {
+  async getBoletoPdf(idFatura: string, cpfCnpj?: string): Promise<{ url: string; linha?: string; pix?: string } | null> {
     try {
+      const doc = cpfCnpj || (await this.resolveCpfByInvoiceId(idFatura));
+      if (doc) {
+        const boletos = await this.getBoletosAssinante(doc).catch(() => []);
+        const match = boletos.find((b) => b.id === String(idFatura)) || boletos[0];
+        if (match?.link) {
+          return {
+            url: match.link,
+            linha: match.linha || undefined,
+            pix: match.pix || undefined,
+          };
+        }
+      }
+
       const response = await this.client.post<{ link: string }>(
         `/api/object/get_boleto/${idFatura}`,
         { id: idFatura },
@@ -1610,8 +1767,38 @@ class ISPFYService {
     }
   }
 
-  async getDetalhesConexao(_idLogin: string): Promise<any> {
-    return null;
+  async getDetalhesConexao(idPonto: string): Promise<{
+    station: Record<string, any> | null;
+    history: Record<string, any>[];
+    sessoes: ISPFYConexaoData[];
+  } | null> {
+    if (!idPonto) return null;
+    try {
+      const [stationResp, historyResp, sessoesResp] = await Promise.all([
+        this.makeRequest<Record<string, any>>('/cliente/contrato/ponto/station', {
+          filter: buildFilter('id_ponto', 'EQ', idPonto),
+          limit: 5,
+        }).catch(() => null),
+        this.makeRequest<Record<string, any>>('/cliente/contrato/ponto/station-history', {
+          filter: buildFilter('id_ponto', 'EQ', idPonto),
+          limit: 20,
+          sort: 'id:DESC',
+        }).catch(() => null),
+        this.makeRequest<ISPFYConexaoData>('/cliente/contrato/ponto/sessoes', {
+          filter: buildFilter('id_ponto', 'EQ', idPonto),
+          limit: 10,
+          sort: 'id:DESC',
+        }).catch(() => null),
+      ]);
+
+      return {
+        station: stationResp ? this.getRows(stationResp)[0] || null : null,
+        history: historyResp ? this.getRows(historyResp) : [],
+        sessoes: sessoesResp ? this.getRows(sessoesResp) : [],
+      };
+    } catch {
+      return null;
+    }
   }
 
   // =====================================================================
@@ -1833,21 +2020,80 @@ class ISPFYService {
   }
 
   /**
-   * Consumo de banda (simulado — integração real depende do endpoint de monitoramento)
+   * Consumo de banda real via `/api/tool/assinante/ponto/consumo` para os últimos 7 dias (em GB).
    */
-  async getBandwidthUsage(_idLogin: string): Promise<ISPFYUsageSeries[]> {
-    const series: ISPFYUsageSeries[] = [];
+  async getBandwidthUsage(idPonto: string): Promise<ISPFYUsageSeries[]> {
+    if (!idPonto) return [];
     const today = new Date();
+    const dates: { label: string; iso: string }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      series.push({
-        date: `${d.getDate()}/${d.getMonth() + 1}`,
-        download: Math.floor(Math.random() * 50) + 10,
-        upload: Math.floor(Math.random() * 10) + 2,
+      const iso = d.toISOString().split('T')[0];
+      dates.push({
+        label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        iso,
       });
     }
-    return series;
+
+    const dailyResults = await Promise.all(
+      dates.map(async ({ label, iso }) => {
+        try {
+          const data = await this.callToolRequest<any>('get', '/api/tool/assinante/ponto/consumo', {
+            params: {
+              id_ponto: idPonto,
+              data_inicial: iso,
+              data_final: iso,
+            },
+          });
+          const downGb = Number(data?.download_mes_kbytes || 0) / (1024 * 1024);
+          const upGb = Number(data?.upload_mes_kbytes || 0) / (1024 * 1024);
+          return {
+            date: label,
+            download: Math.round(downGb * 100) / 100,
+            upload: Math.round(upGb * 100) / 100,
+          };
+        } catch {
+          return { date: label, download: 0, upload: 0 };
+        }
+      })
+    );
+
+    return dailyResults;
+  }
+
+  /**
+   * Resumo real acumulado dos últimos 30 dias via `/api/tool/assinante/ponto/consumo`.
+   */
+  async getBandwidthSummary30Days(idPonto: string): Promise<ISPFYBandwidthSummary30d | null> {
+    if (!idPonto) return null;
+    try {
+      const today = new Date();
+      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      const dataInicial = start.toISOString().split('T')[0];
+      const dataFinal = today.toISOString().split('T')[0];
+
+      const raw = await this.callToolRequest<any>('get', '/api/tool/assinante/ponto/consumo', {
+        params: {
+          id_ponto: idPonto,
+          data_inicial: dataInicial,
+          data_final: dataFinal,
+        },
+      });
+      const downloadKbytes = Number(raw?.download_mes_kbytes || 0);
+      const uploadKbytes = Number(raw?.upload_mes_kbytes || 0);
+      return {
+        idPonto: String(raw?.id_ponto || idPonto),
+        dataInicial,
+        dataFinal,
+        downloadKbytes,
+        uploadKbytes,
+        downloadGb: Math.round((downloadKbytes / (1024 * 1024)) * 100) / 100,
+        uploadGb: Math.round((uploadKbytes / (1024 * 1024)) * 100) / 100,
+      };
+    } catch {
+      return null;
+    }
   }
 
   // =====================================================================
@@ -3047,27 +3293,9 @@ class ISPFYService {
   async getClientLivePointStatuses(
     idCliente: string
   ): Promise<ISPFYLivePointStatus[]> {
-    const fetchTool = async () => {
-      const response = await this.client.get<any>('/api/tool/assinante/ponto/status', {
-        params: { id_cliente: idCliente },
-      });
-      if (
-        typeof response.data === 'string' &&
-        response.data.trim().startsWith('<')
-      ) {
-        if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
-          this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
-          const retry = await this.client.get<any>('/api/tool/assinante/ponto/status', {
-            params: { id_cliente: idCliente },
-          });
-          return retry.data;
-        }
-        throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
-      }
-      return response.data;
-    };
-
-    const raw = await fetchTool();
+    const raw = await this.callToolRequest<any>('get', '/api/tool/assinante/ponto/status', {
+      params: { id_cliente: idCliente },
+    });
     const rows = this.getRows<any>(raw);
     return rows.map((row) => ({
       idPonto: String(row?.id_ponto || ''),
@@ -3088,6 +3316,180 @@ class ISPFYService {
         ? Number(row.download_mes_kbytes)
         : undefined,
     }));
+  }
+
+  /** Retorna ficha consolidada (/api/tool/assinante/info) pelo CPF/CNPJ. */
+  async getAssinanteInfoByDoc(cpfCnpj: string): Promise<any | null> {
+    const clean = cpfCnpj.replace(/\D/g, '');
+    if (!clean) return null;
+    const masked = this.formatCpfCnpjForTool(clean);
+    for (const candidate of Array.from(new Set([masked, clean]))) {
+      try {
+        const res = await this.callToolRequest<any>('get', '/api/tool/assinante/info', {
+          params: { doc: candidate },
+        });
+        if (res && (res.id || res.cpf_cnpj)) return res;
+      } catch {
+        // tenta formato alternativo
+      }
+    }
+    return null;
+  }
+
+  /** Encerra um ticket aberto no ISPFY (`DELETE /api/tool/assinante/ticket/:id`). */
+  async closeTicket(idTicket: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await this.callToolRequest<any>(
+        'delete',
+        `/api/tool/assinante/ticket/${encodeURIComponent(idTicket)}`
+      );
+      if (res?.type === 'error') {
+        return { success: false, message: res?.message || 'Erro ao encerrar O.S.' };
+      }
+      return { success: true, message: `Ticket #${idTicket} encerrado no ISPFY.` };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Erro ao fechar ticket no ISPFY.',
+      };
+    }
+  }
+
+  /** Planos disponíveis para Turbo / degustação (`GET /api/tool/assinante/plano/teste`). */
+  async getTestablePlans(
+    idPonto: string,
+    mostrarPrecoMenor = true,
+    mostrarBandaMenor = false
+  ): Promise<ISPFYPlanoTeste[]> {
+    const res = await this.callToolRequest<any>('get', '/api/tool/assinante/plano/teste', {
+      params: {
+        id_ponto: idPonto,
+        mostrar_preco_menor: mostrarPrecoMenor ? 1 : 0,
+        mostrar_banda_menor: mostrarBandaMenor ? 1 : 0,
+      },
+    });
+    return this.getRows<ISPFYPlanoTeste>(res);
+  }
+
+  /** Ativa Turbo temporário em um ponto (`POST /api/tool/assinante/plano/teste`). */
+  async activatePlanTest(
+    idPonto: string,
+    idPlano: string,
+    dataFinal: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await this.callToolRequest<any>('post', '/api/tool/assinante/plano/teste', {
+        data: { id_ponto: idPonto, id_plano: idPlano, data_final: dataFinal },
+      });
+      if (res?.type === 'error') {
+        return { success: false, message: res?.message || 'Erro ao ativar Turbo.' };
+      }
+      return { success: true, message: `Turbo ativado até ${dataFinal}!` };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Erro ao ativar Turbo.',
+      };
+    }
+  }
+
+  /** Remove Turbo temporário de um ponto (`DELETE /api/tool/assinante/plano/teste/:id`). */
+  async removePlanTest(idPonto: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.callToolRequest<any>(
+        'delete',
+        `/api/tool/assinante/plano/teste/${encodeURIComponent(idPonto)}`
+      );
+      return { success: true, message: 'Plano temporário removido!' };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Erro ao remover Turbo.',
+      };
+    }
+  }
+
+  /** Converte lead / cria novo assinante no ISPFY (`POST /api/tool/cliente/novo`). */
+  async createNovoCliente(
+    payload: Record<string, any>
+  ): Promise<{ success: boolean; id?: string; message: string }> {
+    try {
+      const res = await this.callToolRequest<any>('post', '/api/tool/cliente/novo', {
+        data: payload,
+      });
+      if (res?.type === 'error') {
+        return { success: false, message: res?.message || 'Erro ao cadastrar cliente no ISPFY.' };
+      }
+      const id = res?.id ? String(res.id) : undefined;
+      return {
+        success: true,
+        id,
+        message: id ? `Cliente #${id} cadastrado no ISPFY!` : 'Cliente cadastrado no ISPFY!',
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Erro ao cadastrar cliente no ISPFY.',
+      };
+    }
+  }
+
+  /** Sincronização incremental de clientes ativos (`/tool/custom-party/appprovedor/clientes/ativos`). */
+  async getActiveClientsIncremental(dataInsercaoApos: string): Promise<any[]> {
+    const res = await this.callToolRequest<any>(
+      'get',
+      '/api/tool/custom-party/appprovedor/clientes/ativos',
+      { params: { data_insercao_apos: dataInsercaoApos } }
+    );
+    return this.getRows(res);
+  }
+
+  /** Baixa script de resgate MikroTik (`/api/tool/mikrotik/script/*`). */
+  async getMikrotikRescueScript(
+    tipo: 'secrets' | 'binding',
+    query: { key: string; time?: string; iface?: string }
+  ): Promise<string> {
+    const endpoint =
+      tipo === 'secrets'
+        ? '/api/tool/mikrotik/script/secrets'
+        : '/api/tool/mikrotik/script/binding';
+    const data = await this.callToolRequest<any>('get', endpoint, {
+      params: query,
+      responseType: 'text',
+    });
+    return typeof data === 'string' ? data : JSON.stringify(data || '');
+  }
+
+  // =====================================================================
+  // INFRAESTRUTURA ESTENDIDA (POPs, Splitters, Carteiras)
+  // =====================================================================
+
+  async getPopDevices(): Promise<ISPFYPopDevice[]> {
+    return this.fetchAllRecords<ISPFYPopDevice>('/provedor/pop/dispositivos', { sort: 'id:ASC' });
+  }
+
+  async getPopDeviceInterfaces(): Promise<ISPFYPopDeviceInterface[]> {
+    return this.fetchAllRecords<ISPFYPopDeviceInterface>('/provedor/pop/dispositivos/interfaces', {
+      sort: 'id:ASC',
+    });
+  }
+
+  async getGeoFiberSplitters(): Promise<ISPFYGeoFiberSplitter[]> {
+    return this.fetchAllRecords<ISPFYGeoFiberSplitter>('/geofiber/splitter', { sort: 'id:ASC' });
+  }
+
+  async getGeoFiberSplitterVias(): Promise<ISPFYGeoFiberSplitterVia[]> {
+    return this.fetchAllRecords<ISPFYGeoFiberSplitterVia>('/geofiber/splitter/vias', {
+      sort: 'id:ASC',
+    });
+  }
+
+  async getCarteiras(): Promise<ISPFYCarteira[]> {
+    const res = await this.makeRequest<ISPFYCarteira>('/financeiro/carteiras', {
+      limit: 200,
+      sort: 'id:ASC',
+    });
+    return this.getRows(res);
   }
 }
 

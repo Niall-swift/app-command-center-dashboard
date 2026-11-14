@@ -24,7 +24,7 @@ const menuItems = [
   { title: "Suporte Técnico",  url: "/technical-support", icon: Wrench },
   { title: "Mapa da Rede",     url: "/network-map",     icon: Map },
   { title: "Gráficos",         url: "/analytics",       icon: BarChart3 },
-  { title: "Criar Bots",       url: "/bots",            icon: Bot },
+  { title: "Automações & Bot", url: "/bots",            icon: Bot },
   { title: "Sorteio",          url: "/raffle",          icon: Gift },
   { title: "Sorteios Pagos",   url: "/paid-raffles",    icon: Ticket },
   { title: "Filmes",           url: "/movies",          icon: Film },

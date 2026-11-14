@@ -11,6 +11,7 @@ import {
   Ticket,
   AlertCircle,
   CheckCircle,
+  CheckCircle2,
   Search,
   Loader2,
   Clock,
@@ -27,6 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/config/firebase';
 import { toast } from 'sonner';
 import PageTransition from '@/components/PageTransition';
 import { ispfyService } from '@/services/ispfy/ispfyService';
@@ -45,6 +50,11 @@ const ISPFYTickets: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('abertos');
   const [selectedTicket, setSelectedTicket] = useState<ISPFYTicketData | null>(null);
+
+  // Encerramento de O.S. direto no ISPFY
+  const [closingTicket, setClosingTicket] = useState(false);
+  const [notifyCloseWhatsapp, setNotifyCloseWhatsapp] = useState(true);
+  const [resolutionNote, setResolutionNote] = useState('');
 
   // Contagem diária de O.S. (Reinicia todo dia)
   const {
@@ -106,6 +116,71 @@ const ISPFYTickets: React.FC = () => {
       toast.error('Erro ao enviar mensagem.');
     } finally {
       setSendingToGroup(false);
+    }
+  };
+
+  const handleCloseTicket = async (t: ISPFYTicketData) => {
+    if (!t.id) {
+      toast.error('ID da O.S. não encontrado.');
+      return;
+    }
+
+    setClosingTicket(true);
+    try {
+      let clientName: string | undefined;
+      let clientPhone: string | undefined;
+
+      if (notifyCloseWhatsapp && t.id_cliente) {
+        const cli = await ispfyService.getClienteById(String(t.id_cliente)).catch(() => null);
+        if (cli) {
+          clientName = cli.razao || cli.nome || undefined;
+          clientPhone =
+            cli.fone_whatsapp ||
+            cli.fone_celular ||
+            cli.telefone_celular ||
+            cli.telefone ||
+            undefined;
+        }
+      }
+
+      const closeFn = httpsCallable<
+        Record<string, unknown>,
+        { success?: boolean; whatsappSent?: boolean; result?: { message?: string } }
+      >(functions, 'ispfyToolActions');
+      const response = await closeFn({
+        action: 'close_ticket',
+        idTicket: String(t.id),
+        clientName,
+        clientPhone,
+        notifyWhatsapp: notifyCloseWhatsapp && Boolean(clientPhone),
+        resolutionNote: resolutionNote.trim() || undefined,
+      });
+
+      const data = response.data;
+      if (!data?.success) {
+        toast.error(data?.result?.message || 'Não foi possível encerrar a O.S. no ISPFY.');
+        return;
+      }
+
+      toast.success(
+        data.whatsappSent
+          ? `O.S. #${t.id} encerrada no ISPFY e pesquisa NPS enviada no WhatsApp!`
+          : `O.S. #${t.id} encerrada com sucesso no ISPFY!`
+      );
+      setResolutionNote('');
+      setTicketsAbertos((prev) => prev.filter((item) => String(item.id) !== String(t.id)));
+      setTickets((prev) =>
+        prev.map((item) =>
+          String(item.id) === String(t.id) ? { ...item, status: 'Fechado' } : item
+        )
+      );
+      setSelectedTicket(null);
+      loadTicketsAbertos();
+    } catch (err: unknown) {
+      console.error('Erro ao encerrar O.S.:', err);
+      toast.error(err instanceof Error ? err.message : 'Erro ao encerrar O.S. no ISPFY.');
+    } finally {
+      setClosingTicket(false);
     }
   };
 
@@ -460,8 +535,52 @@ const ISPFYTickets: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Ações: Enviar Grupo WhatsApp & Copiar */}
+                    {/* Ações: Encerrar no ISPFY, Enviar Grupo WhatsApp & Copiar */}
                     <div className="pt-4 border-t border-border space-y-3">
+                      {!String(selectedTicket.status || '').toLowerCase().includes('fechado') &&
+                        !String(selectedTicket.status || '').toLowerCase().includes('resolvido') && (
+                          <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Encerrar O.S. no ISPFY
+                              </Label>
+                            </div>
+                            <Textarea
+                              value={resolutionNote}
+                              onChange={(e) => setResolutionNote(e.target.value)}
+                              placeholder="Nota técnica / resumo da solução (opcional)..."
+                              className="min-h-[60px] text-xs bg-background border-input"
+                            />
+                            <div className="flex items-center justify-between gap-2 pt-0.5">
+                              <Label
+                                htmlFor="notify-close-whatsapp"
+                                className="text-[11px] text-muted-foreground cursor-pointer select-none"
+                              >
+                                Enviar pesquisa NPS no WhatsApp
+                              </Label>
+                              <Switch
+                                id="notify-close-whatsapp"
+                                checked={notifyCloseWhatsapp}
+                                onCheckedChange={setNotifyCloseWhatsapp}
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleCloseTicket(selectedTicket)}
+                              disabled={closingTicket}
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 gap-1.5"
+                            >
+                              {closingTicket ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              )}
+                              {closingTicket ? 'Encerrando no ISPFY...' : 'Concluir e Encerrar O.S.'}
+                            </Button>
+                          </div>
+                        )}
+
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <Label className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">

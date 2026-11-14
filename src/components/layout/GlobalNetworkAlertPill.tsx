@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
+  AlertTriangle,
   Bell,
   BellOff,
   CheckCheck,
@@ -9,6 +10,8 @@ import {
   MapPin,
   Phone,
   RefreshCw,
+  Send,
+  ShieldAlert,
   Trash2,
   Volume2,
   VolumeX,
@@ -39,6 +42,8 @@ export const GlobalNetworkAlertPill: React.FC = () => {
     eventosRecentes,
     quedasNaoLidas,
     somAtivo,
+    sireneAtiva,
+    sireneSilenciada,
     monitorAtivo,
     intervaloVerificacaoSeg,
     permissaoNotificacao,
@@ -48,6 +53,13 @@ export const GlobalNetworkAlertPill: React.FC = () => {
     limparEventos,
     alternarSom,
     alternarMonitor,
+    tocarSireneRompimento,
+    pararSirene,
+    rompimentosEmMassa,
+    rompimentosConfirmados,
+    outagesMonitorados,
+    ativarAlertaRompimentoRegiao,
+    enviarAlertaRompimentoGrupo,
   } = useNetworkMonitor();
 
   const totais = dadosRegiao?.totals;
@@ -97,7 +109,21 @@ export const GlobalNetworkAlertPill: React.FC = () => {
   ];
 
   return (
-    <Popover open={aberto} onOpenChange={aoAlternarAbertura}>
+    <div className="flex items-center gap-1.5">
+      {rompimentosEmMassa.length > 0 && (sireneAtiva || (somAtivo && !sireneSilenciada)) && (
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          onClick={() => pararSirene(true)}
+          className="h-9 rounded-full px-3 text-xs font-bold shadow-lg animate-pulse gap-1.5"
+          title="Silenciar sirene de rompimento"
+        >
+          <VolumeX className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Parar Sirene</span>
+        </Button>
+      )}
+      <Popover open={aberto} onOpenChange={aoAlternarAbertura}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -153,6 +179,16 @@ export const GlobalNetworkAlertPill: React.FC = () => {
               {quedasNaoLidas > 0 && (
                 <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold shadow">
                   +{quedasNaoLidas}
+                </span>
+              )}
+
+              {rompimentosEmMassa.length > 0 && (
+                <span
+                  className="ml-0.5 inline-flex items-center gap-0.5 px-1.5 h-[18px] rounded-full bg-amber-500 text-slate-950 text-[10px] font-black shadow"
+                  title={`${rompimentosEmMassa.length} bairro(s) com possível rompimento`}
+                >
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  {rompimentosEmMassa.length}
                 </span>
               )}
             </>
@@ -269,6 +305,112 @@ export const GlobalNetworkAlertPill: React.FC = () => {
             </Button>
           )}
         </div>
+
+        {/* Banner de Rompimentos em Massa */}
+        {rompimentosEmMassa.length > 0 && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
+              <span className="flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                Possível Rompimento ({rompimentosEmMassa.length})
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px] px-2 border-amber-500/40"
+                  onClick={() => tocarSireneRompimento(2)}
+                  title="Tocar sirene de alerta NOC"
+                >
+                  <Volume2 className="w-3 h-3 mr-1" />
+                  Sirene
+                </Button>
+                {(sireneAtiva || (somAtivo && !sireneSilenciada)) && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-6 text-[10px] px-2 font-bold animate-pulse"
+                    onClick={() => pararSirene(true)}
+                    title="Silenciar sirene para o rompimento atual"
+                  >
+                    <VolumeX className="w-3 h-3 mr-1" />
+                    Parar
+                  </Button>
+                )}
+              </div>
+            </div>
+            {rompimentosEmMassa.slice(0, 3).map((alerta) => {
+              const jaAtivoNoBot = rompimentosConfirmados.some((c) =>
+                c.bairros.some(
+                  (b) => b.toLowerCase() === alerta.bairroLabel.toLowerCase()
+                )
+              );
+              const watch = outagesMonitorados.find(
+                (w) => w.incidentKey === alerta.incidentKey
+              );
+              const rp = alerta.ruaPrincipal;
+              return (
+                <div
+                  key={alerta.incidentKey}
+                  className="rounded-lg bg-background/80 border border-amber-500/30 p-2 text-[11px] space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-foreground truncate">
+                      {alerta.tipoAlerta === 'rua_e_bairro' && rp
+                        ? `${rp.ruaLabel} — ${alerta.bairroLabel}`
+                        : alerta.bairroLabel}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-rose-500/40 text-rose-600 dark:text-rose-300 shrink-0"
+                    >
+                      {alerta.tipoAlerta === 'rua_e_bairro' && rp
+                        ? `Rua ${rp.desconectados}/${rp.totalAtivos} (${rp.percentualOffline}%)`
+                        : `${alerta.desconectados}/${alerta.totalAtivosNoBairro} off (${alerta.percentualOffline}%)`}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span>
+                      Bairro: {alerta.desconectados}/{alerta.totalAtivosNoBairro} off ({alerta.percentualOffline}%)
+                    </span>
+                    <span>
+                      {watch?.whatsappSentAtMs
+                        ? `EQUIPE AVL avisada (${formatarHorarioCurto(
+                            new Date(watch.whatsappSentAtMs).toISOString()
+                          )})`
+                        : watch?.firstDetectedAtMs
+                          ? `Início ${formatarHorarioCurto(
+                              new Date(watch.firstDetectedAtMs).toISOString()
+                            )} (envia >5m)`
+                          : 'Monitorando (>5m envia EQUIPE AVL)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={jaAtivoNoBot ? 'secondary' : 'outline'}
+                      className="h-6 text-[10px] px-2 flex-1"
+                      disabled={jaAtivoNoBot}
+                      onClick={() => ativarAlertaRompimentoRegiao(alerta)}
+                    >
+                      <ShieldAlert className="w-3 h-3 mr-1" />
+                      {jaAtivoNoBot ? 'Bot Avisando' : 'Avisar no Bot/IA'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px] px-2 flex-1"
+                      onClick={() => enviarAlertaRompimentoGrupo(alerta)}
+                    >
+                      <Send className="w-3 h-3 mr-1" />
+                      EQUIPE AVL
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Feed de eventos em tempo real */}
         <div className="max-h-72 overflow-y-auto divide-y divide-border/70 bg-card">
@@ -387,5 +529,6 @@ export const GlobalNetworkAlertPill: React.FC = () => {
         </div>
       </PopoverContent>
     </Popover>
+    </div>
   );
 };

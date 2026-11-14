@@ -30,8 +30,14 @@ export class WhapiService {
    * Saída: 5511999999999
    */
   private formatPhoneNumber(phone: string): string {
+    const trimmed = String(phone || "").trim();
+    // Preserva IDs de grupos do WhatsApp / Z-API (-group ou @g.us)
+    if (trimmed.endsWith("-group") || trimmed.includes("@g.us") || trimmed.includes("-")) {
+      return trimmed;
+    }
+
     // Remover caracteres não numéricos
-    const cleaned = phone.replace(/\D/g, "");
+    const cleaned = trimmed.replace(/\D/g, "");
 
     // Se não começar com 55, adicionar
     let formatted = cleaned;

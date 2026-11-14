@@ -1,8 +1,13 @@
 import * as functions from "firebase-functions/v1";
-import axios from "axios";
+import * as admin from "firebase-admin";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { verifyAuth } from "./config/auth";
 import { getIspfyConfig } from "./config/env";
+import { IspfyBackendService } from "./ispfyBackendService";
+
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
@@ -26,28 +31,22 @@ function requireGeminiKey(): string {
   return apiKey;
 }
 
-function extractIspfyRows(payload: any): any[] {
-  if (Array.isArray(payload)) return payload;
-  return payload?.data ?? payload?.rows ?? payload?.registros ?? [];
+function getIspfyService(): IspfyBackendService {
+  const { host, token } = getIspfyConfig();
+  return new IspfyBackendService(host, token);
 }
 
-async function ispfyGet(endpoint: string, params: Record<string, any>): Promise<any[]> {
-  const { host, token } = getIspfyConfig();
-  const response = await axios.get(`${host}/api/object${endpoint}`, {
-    headers: { Token: token, "Content-Type": "application/json" },
-    params: { pagination: "TRUE", limit: 100, offset: 0, ...params },
-    timeout: 20000,
-  });
-  return extractIspfyRows(response.data);
+function formatDateIso(date: Date): string {
+  return date.toISOString().split("T")[0];
 }
 
-async function ispfyPost(endpoint: string, body: Record<string, unknown>): Promise<any> {
-  const { host, token } = getIspfyConfig();
-  const response = await axios.post(`${host}/api/object${endpoint}`, body, {
-    headers: { Token: token, "Content-Type": "application/json" },
-    timeout: 20000,
-  });
-  return response.data;
+function formatKbytesToReadable(kbytes: unknown): string {
+  const kb = Number(kbytes || 0);
+  if (!Number.isFinite(kb) || kb <= 0) return "0 MB";
+  if (kb >= 1024 * 1024) {
+    return `${(kb / (1024 * 1024)).toFixed(2)} GB`;
+  }
+  return `${(kb / 1024).toFixed(2)} MB`;
 }
 
 function buildBillingPrompt(params: Record<string, any>): string {
@@ -286,148 +285,326 @@ const josueTools: any[] = [
     functionDeclarations: [
       {
         name: "get_client_info",
-        description: "Busca informações detalhadas do cliente no ISPFY através do CPF ou CNPJ.",
+        description:
+          "Busca informações cadastrais completas do cliente no ISPFY (nome, endereço, bairro, contratos e se há manutenção ativa na região) pelo CPF ou CNPJ.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            cpf: { type: SchemaType.STRING, description: "O CPF ou CNPJ do cliente (apenas números)." },
+            cpf: { type: SchemaType.STRING, description: "CPF ou CNPJ do cliente (apenas números ou formatado)." },
           },
           required: ["cpf"],
         },
       },
       {
         name: "list_invoices",
-        description: "Lista as faturas em aberto do cliente no ISPFY.",
+        description:
+          "Lista as faturas em aberto do cliente no ISPFY com código PIX Copia e Cola, linha digitável do boleto e link de pagamento.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            clientId: { type: SchemaType.STRING, description: "O ID do cliente no ISPFY." },
+            clientId: { type: SchemaType.STRING, description: "O ID do cliente no ISPFY (opcional se enviar cpf)." },
+            cpf: { type: SchemaType.STRING, description: "CPF ou CNPJ do cliente (preferencial para PIX e boleto)." },
           },
-          required: ["clientId"],
         },
       },
       {
         name: "trust_unlock",
-        description: "Realiza o desbloqueio de confiança (liberação temporária) da internet do cliente.",
+        description:
+          "Realiza a Liberação em Confiança (desbloqueio temporário) de um contrato suspenso por atraso no ISPFY.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            contractId: { type: SchemaType.STRING, description: "O ID do contrato que deve ser desbloqueado." },
+            contractId: { type: SchemaType.STRING, description: "ID do contrato a ser liberado em confiança." },
+            cpf: { type: SchemaType.STRING, description: "CPF ou CNPJ do cliente (opcional, recomendado)." },
           },
           required: ["contractId"],
+        },
+      },
+      {
+        name: "check_connection_status",
+        description:
+          "Diagnostica o status em tempo real da conexão/ponto de acesso do assinante no ISPFY (online/offline, IP, CTO/OLT, sinal óptico) e verifica rompimentos na região.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            cpf: { type: SchemaType.STRING, description: "CPF ou CNPJ do cliente para consulta de ponto." },
+          },
+          required: ["cpf"],
+        },
+      },
+      {
+        name: "get_bandwidth_usage",
+        description:
+          "Consulta o consumo real de dados (download e upload) de um ponto de acesso nos últimos dias.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            cpf: { type: SchemaType.STRING, description: "CPF ou CNPJ do cliente (caso não tenha idPonto)." },
+            idPonto: { type: SchemaType.STRING, description: "ID do ponto de acesso no ISPFY (opcional)." },
+            dias: { type: SchemaType.INTEGER, description: "Quantidade de dias (máximo 30, padrão 30)." },
+          },
+        },
+      },
+      {
+        name: "open_support_ticket",
+        description:
+          "Abre uma Ordem de Serviço / Ticket de suporte no ISPFY para o contrato do cliente, somente quando necessário e quando não houver manutenção regional em andamento.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            contractId: { type: SchemaType.STRING, description: "ID do contrato no ISPFY." },
+            cpf: { type: SchemaType.STRING, description: "CPF/CNPJ do cliente para validação e checagem de manutenção regional." },
+            assunto: { type: SchemaType.STRING, description: "Resumo curto do problema (ex: Cliente sem conexão / ONU LOS)." },
+            descricao: { type: SchemaType.STRING, description: "Descrição detalhada relatada pelo cliente no atendimento." },
+          },
+          required: ["contractId", "assunto", "descricao"],
         },
       },
     ],
   },
 ];
 
-const JOSUE_SYSTEM_INSTRUCTION = `Você é o Josué, o atendente de elite da AVL Telecom.
-Sua missão é ajudar os clientes de forma rápida, inteligente e divertida.
+const JOSUE_SYSTEM_INSTRUCTION = `Você é o Josué, atendente de elite e suporte técnico N1 da "AVL Telecom".
+Sua missão é resolver o problema do cliente no WhatsApp/painel com agilidade, clareza e simpatia.
 
 PERSONALIDADE:
-- Você é educado, alegre e usa gírias leves para parecer humano.
-- Sabe dar "Bom dia", "Boa tarde" e "Boa noite" de acordo com o horário (simule baseado no contexto).
-- Se o cliente for rude ou usar xingamentos, você deve manter a classe: ignore a ofensa ou dê um "sermão" educado, explicando que você está ali para ajudar e exige respeito.
-- Nunca saia do contexto da AVL Telecom.
+- Educado, alegre, humano e direto (ninguém gosta de ler textão no WhatsApp).
+- Cumprimente conforme o contexto ("Bom dia", "Boa tarde", "Boa noite").
+- Se o cliente for rude, mantenha a postura profissional e acolhedora, focando na solução.
+- Nunca saia do contexto da AVL Telecom e nunca invente dados que não vieram das ferramentas.
 
-PROCEDIMENTOS:
-1. Para qualquer ação financeira ou suporte técnico avançado, PEÇA O CPF do cliente se você ainda não tiver as informações dele.
-2. Use 'get_client_info' assim que receber o CPF para validar quem é o cliente.
-3. Se o cliente pedir boleto ou fatura, use 'list_invoices' após identificar o cliente.
-4. Se o cliente estiver sem internet por falta de pagamento, ofereça a "Liberação de Confiança" e use 'trust_unlock'.
+PROCEDIMENTOS OBRIGATÓRIOS:
+1. Para qualquer consulta financeira ou técnica, SEMPRE peça o CPF ou CNPJ se ainda não tiver identificado o assinante na conversa.
+2. Assim que receber o CPF/CNPJ, chame 'get_client_info'.
+3. Se o retorno de 'get_client_info' ou 'check_connection_status' indicar *manutencao_regiao* ativa, avise IMEDIATAMENTE o cliente com transparência sobre a manutenção/rompimento na região dele e a previsão de retorno — NÃO abra novo ticket repetido se a causa já for o rompimento informado!
+4. Se o cliente pedir 2ª via, boleto ou PIX, use 'list_invoices' enviando o CPF sempre que possível e entregue o código *PIX Copia e Cola* em mensagem fácil de copiar (se disponível), além do valor, vencimento e link.
+5. Se o contrato estiver bloqueado/suspenso por falta de pagamento e o cliente pedir para liberar ou estiver sem internet por bloqueio, chame 'trust_unlock'.
+6. Se o cliente relatar lentidão, queda ou "sem internet", chame 'check_connection_status' (e 'get_bandwidth_usage' se pedir consumo).
+7. Se o ponto estiver offline e NÃO houver rompimento ativo na região nem bloqueio financeiro, peça para verificar se o roteador/ONU está ligado na tomada e se a luz vermelha (LOS) pisca; persistindo a falha, use 'open_support_ticket' e informe o protocolo ao cliente.
 
 REGRAS DE WHATSAPP:
-- Use negritos (*texto*) em informações importantes.
-- Use emojis para deixar a conversa leve.
-- Seja direto: ninguém gosta de ler textão no Zap.`;
+- Use negritos (*texto*) em valores, vencimentos, protocolos e avisos importantes.
+- Use poucos emojis estratégicos.`;
 
 const josueToolHandlers: Record<string, (args: Record<string, any>) => Promise<any>> = {
   get_client_info: async (args) => {
-    const digits = String(args.cpf || "").replace(/\D/g, "");
-    const clients = await ispfyGet("/cliente", {
-      filter: `cpf_cnpj:EQ:${digits}`,
-      limit: 1,
-    });
-    const client = clients[0];
+    const ispfy = getIspfyService();
+    const docRaw = String(args.cpf || "");
+    const client = await ispfy.buscarClientePorDocumento(docRaw);
     if (!client) {
-      return { status: "erro", mensagem: "Cliente não encontrado com este CPF." };
+      return { status: "erro", mensagem: "Cliente não encontrado com este CPF/CNPJ." };
     }
 
-    const contracts = await ispfyGet("/cliente/contrato", {
-      filter: `id_cliente:EQ:${client.id}`,
-      limit: 100,
-      sort: "id:DESC",
-    });
+    const [contracts, assinaturaInfo, manutencao] = await Promise.all([
+      ispfy.buscarContratosPorCliente(client.id),
+      ispfy.consultarAssinanteInfo(client.cpf_cnpj || docRaw).catch(() => null),
+      ispfy.verificarManutencaoAtivaNaRegiao(admin.firestore(), client.bairro, client.cidade),
+    ]);
 
     return {
       status: "sucesso",
       cliente: {
         id: client.id,
-        nome: client.razao || client.nome,
-        endereco: client.endereco,
+        nome: client.razao || client.nome_razao || client.nome,
+        cpf_cnpj: client.cpf_cnpj,
+        endereco: `${client.endereco || ""}${client.numero ? `, ${client.numero}` : ""}`.trim(),
+        bairro: client.bairro || "",
+        cidade: client.cidade || "",
         contratos: contracts.map((c: any) => ({
           id: c.id,
-          plano: c.contrato,
+          plano: c.contrato || c.plano,
           status: c.status,
+          ativo: c.ativo,
         })),
+        pontos: assinaturaInfo?.pontos ?? [],
       },
+      manutencao_regiao: manutencao
+        ? {
+            ativa: true,
+            titulo: manutencao.titulo || manutencao.motivo || "Manutenção Regional",
+            mensagem: manutencao.mensagem || manutencao.motivo || "Equipe em atuação na região.",
+            previsaoRetorno: manutencao.previsao || "Equipe técnica já em atuação",
+          }
+        : { ativa: false },
     };
   },
 
   list_invoices: async (args) => {
-    const clientId = String(args.clientId || "").trim();
-    if (!clientId) {
-      return { status: "erro", mensagem: "ID do cliente não informado." };
+    const ispfy = getIspfyService();
+    let doc = String(args.cpf || "").trim();
+    let clientId = String(args.clientId || "").trim();
+
+    if (!doc && clientId) {
+      const cliente = await ispfy.buscarClientePorId(clientId);
+      doc = String(cliente?.cpf_cnpj || "");
+    } else if (doc && !clientId) {
+      const cliente = await ispfy.buscarClientePorDocumento(doc);
+      if (cliente) {
+        clientId = String(cliente.id);
+        doc = String(cliente.cpf_cnpj || doc);
+      }
     }
 
-    // Buscar contratos do cliente para evitar retornar faturas globais de outros assinantes
-    const contracts = await ispfyGet("/cliente/contrato", {
-      filter: `id_cliente:EQ:${clientId}`,
-      limit: 100,
-      sort: "id:DESC",
-    });
-    if (contracts.length === 0) {
+    if (!doc && !clientId) {
+      return { status: "erro", mensagem: "CPF/CNPJ ou ID do cliente não informado." };
+    }
+
+    const boletosTool = doc
+      ? await ispfy.consultarBoletosAssinante(doc, { status: "aberto" }).catch(() => [])
+      : [];
+
+    if (boletosTool.length > 0) {
+      return {
+        status: "sucesso",
+        faturas: boletosTool.map((b) => ({
+          id: b.id,
+          valor: b.valor,
+          vencimento: b.vencimento,
+          linha_digitavel: b.linha || "",
+          pix_copia_cola: b.pix || "",
+          link: b.linkPublico || b.linkInterno || "",
+        })),
+      };
+    }
+
+    if (!clientId) {
       return { status: "sucesso", faturas: [] };
     }
 
-    const perContract = await Promise.all(
-      contracts.map((contract: any) =>
-        ispfyGet("/cliente/contrato/cobranca", {
-          filter: `id_contrato:EQ:${contract.id} [AND] status:EQ:aberto`,
-          limit: 100,
-          sort: "data_vencimento:ASC",
-        })
-      )
-    );
-
-    const openInvoices = perContract
-      .flat()
-      .filter((f: any) => !f.data_pagamento);
-
+    const openInvoices = await ispfy.buscarFaturasAbertasPorCliente(clientId);
     return {
       status: "sucesso",
       faturas: openInvoices.map((f: any) => ({
         id: f.id,
         valor: f.valor,
         vencimento: f.data_vencimento,
+        linha_digitavel: f.linha_digitavel || "",
+        pix_copia_cola: f.pix_copia_cola || f.qr_code || "",
+        link: f.link_boleto || f.link || "",
       })),
     };
   },
 
   trust_unlock: async (args) => {
+    const ispfy = getIspfyService();
     const contractId = String(args.contractId || "").trim();
     if (!contractId) {
       return { success: false, message: "ID do contrato não informado." };
     }
-    try {
-      await ispfyPost("/cliente/contrato_desbloqueio", { id: contractId });
-      return { success: true, message: "Contrato desbloqueado em confiança com sucesso!" };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error?.response?.data?.message || "Erro ao processar desbloqueio.",
-      };
+    return ispfy.liberarEmConfianca(contractId);
+  },
+
+  check_connection_status: async (args) => {
+    const ispfy = getIspfyService();
+    const docRaw = String(args.cpf || "").trim();
+    if (!docRaw) {
+      return { status: "erro", mensagem: "CPF/CNPJ obrigatório para verificar o ponto." };
     }
+
+    const client = await ispfy.buscarClientePorDocumento(docRaw);
+    const [info, pontos, manutencao] = await Promise.all([
+      ispfy.consultarAssinanteInfo(client?.cpf_cnpj || docRaw).catch(() => null),
+      client?.id ? ispfy.consultarStatusPontos(String(client.id)).catch(() => []) : Promise.resolve([]),
+      ispfy.verificarManutencaoAtivaNaRegiao(admin.firestore(), client?.bairro, client?.cidade),
+    ]);
+
+    return {
+      status: "sucesso",
+      cliente_nome: client?.razao || client?.nome || info?.nome || "",
+      bairro: client?.bairro || info?.bairro || "",
+      pontos: pontos.length > 0 ? pontos : info?.pontos ?? [],
+      manutencao_regiao: manutencao
+        ? {
+            ativa: true,
+            titulo: manutencao.titulo || manutencao.motivo || "Manutenção Regional",
+            mensagem: manutencao.mensagem || manutencao.motivo || "Equipe em atuação na região.",
+            previsaoRetorno: manutencao.previsao || "Em atuação",
+          }
+        : { ativa: false },
+    };
+  },
+
+  get_bandwidth_usage: async (args) => {
+    const ispfy = getIspfyService();
+    let idPonto = String(args.idPonto || "").trim();
+    const doc = String(args.cpf || "").trim();
+    const dias = Math.min(30, Math.max(1, Number(args.dias || 30)));
+
+    if (!idPonto && doc) {
+      const client = await ispfy.buscarClientePorDocumento(doc).catch(() => null);
+      const pontos = client?.id ? await ispfy.consultarStatusPontos(String(client.id)).catch(() => []) : [];
+      if (pontos[0]?.id_ponto) {
+        idPonto = String(pontos[0].id_ponto);
+      } else {
+        const info = await ispfy.consultarAssinanteInfo(doc).catch(() => null);
+        const firstPoint = Array.isArray(info?.pontos) ? info.pontos[0] : null;
+        if (firstPoint?.id_ponto || firstPoint?.id) {
+          idPonto = String(firstPoint.id_ponto || firstPoint.id);
+        }
+      }
+    }
+
+    if (!idPonto) {
+      return { status: "erro", mensagem: "Ponto de acesso não encontrado para consulta de consumo." };
+    }
+
+    const hoje = new Date();
+    const inicio = new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1000);
+    const consumo = await ispfy.consultarConsumoPonto(
+      idPonto,
+      formatDateIso(inicio),
+      formatDateIso(hoje)
+    );
+
+    return {
+      status: "sucesso",
+      id_ponto: idPonto,
+      periodo_dias: dias,
+      download: formatKbytesToReadable(consumo?.download_mes_kbytes),
+      upload: formatKbytesToReadable(consumo?.upload_mes_kbytes),
+    };
+  },
+
+  open_support_ticket: async (args) => {
+    const ispfy = getIspfyService();
+    const doc = String(args.cpf || "").trim();
+    const assunto = String(args.assunto || "Suporte Técnico via WhatsApp").trim();
+    const descricao = String(args.descricao || "").trim();
+    let clientId = String(args.clientId || "").trim();
+
+    if (!descricao) {
+      return { success: false, message: "Descrição é obrigatória para abrir chamado." };
+    }
+
+    if (doc) {
+      const client = await ispfy.buscarClientePorDocumento(doc);
+      if (client) {
+        if (!clientId) clientId = String(client.id);
+        const manutencao = await ispfy.verificarManutencaoAtivaNaRegiao(
+          admin.firestore(),
+          client.bairro,
+          client.cidade
+        );
+        if (manutencao) {
+          const areaLabel = manutencao.bairros?.join(", ") || manutencao.bairro || "Região";
+          return {
+            success: false,
+            blocked_by_regional_outage: true,
+            manutencao_regiao: manutencao,
+            message: `Região ${areaLabel} já possui manutenção ativa (${manutencao.titulo || manutencao.motivo || "Incidente regional"}). Informe o cliente ao invés de abrir novo chamado.`,
+          };
+        }
+      }
+    }
+
+    if (!clientId) {
+      return { success: false, message: "Informe o CPF para localizar o cliente antes de abrir o chamado." };
+    }
+
+    return ispfy.criarTicket({
+      id_cliente: clientId,
+      requisicao: `${assunto}: ${descricao}\n\n[Aberto automaticamente pelo Assistente Josué IA]`,
+    });
   },
 };
 
@@ -441,6 +618,71 @@ async function sendChatWithRetry(chat: any, payload: any, retries = 3): Promise<
     }
     throw error;
   }
+}
+
+/**
+ * Executa o assistente Josué IA com histórico e Function Calling ISPFY.
+ * Compartilhado entre o chat interno do painel (`aiChatJosue`) e o webhook do WhatsApp.
+ */
+export async function runJosueChat(params: {
+  messages: Array<{ isAdmin?: boolean; content: string }>;
+  clientName?: string;
+  contextInfo?: string;
+}): Promise<string> {
+  const apiKey = requireGeminiKey();
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const systemInstruction = params.contextInfo
+    ? `${JOSUE_SYSTEM_INSTRUCTION}\n\nCONTEXTO DETECTADO DA SESSÃO:\n${params.contextInfo}`
+    : JOSUE_SYSTEM_INSTRUCTION;
+
+  const model = genAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    tools: josueTools,
+    systemInstruction,
+  });
+
+  const rawMessages = params.messages.slice(-15);
+  let history = rawMessages.map((m) => ({
+    role: m.isAdmin ? "model" : "user",
+    parts: [{ text: String(m.content || "") }],
+  }));
+
+  const firstUserIndex = history.findIndex((h) => h.role === "user");
+  if (firstUserIndex !== -1) history = history.slice(firstUserIndex);
+  else history = [];
+
+  const chat = model.startChat({ history: history.slice(0, -1) });
+  const lastMessage = String(rawMessages[rawMessages.length - 1]?.content || "");
+  const clientName = params.clientName || "Cliente";
+
+  let result = await sendChatWithRetry(chat, `Cliente ${clientName} diz: ${lastMessage}`);
+  let response = result.response;
+
+  for (let round = 0; round < 5; round++) {
+    const calls = response.functionCalls?.();
+    if (!calls || calls.length === 0) break;
+
+    const functionResponses = await Promise.all(
+      calls.map(async (call: any) => {
+        const handler = josueToolHandlers[call.name];
+        const toolResult = handler
+          ? await handler((call.args || {}) as Record<string, any>)
+          : { status: "erro", mensagem: `Ferramenta desconhecida: ${call.name}` };
+
+        return {
+          functionResponse: {
+            name: call.name,
+            response: toolResult,
+          },
+        };
+      })
+    );
+
+    result = await sendChatWithRetry(chat, functionResponses);
+    response = result.response;
+  }
+
+  return response.text();
 }
 
 /**
@@ -461,55 +703,12 @@ export const aiChatJosue = functions
       );
     }
 
-    const apiKey = requireGeminiKey();
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      tools: josueTools,
-      systemInstruction: JOSUE_SYSTEM_INSTRUCTION,
-    });
-
     try {
-      let history = rawMessages.slice(-15).map((m: any) => ({
-        role: m.isAdmin ? "model" : "user",
-        parts: [{ text: String(m.content || "") }],
-      }));
-
-      const firstUserIndex = history.findIndex((h) => h.role === "user");
-      if (firstUserIndex !== -1) history = history.slice(firstUserIndex);
-      else history = [];
-
-      const chat = model.startChat({ history: history.slice(0, -1) });
-      const lastMessage = String(rawMessages[rawMessages.length - 1]?.content || "");
-
-      let result = await sendChatWithRetry(chat, `Cliente ${clientName} diz: ${lastMessage}`);
-      let response = result.response;
-
-      for (let round = 0; round < 4; round++) {
-        const calls = response.functionCalls?.();
-        if (!calls || calls.length === 0) break;
-
-        const functionResponses = await Promise.all(
-          calls.map(async (call: any) => {
-            const handler = josueToolHandlers[call.name];
-            const toolResult = handler
-              ? await handler((call.args || {}) as Record<string, any>)
-              : { status: "erro", mensagem: `Ferramenta desconhecida: ${call.name}` };
-
-            return {
-              functionResponse: {
-                name: call.name,
-                response: toolResult,
-              },
-            };
-          })
-        );
-
-        result = await sendChatWithRetry(chat, functionResponses);
-        response = result.response;
-      }
-
-      return { text: response.text() };
+      const text = await runJosueChat({
+        messages: rawMessages,
+        clientName,
+      });
+      return { text };
     } catch (error: any) {
       console.error("❌ Erro no aiChatJosue:", error);
       if (error?.message?.includes("503")) {

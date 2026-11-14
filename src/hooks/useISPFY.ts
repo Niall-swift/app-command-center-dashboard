@@ -7,7 +7,10 @@ import type {
   ISPFYFaturaData, 
   ISPFYLoginData,
   ISPFYPixData,
-  ISPFYUsageSeries
+  ISPFYUsageSeries,
+  ISPFYLivePointStatus,
+  ISPFYBandwidthSummary30d,
+  ISPFYPlanoTeste
 } from '@/types/ispfy';
 import type { SmartOltOnu, SmartOltSignal } from '@/types/smartOlt';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +27,14 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
   const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
   const [logins, setLogins] = useState<ISPFYLoginData[]>([]);
+  const [livePoints, setLivePoints] = useState<ISPFYLivePointStatus[]>([]);
+  const [stationDetails, setStationDetails] = useState<{
+    station: Record<string, unknown> | null;
+    history: Record<string, unknown>[];
+    sessoes: Record<string, unknown>[];
+  } | null>(null);
+  const [bandwidthSummary, setBandwidthSummary] = useState<ISPFYBandwidthSummary30d | null>(null);
+  const [testablePlans, setTestablePlans] = useState<ISPFYPlanoTeste[]>([]);
   const [onu, setOnu] = useState<SmartOltOnu | null>(null);
   const [signal, setSignal] = useState<SmartOltSignal | null>(null);
   const [loadingSignal, setLoadingSignal] = useState<boolean>(false);
@@ -36,46 +47,52 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     setLoading(true);
     setError(null);
     try {
-      const [clientData, contractsData, invoicesData, loginsData] = await Promise.all([
+      const [clientData, contractsData, invoicesData, loginsData, livePts] = await Promise.all([
         ISPFYService.getClienteById(id),
         ISPFYService.getContratosByCliente(id),
         ISPFYService.getFaturasByCliente(id),
-        ISPFYService.getLoginsByCliente(id)
+        ISPFYService.getLoginsByCliente(id),
+        ISPFYService.getClientLivePointStatuses(id).catch(() => []),
       ]);
 
       setClient(clientData);
       setContracts(contractsData);
       setInvoices(invoicesData);
       setLogins(loginsData);
+      setLivePoints(livePts);
 
-      // Advanced ISPFY: Buscar contratos pendentes e elegibilidade
       const pendingCont = await ISPFYService.getPendingContracts(id);
       setPendingContracts(pendingCont);
       
       const eligibility = await ISPFYService.checkUnlockEligibility(id);
       setIsEligibleForUnlock(eligibility.eligible);
 
-      // SmartOLT & Bandwidth
-      if (loginsData.length > 0) {
-        const loginId = loginsData[0].id;
-        const loginStr = loginsData[0].login;
-        
-        if (loginId) {
-          const usage = await ISPFYService.getBandwidthUsage(loginId);
-          setBandwidthUsage(usage);
-        }
+      const primaryPointId = livePts[0]?.idPonto || loginsData[0]?.id || '';
+      const primaryLoginStr = loginsData[0]?.login;
 
-        if (loginStr) {
-          const onuData = await smartOltService.findOnu(loginStr);
-          if (onuData) {
-            setOnu(onuData);
-            const signalData = await smartOltService.getOnuSignal(onuData.id);
-            setSignal(signalData);
-          }
+      if (primaryPointId) {
+        const [usage, summary, details, plans] = await Promise.all([
+          ISPFYService.getBandwidthUsage(primaryPointId).catch(() => []),
+          ISPFYService.getBandwidthSummary30Days(primaryPointId).catch(() => null),
+          ISPFYService.getDetalhesConexao(primaryPointId).catch(() => null),
+          ISPFYService.getTestablePlans(primaryPointId).catch(() => []),
+        ]);
+        setBandwidthUsage(usage);
+        setBandwidthSummary(summary);
+        setStationDetails(details);
+        setTestablePlans(plans);
+      }
+
+      if (primaryLoginStr) {
+        const onuData = await smartOltService.findOnu(primaryLoginStr);
+        if (onuData) {
+          setOnu(onuData);
+          const signalData = await smartOltService.getOnuSignal(onuData.id);
+          setSignal(signalData);
         }
       }
-    } catch (err: any) {
-      const msg = err.message || 'Erro ao carregar dados do ISPFY';
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao carregar dados do ISPFY';
       setError(msg);
       toast({
         title: 'Erro no ISPFY',
@@ -108,7 +125,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
         });
       }
       return result;
-    } catch (err: any) {
+    } catch {
       toast({
         title: 'Erro',
         description: 'Falha na comunicação com o servidor.',
@@ -120,7 +137,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
 
   const getPix = async (invoiceId: string): Promise<ISPFYPixData | null> => {
     try {
-      const pix = await ISPFYService.getPixQrCode(invoiceId);
+      const pix = await ISPFYService.getPixQrCode(invoiceId, client?.cpf_cnpj);
       if (!pix) {
         toast({
           title: 'Erro',
@@ -203,6 +220,38 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     return result;
   };
 
+  const activateTurbo = async (idPonto: string, idPlano: string, dataFinal: string) => {
+    const result = await ISPFYService.activatePlanTest(idPonto, idPlano, dataFinal);
+    if (result.success) {
+      toast({ title: 'Turbo ativado!', description: result.message });
+      if (clientId) await loadClientData(clientId);
+    } else {
+      toast({ title: 'Erro ao ativar Turbo', description: result.message, variant: 'destructive' });
+    }
+    return result;
+  };
+
+  const removeTurbo = async (idPonto: string) => {
+    const result = await ISPFYService.removePlanTest(idPonto);
+    if (result.success) {
+      toast({ title: 'Turbo removido', description: result.message });
+      if (clientId) await loadClientData(clientId);
+    } else {
+      toast({ title: 'Erro ao remover Turbo', description: result.message, variant: 'destructive' });
+    }
+    return result;
+  };
+
+  const closeTicket = async (idTicket: string) => {
+    const result = await ISPFYService.closeTicket(idTicket);
+    if (result.success) {
+      toast({ title: 'Chamado encerrado', description: result.message });
+    } else {
+      toast({ title: 'Erro ao encerrar O.S.', description: result.message, variant: 'destructive' });
+    }
+    return result;
+  };
+
   useEffect(() => {
     if (autoLoad && clientId) {
       loadClientData(clientId);
@@ -216,6 +265,10 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     contracts,
     invoices,
     logins,
+    livePoints,
+    stationDetails,
+    bandwidthSummary,
+    testablePlans,
     onu,
     signal,
     loadingSignal,
@@ -229,5 +282,8 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     disconnect,
     refreshSignal,
     rebootOnu,
+    activateTurbo,
+    removeTurbo,
+    closeTicket,
   };
 }

@@ -2,7 +2,13 @@ import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import axios from "axios";
 import { verifyAuth } from "./config/auth";
-import { getIxcConfig, getSmartOltConfig } from "./config/env";
+import { getIspfyConfig, getIxcConfig, getSmartOltConfig } from "./config/env";
+import { IspfyBackendService, normalizeDigits } from "./ispfyBackendService";
+
+function getIspfyBackend(): IspfyBackendService {
+  const { host, token } = getIspfyConfig();
+  return new IspfyBackendService(host, token);
+}
 
 /**
  * 🚀 Proxy: Reiniciar roteador via SmartOLT
@@ -89,57 +95,222 @@ export const smartOltSetWifiDetails = functions.https.onCall(async (data, contex
 });
 
 /**
- * 🚀 Proxy: Autenticar / Buscar Cadastro do cliente no IXC soft (ERP)
+ * 🚀 Proxy: Autenticar / Buscar Cadastro do cliente no ISPFY (com fallback opcional legado IXC)
+ * Mantém o contrato externo `ixcFetchClient({ cpf })` usado pelo App Mobile.
  */
-export const ixcFetchClient = functions.https.onCall(async (data, context) => {
-  // Nota: Chamado sem login no app ainda (usado na tela de login)
-  const { cpf } = data;
+export const ixcFetchClient = functions.https.onCall(async (data) => {
+  const { cpf } = data || {};
   if (!cpf) {
     throw new functions.https.HttpsError("invalid-argument", "CPF/CNPJ é obrigatório.");
   }
 
-  const { host: ixcBaseUrl, authHeader } = getIxcConfig();
-
   try {
-    console.log(`🤖 [Proxy] Buscando cadastro de cliente para CPF: ${cpf}`);
-    const response = await axios.post(
-      `${ixcBaseUrl}/cliente`,
-      {
-        qtype: "cliente.cnpj_cpf",
-        query: cpf,
-        oper: "=",
-        page: "1",
-        rp: "100",
-        sortname: "cliente.id",
-        sortorder: "desc",
-      },
-      {
-        headers: {
-          Authorization: authHeader,
-          ixcsoft: "listar",
-        },
-        timeout: 15000,
-      }
-    );
+    console.log(`🤖 [Proxy] Buscando cadastro do cliente no ISPFY para CPF: ${cpf}`);
+    const ispfy = getIspfyBackend();
+    const cliente = await ispfy.buscarClientePorDocumento(String(cpf));
 
-    if (response.data?.registros && response.data.registros.length > 0) {
+    if (cliente) {
+      const [contratos, info] = await Promise.all([
+        ispfy.buscarContratosPorCliente(cliente.id).catch(() => []),
+        ispfy.consultarAssinanteInfo(cliente.cpf_cnpj || String(cpf)).catch(() => null),
+      ]);
+
+      const nome = cliente.razao || cliente.nome_razao || cliente.nome || info?.nome || "Cliente";
+      const mappedAccount = {
+        ...cliente,
+        id: String(cliente.id),
+        razao: nome,
+        nome_razao: nome,
+        nome,
+        cnpj_cpf: cliente.cpf_cnpj || normalizeDigits(String(cpf)),
+        cpf_cnpj: cliente.cpf_cnpj || normalizeDigits(String(cpf)),
+        ativo: cliente.ativo === false || String(cliente.status || "").toLowerCase() === "cancelado" ? "N" : "S",
+        contratos,
+        pontos: info?.pontos || [],
+        origem: "ISPFY",
+      };
+
       return {
         isClient: true,
-        accounts: response.data.registros,
+        source: "ISPFY",
+        accounts: [mappedAccount],
       };
     }
-    return { isClient: false, accounts: [] };
+
+    // Fallback opcional legado IXC apenas se explicitamente configurado no ambiente
+    try {
+      const { host: ixcBaseUrl, authHeader } = getIxcConfig();
+      const response = await axios.post(
+        `${ixcBaseUrl}/cliente`,
+        {
+          qtype: "cliente.cnpj_cpf",
+          query: cpf,
+          oper: "=",
+          page: "1",
+          rp: "100",
+          sortname: "cliente.id",
+          sortorder: "desc",
+        },
+        {
+          headers: {
+            Authorization: authHeader,
+            ixcsoft: "listar",
+          },
+          timeout: 12000,
+        }
+      );
+
+      if (response.data?.registros && response.data.registros.length > 0) {
+        return {
+          isClient: true,
+          source: "IXC",
+          accounts: response.data.registros,
+        };
+      }
+    } catch {
+      // IXC não configurado ou indisponível: segue retorno negativo limpo
+    }
+
+    return { isClient: false, source: "ISPFY", accounts: [] };
   } catch (error: any) {
-    console.error("❌ Erro no proxy IXC Fetch Client:", error.message);
-    throw new functions.https.HttpsError("internal", `Erro no ERP: ${error.message}`);
+    console.error("❌ Erro no proxy ixcFetchClient (ISPFY):", error.message);
+    throw new functions.https.HttpsError("internal", `Erro ao consultar cadastro: ${error.message}`);
   }
 });
 
 /**
+ * 🚀 Proxy: Autenticar Assinante na Central / App do Provedor ISPFY (+ status opcional de SVA)
+ */
+export const ispfyAuthSubscriber = functions.https.onCall(async (data) => {
+  const doc = String(data?.doc || data?.cpf || data?.login || "").trim();
+  const senha = String(data?.senha || data?.password || "").trim();
+  const mode = (data?.mode as "document" | "birthday" | "password" | "central") || (senha ? "central" : "document");
+  const checkSva = data?.checkSva === true;
+
+  if (!doc) {
+    throw new functions.https.HttpsError("invalid-argument", "Documento é obrigatório.");
+  }
+
+  try {
+    const ispfy = getIspfyBackend();
+    const authResult = await ispfy.autenticarAppProvedor({
+      mode,
+      document: doc,
+      passwordMd5: senha || undefined,
+      birthdayMd5: data?.birthdayMd5 ? String(data.birthdayMd5) : undefined,
+    });
+
+    if (!authResult) {
+      return {
+        authenticated: false,
+        message: "Credenciais inválidas na Central ISPFY.",
+      };
+    }
+
+    let svaStatus: Record<string, any> | null = null;
+    if (checkSva && senha) {
+      svaStatus = await ispfy.consultarSvaGeneric(doc, senha).catch(() => null);
+    }
+
+    return {
+      authenticated: true,
+      data: authResult,
+      ...(svaStatus ? { sva: svaStatus } : {}),
+    };
+  } catch (error: any) {
+    console.error("❌ Erro na autenticação ISPFY:", error?.response?.data || error.message);
+    return {
+      authenticated: false,
+      message: error?.response?.data?.message || "Credenciais inválidas na Central ISPFY.",
+    };
+  }
+});
+
+/**
+ * Aplica automaticamente o Turbo de Velocidade no ISPFY quando o prêmio da roleta é `ispfy_turbo`.
+ */
+async function applyRouletteTurboReward(params: {
+  cleanCpf: string;
+  userName: string;
+  turboDays: number;
+  turboPlanId?: string;
+}): Promise<{ applied: boolean; planName?: string; endDate?: string; error?: string }> {
+  try {
+    const ispfy = getIspfyBackend();
+    const client = await ispfy.buscarClientePorDocumento(params.cleanCpf).catch(() => null);
+    const pontos = client?.id
+      ? await ispfy.consultarStatusPontos(String(client.id)).catch(() => [])
+      : [];
+
+    let idPonto = "";
+    const targetPoint =
+      pontos.find((p) => p.conexao_status === "online" || String(p.status_acesso || "").toLowerCase() === "ativo") ||
+      pontos[0];
+    if (targetPoint?.id_ponto) {
+      idPonto = String(targetPoint.id_ponto);
+    }
+
+    if (!idPonto) {
+      const info = await ispfy.consultarAssinanteInfo(params.cleanCpf).catch(() => null);
+      const fallbackPoint = Array.isArray(info?.pontos) ? info.pontos[0] : null;
+      if (fallbackPoint?.id_ponto || fallbackPoint?.id) {
+        idPonto = String(fallbackPoint.id_ponto || fallbackPoint.id);
+      }
+    }
+
+    if (!idPonto) {
+      return { applied: false, error: "Ponto de acesso do assinante não encontrado no ISPFY." };
+    }
+
+    const planos = await ispfy.listarPlanosTestaveis(idPonto);
+    if (!Array.isArray(planos) || planos.length === 0) {
+      return { applied: false, error: "Nenhum plano testável disponível no ISPFY." };
+    }
+
+    let chosenPlan = params.turboPlanId
+      ? planos.find((p: any) => String(p.id) === String(params.turboPlanId))
+      : undefined;
+
+    if (!chosenPlan) {
+      const sorted = [...planos].sort((a: any, b: any) => {
+        const speedA = Number(a.velocidade_download || a.download || a.mb || 0);
+        const speedB = Number(b.velocidade_download || b.download || b.mb || 0);
+        return speedB - speedA;
+      });
+      chosenPlan = sorted[0];
+    }
+
+    const days = Math.min(30, Math.max(1, Math.round(params.turboDays)));
+    const endDt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const dataFinal = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(endDt);
+
+    const applyRes = await ispfy.aplicarPlanoTeste(idPonto, String(chosenPlan.id), dataFinal);
+    if (!applyRes.success) {
+      return { applied: false, error: applyRes.message };
+    }
+
+    const planName = String(chosenPlan.nome || chosenPlan.plano || chosenPlan.descricao || `Plano ${chosenPlan.id}`);
+    return {
+      applied: true,
+      planName,
+      endDate: dataFinal,
+    };
+  } catch (err: any) {
+    return {
+      applied: false,
+      error: err?.response?.data?.message || err?.message || "Falha ao aplicar Turbo ISPFY.",
+    };
+  }
+}
+
+/**
  * 🚀 Proxy: Rodar a Roleta do Pré-Mix de forma segura com transação concorrente
+ * Suporta ativação automática de Turbo de Velocidade ISPFY (`rewardType === "ispfy_turbo"`).
  */
 export const spinPreMixRoulette = functions.https.onCall(async (data, context) => {
-  const { userCpf, userName } = data;
+  const { userCpf, userName } = data || {};
   if (!userCpf || !userName) {
     throw new functions.https.HttpsError(
       "invalid-argument",
@@ -148,12 +319,11 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
   }
 
   const db = admin.firestore();
-  const cleanCpf = userCpf.replace(/\D/g, "");
+  const cleanCpf = String(userCpf).replace(/\D/g, "");
 
   try {
     console.log(`🤖 [Proxy] Iniciando transação da Roleta para usuário: ${userName} (${cleanCpf})`);
 
-    // 0. Verificar se o usuário está cadastrado no Pré-Mix antes de iniciar a transação (pois transações não aceitam queries)
     const userPreMixQuery = await db.collection("usuariosDoPreMix").where("cpfRaw", "==", cleanCpf).limit(1).get();
     if (userPreMixQuery.empty) {
       throw new functions.https.HttpsError(
@@ -163,10 +333,9 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
     }
     const userPreMixDocRef = userPreMixQuery.docs[0].ref;
     const userPreMixDocData = userPreMixQuery.docs[0].data();
+    const winsRef = db.collection("pre_mix_roulette_wins").doc(cleanCpf);
 
-    // Usar transação do Firestore para garantir segurança contra acessos simultâneos
     const result = await db.runTransaction(async (transaction) => {
-      // 0. Verificar se a roleta está ativa para este usuário
       const configRef = db.collection("configs").doc("pre_mix_roulette");
       const configDoc = await transaction.get(configRef);
 
@@ -178,22 +347,18 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         throw new Error("ROULETTE_INACTIVE");
       }
 
-      // 1. Verificar se o usuário já girou a roleta
-      const winsRef = db.collection("pre_mix_roulette_wins").doc(cleanCpf);
       const winDoc = await transaction.get(winsRef);
       if (winDoc.exists) {
         throw new Error("ALREADY_SPUN");
       }
 
-      // 2. Buscar todos os prêmios disponíveis
       const itemsRef = db.collection("pre_mix_roulette_items");
       const itemsSnapshot = await transaction.get(itemsRef);
       const items: any[] = [];
-      itemsSnapshot.forEach((doc) => {
-        const itemData = doc.data();
-        // Apenas itens com estoque positivo ou ilimitados (-1)
+      itemsSnapshot.forEach((docSnap) => {
+        const itemData = docSnap.data();
         if (itemData.quantity > 0 || itemData.quantity === -1) {
-          items.push({ id: doc.id, ref: doc.ref, ...itemData });
+          items.push({ id: docSnap.id, ref: docSnap.ref, ...itemData });
         }
       });
 
@@ -201,11 +366,10 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         throw new Error("NO_AVAILABLE_ITEMS");
       }
 
-      // 3. Escolher prêmio com base nas probabilidades/pesos
       const totalProbability = items.reduce((sum, item) => sum + (item.probability || 1), 0);
       let randomValue = Math.random() * totalProbability;
-      
-      let chosenItem = items[items.length - 1]; // Fallback
+
+      let chosenItem = items[items.length - 1];
       for (const item of items) {
         if (randomValue < (item.probability || 1)) {
           chosenItem = item;
@@ -214,16 +378,18 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         randomValue -= (item.probability || 1);
       }
 
-      // 4. Se for limitado, decrementar o estoque
       if (chosenItem.quantity > 0) {
         const newQuantity = chosenItem.quantity - 1;
         transaction.update(chosenItem.ref, { quantity: newQuantity });
       }
 
-      // 5. Gerar código de resgate aleatório (6 caracteres)
       const rescueCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const rewardType = chosenItem.rewardType === "ispfy_turbo" || Number(chosenItem.turboDays || 0) > 0
+        ? "ispfy_turbo"
+        : "standard";
+      const turboDays = Number(chosenItem.turboDays || 0);
+      const turboPlanId = chosenItem.turboPlanId ? String(chosenItem.turboPlanId) : "";
 
-      // 6. Gravar a vitória em pre_mix_roulette_wins
       transaction.set(winsRef, {
         userId: context.auth?.uid || "",
         userCpf: cleanCpf,
@@ -231,16 +397,19 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         prizeId: chosenItem.id,
         prizeName: chosenItem.name,
         rescueCode: rescueCode,
+        rewardType,
+        turboDays,
+        turboPlanId,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 7. Atualizar flag hasSpun no cadastro do Pré-Mix
       transaction.update(userPreMixDocRef, {
         hasSpun: true,
         wonPrizeId: chosenItem.id,
         wonPrizeName: chosenItem.name,
         wonPrizeRescueCode: rescueCode,
         wonPrizeIsDefeat: !!chosenItem.isDefeat,
+        wonRewardType: rewardType,
         spunAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -250,15 +419,65 @@ export const spinPreMixRoulette = functions.https.onCall(async (data, context) =
         color: chosenItem.color || "#4338FF",
         icon: chosenItem.icon || "gift-outline",
         rescueCode: rescueCode,
-        isDefeat: !!chosenItem.isDefeat
+        isDefeat: !!chosenItem.isDefeat,
+        rewardType,
+        turboDays,
+        turboPlanId,
+        turboApplied: false,
+        turboPlanName: "" as string | undefined,
+        turboEndDate: "" as string | undefined,
       };
     });
 
+    // Ativação automática do Turbo ISPFY fora da transação
+    if (!result.isDefeat && result.rewardType === "ispfy_turbo" && result.turboDays > 0) {
+      const turboOutcome = await applyRouletteTurboReward({
+        cleanCpf,
+        userName: String(userName),
+        turboDays: result.turboDays,
+        turboPlanId: result.turboPlanId || undefined,
+      });
+
+      result.turboApplied = turboOutcome.applied;
+      result.turboPlanName = turboOutcome.planName;
+      result.turboEndDate = turboOutcome.endDate;
+
+      await Promise.all([
+        winsRef.set(
+          {
+            turboApplied: turboOutcome.applied,
+            turboPlanName: turboOutcome.planName || null,
+            turboEndDate: turboOutcome.endDate || null,
+            turboError: turboOutcome.error || null,
+          },
+          { merge: true }
+        ),
+        userPreMixDocRef.set(
+          {
+            turboApplied: turboOutcome.applied,
+            turboPlanName: turboOutcome.planName || null,
+            turboEndDate: turboOutcome.endDate || null,
+          },
+          { merge: true }
+        ),
+        db.collection("ispfy_turbo_logs").add({
+          source: "pre_mix_roulette",
+          clientCpf: cleanCpf,
+          clientName: String(userName),
+          turboDays: result.turboDays,
+          applied: turboOutcome.applied,
+          planName: turboOutcome.planName || null,
+          endDate: turboOutcome.endDate || null,
+          error: turboOutcome.error || null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }),
+      ]);
+    }
+
     return {
       success: true,
-      prize: result
+      prize: result,
     };
-
   } catch (error: any) {
     console.error("❌ Erro na transação da Roleta:", error.message);
     if (error instanceof functions.https.HttpsError) {

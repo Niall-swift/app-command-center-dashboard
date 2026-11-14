@@ -1,16 +1,25 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   ChevronLeft, ChevronRight, Search, Layers, Signal as SignalIcon,
-  Server, Users, Home, Wifi, Circle, Zap, RefreshCw, Eye, EyeOff,
-  MapPin, Radio
+  Server, Users, Home, Wifi, WifiOff, Circle, Zap, RefreshCw, Eye, EyeOff,
+  MapPin, Radio, AlertTriangle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { ispfyService } from '@/services/ispfy/ispfyService';
-import { ISPFYLoginData, ISPFYCaixaData, ISPFYPosteData, ISPFYPopData } from '@/types/ispfy';
+import {
+  ISPFYLoginData,
+  ISPFYCaixaData,
+  ISPFYPosteData,
+  ISPFYPopData,
+  ISPFYGeoFiberSplitter,
+  ISPFYGeoFiberSplitterVia,
+  ISPFYPopDevice,
+  ISPFYPopDeviceInterface,
+} from '@/types/ispfy';
 import { smartOltService } from '@/services/smartolt/smartOltService';
 import { SmartOltOnu, SmartOltOlt } from '@/types/smartOlt';
 import {
@@ -136,6 +145,12 @@ const NetworkMap = () => {
   const [smartOnus, setSmartOnus] = useState<SmartOltOnu[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
   const [standaloneClients, setStandaloneClients] = useState<any[]>([]);
+  const [splitters, setSplitters] = useState<ISPFYGeoFiberSplitter[]>([]);
+  const [splitterVias, setSplitterVias] = useState<ISPFYGeoFiberSplitterVia[]>([]);
+  const [popDevices, setPopDevices] = useState<ISPFYPopDevice[]>([]);
+  const [popInterfaces, setPopInterfaces] = useState<ISPFYPopDeviceInterface[]>([]);
+  const [onlyOfflineOrLos, setOnlyOfflineOrLos] = useState(false);
+  const [onlyCriticalCtos, setOnlyCriticalCtos] = useState(false);
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
@@ -171,7 +186,19 @@ const NetworkMap = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [rawLogins, allCtos, allClients, rawPostes, rawPops, smartOnusRes, smartOltsRes] = await Promise.all([
+        const [
+          rawLogins,
+          allCtos,
+          allClients,
+          rawPostes,
+          rawPops,
+          smartOnusRes,
+          smartOltsRes,
+          splittersRes,
+          splitterViasRes,
+          popDevicesRes,
+          popInterfacesRes,
+        ] = await Promise.all([
           ispfyService.fetchAllLoginsComCoordenadas(),
           ispfyService.fetchAllCaixasComCoordenadas(),
           ispfyService.fetchAllClientesAtivos(),
@@ -179,6 +206,10 @@ const NetworkMap = () => {
           ispfyService.getPopsComCoordenadas(),
           smartOltService.getOnus().catch(() => [] as SmartOltOnu[]),
           smartOltService.getOlts().catch(() => [] as SmartOltOlt[]),
+          ispfyService.getGeoFiberSplitters().catch(() => [] as ISPFYGeoFiberSplitter[]),
+          ispfyService.getGeoFiberSplitterVias().catch(() => [] as ISPFYGeoFiberSplitterVia[]),
+          ispfyService.getPopDevices().catch(() => [] as ISPFYPopDevice[]),
+          ispfyService.getPopDeviceInterfaces().catch(() => [] as ISPFYPopDeviceInterface[]),
         ]);
 
         const clientMap = new Map(allClients.map(c => [c.id, c]));
@@ -204,6 +235,10 @@ const NetworkMap = () => {
         setSmartOnus(smartOnusRes);
         setOlts(smartOltsRes);
         setStandaloneClients(standaloneClients);
+        setSplitters(splittersRes);
+        setSplitterVias(splitterViasRes);
+        setPopDevices(popDevicesRes);
+        setPopInterfaces(popInterfacesRes);
 
         // We can add standalone clients to a specific state or just merge them for display
         // For now, let's just count them and maybe show them as a separate layer
@@ -243,10 +278,124 @@ const NetworkMap = () => {
 
   const toggleLayer = (id: LayerId) => setLayers(prev => ({ ...prev, [id]: !prev[id] }));
 
-  // Filter by search
-  const filtered = searchQuery
-    ? logins.filter(l => (l.clientName || '').toLowerCase().includes(searchQuery.toLowerCase()) || (l.login || '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : logins;
+  const findSmartOnuForLogin = useCallback(
+    (login: ISPFYLoginData) =>
+      smartOnus.find(
+        (s) =>
+          s.sn === login.mac ||
+          s.name?.includes(login.login || '') ||
+          s.description?.includes(login.login || '')
+      ),
+    [smartOnus]
+  );
+
+  const splittersByCtoId = useMemo(() => {
+    const map = new Map<string, ISPFYGeoFiberSplitter[]>();
+    splitters.forEach((s) => {
+      const ctoKey = String(s.id_caixa || s.id_cto || '').trim();
+      if (!ctoKey) return;
+      const list = map.get(ctoKey) || [];
+      list.push(s);
+      map.set(ctoKey, list);
+    });
+    return map;
+  }, [splitters]);
+
+  const viasBySplitterId = useMemo(() => {
+    const map = new Map<string, ISPFYGeoFiberSplitterVia[]>();
+    splitterVias.forEach((v) => {
+      const spKey = String(v.id_splitter || '').trim();
+      if (!spKey) return;
+      const list = map.get(spKey) || [];
+      list.push(v);
+      map.set(spKey, list);
+    });
+    return map;
+  }, [splitterVias]);
+
+  const devicesByPopId = useMemo(() => {
+    const map = new Map<string, ISPFYPopDevice[]>();
+    popDevices.forEach((d) => {
+      const popKey = String(d.id_pop || '').trim();
+      if (!popKey) return;
+      const list = map.get(popKey) || [];
+      list.push(d);
+      map.set(popKey, list);
+    });
+    return map;
+  }, [popDevices]);
+
+  const interfacesByDeviceId = useMemo(() => {
+    const map = new Map<string, ISPFYPopDeviceInterface[]>();
+    popInterfaces.forEach((iface) => {
+      const devKey = String(iface.id_dispositivo || '').trim();
+      if (!devKey) return;
+      const list = map.get(devKey) || [];
+      list.push(iface);
+      map.set(devKey, list);
+    });
+    return map;
+  }, [popInterfaces]);
+
+  const getCtoUsage = useCallback(
+    (cto: ISPFYCaixaData) => {
+      const ctoSplitters = splittersByCtoId.get(String(cto.id || '')) || [];
+      let splitterCap = 0;
+      let splitterOcc = 0;
+      ctoSplitters.forEach((sp) => {
+        const spCap = Number(sp.capacidade || sp.portas || 0);
+        const vias = viasBySplitterId.get(String(sp.id || '')) || [];
+        const occVias = vias.filter(
+          (v) => Boolean(v.id_ponto || v.id_cliente) || String(v.status || '').toLowerCase() === 'ocupada'
+        ).length;
+        if (spCap > 0) splitterCap += spCap;
+        splitterOcc += occVias;
+      });
+      const rawCap = parseInt(String(cto.capacidade || '0'), 10) || 0;
+      const rawOcc = parseInt(String(cto.ocupacao || '0'), 10) || 0;
+      return {
+        cap: rawCap || splitterCap,
+        occ: rawOcc || splitterOcc,
+        splitters: ctoSplitters,
+      };
+    },
+    [splittersByCtoId, viasBySplitterId]
+  );
+
+  // Filter logins by search and operational status
+  const filtered = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
+    return logins.filter((l) => {
+      if (term) {
+        const matchText =
+          (l.clientName || '').toLowerCase().includes(term) ||
+          (l.login || '').toLowerCase().includes(term);
+        if (!matchText) return false;
+      }
+      if (onlyOfflineOrLos) {
+        const onu = findSmartOnuForLogin(l);
+        const offlineOnlineFlag = ['n', 'nao', 'não', '0', 'false'].includes(
+          String(l.online || '').trim().toLowerCase()
+        );
+        const criticalSignal = getSignalColor(l.sinal_ultimo_atendimento as string, onu?.status) === '#ef4444';
+        const isOnuDown = onu?.status === 'offline' || onu?.status === 'los';
+        if (!isOnuDown && !offlineOnlineFlag && !criticalSignal) return false;
+      }
+      return true;
+    });
+  }, [logins, searchQuery, onlyOfflineOrLos, findSmartOnuForLogin]);
+
+  const filteredCtos = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
+    return ctos.filter((cto) => {
+      if (term && !(cto.caixa || '').toLowerCase().includes(term)) return false;
+      if (onlyCriticalCtos) {
+        const { cap, occ } = getCtoUsage(cto);
+        return cap > 0 && occ / cap >= 0.85;
+      }
+      return true;
+    });
+  }, [ctos, searchQuery, onlyCriticalCtos, getCtoUsage]);
 
   return (
     <div className="relative w-full" style={{ height: 'calc(100vh - 120px)', minHeight: '600px', background: '#1a1a2e' }}>
@@ -273,6 +422,32 @@ const NetworkMap = () => {
                 onChange={e => setSearchQuery(e.target.value)}
                 className="pl-7 h-7 text-xs bg-white/10 border-white/20 text-white placeholder:text-gray-500"
               />
+            </div>
+            <div className="flex gap-1.5 mt-2">
+              <button
+                type="button"
+                onClick={() => setOnlyOfflineOrLos((v) => !v)}
+                className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
+                  onlyOfflineOrLos
+                    ? 'bg-red-500/25 border-red-400 text-red-200'
+                    : 'bg-white/5 border-white/15 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                <WifiOff className="w-3 h-3" />
+                Offline/LOS
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnlyCriticalCtos((v) => !v)}
+                className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
+                  onlyCriticalCtos
+                    ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                    : 'bg-white/5 border-white/15 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                CTOs ≥85%
+              </button>
             </div>
           </div>
           {/* Layers List */}
@@ -427,31 +602,51 @@ const NetworkMap = () => {
             })}
 
             {/* ---- CTOs ---- */}
-            {apiLoaded && layers.ctos && ctos.map(cto => {
+            {apiLoaded && layers.ctos && filteredCtos.map(cto => {
               const lat = parseCoord(cto.latitude); const lng = parseCoord(cto.longitude);
               if (isNaN(lat) || isNaN(lng)) return null;
-              const color = getCtoColor(cto.capacidade, cto.ocupacao);
-              const cap = parseInt(cto.capacidade || '0'); const occ = parseInt(cto.ocupacao || '0');
+              const { cap, occ, splitters: ctoSplitters } = getCtoUsage(cto);
+              const color = getCtoColor(String(cap), String(occ));
               const label = cap > 0 ? `${occ}/${cap}` : 'CTO';
+              const freePorts = Math.max(0, cap - occ);
               return (
                 <AdvancedMarker key={cto.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'cto', id: cto.id! })}>
                   <CtoSvg color={color} label={label} />
                   {activeInfoWindow?.type === 'cto' && activeInfoWindow.id === cto.id && (
                     <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
-                      <div className="p-2 min-w-[200px]">
+                      <div className="p-2 min-w-[220px]">
                         <h3 className="font-bold text-purple-800">{cto.caixa}</h3>
                         {cap > 0 && (
                           <>
                             <div className="flex justify-between text-xs mt-1 mb-0.5 text-gray-600">
-                              <span>Ocupação</span><span className="font-semibold">{occ}/{cap} portas</span>
+                              <span>Ocupação ({freePorts} livres)</span><span className="font-semibold">{occ}/{cap} portas</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (occ/cap)*100)}%`, background: color }} />
                             </div>
                           </>
                         )}
+                        {ctoSplitters.length > 0 && (
+                          <div className="mt-2 pt-1.5 border-t border-gray-100 space-y-1">
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase">Splitters GeoFiber ({ctoSplitters.length})</p>
+                            {ctoSplitters.map((sp) => {
+                              const spVias = viasBySplitterId.get(String(sp.id || '')) || [];
+                              const spOcc = spVias.filter(v => Boolean(v.id_ponto || v.id_cliente) || String(v.status || '').toLowerCase() === 'ocupada').length;
+                              const spTotal = Number(sp.capacidade || sp.portas || spVias.length || 0);
+                              return (
+                                <div key={sp.id} className="flex justify-between text-[11px] text-gray-700">
+                                  <span>{sp.nome || sp.tipo || `Splitter #${sp.id}`}</span>
+                                  <span className="font-mono font-semibold">{spOcc}/{spTotal || '?'}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                         <div className="mt-2 flex gap-1">
                           <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase" style={{ background: color + '22', color }}>CTO</span>
+                          {cap > 0 && occ / cap >= 0.85 && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-red-100 text-red-700">Saturada</span>
+                          )}
                         </div>
                       </div>
                     </InfoWindow>
@@ -464,7 +659,7 @@ const NetworkMap = () => {
             {apiLoaded && layers.logins && filtered.map(login => {
               const lat = parseCoord(login.latitude); const lng = parseCoord(login.longitude);
               if (isNaN(lat) || isNaN(lng)) return null;
-              const smartOnu = smartOnus.find(s => s.sn === login.mac || s.name?.includes(login.login || '') || s.description?.includes(login.login || ''));
+              const smartOnu = findSmartOnuForLogin(login);
               const color = getSignalColor(login.sinal_ultimo_atendimento as string, smartOnu?.status);
               const cto = ctos.find(c => c.id === login.id_caixa_ftth);
               const cLat = cto ? parseCoord(cto.latitude) : NaN;
@@ -533,13 +728,38 @@ const NetworkMap = () => {
             {apiLoaded && layers.pops && pops.map(pop => {
               const lat = parseCoord(pop.latitude); const lng = parseCoord(pop.longitude);
               if (isNaN(lat) || isNaN(lng)) return null;
+              const popDevs = devicesByPopId.get(String(pop.id || '')) || [];
               return (
                 <AdvancedMarker key={pop.id} position={{ lat, lng }} onClick={() => setActiveInfoWindow({ type: 'pop', id: pop.id! })}>
                   <PopSvg />
                   {activeInfoWindow?.type === 'pop' && activeInfoWindow.id === pop.id && (
                     <InfoWindow position={{ lat, lng }} onCloseClick={() => setActiveInfoWindow(null)}>
-                      <div className="p-2">
-                        <p className="font-bold text-sm">{pop.nome || pop.descricao || `POP ${pop.id}`}</p>
+                      <div className="p-2 min-w-[210px]">
+                        <p className="font-bold text-sm text-amber-800">{pop.nome || pop.descricao || `POP ${pop.id}`}</p>
+                        {popDevs.length > 0 ? (
+                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 space-y-1.5">
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase">
+                              Dispositivos ({popDevs.length})
+                            </p>
+                            {popDevs.map((dev) => {
+                              const ifaces = interfacesByDeviceId.get(String(dev.id || '')) || [];
+                              return (
+                                <div key={dev.id} className="text-[11px] bg-gray-50 p-1.5 rounded border border-gray-100">
+                                  <div className="flex justify-between items-center gap-2">
+                                    <span className="font-semibold text-gray-800 truncate">{dev.nome || dev.modelo || `Disp #${dev.id}`}</span>
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-800 uppercase">{dev.status || 'ativo'}</span>
+                                  </div>
+                                  {dev.ip && <p className="text-[10px] text-gray-500 font-mono">IP: {dev.ip}</p>}
+                                  {ifaces.length > 0 && (
+                                    <p className="text-[10px] text-gray-500">{ifaces.length} interface(s) mapeada(s)</p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-gray-500 mt-1">Sem dispositivos vinculados no ISPFY.</p>
+                        )}
                       </div>
                     </InfoWindow>
                   )}
@@ -574,9 +794,11 @@ const NetworkMap = () => {
       <div className="absolute bottom-3 left-0 right-0 flex justify-center z-20 pointer-events-none">
         <div className="flex items-center gap-4 px-4 py-2 rounded-full text-xs pointer-events-auto"
           style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af' }}>
-          <span>🏠 {logins.length} Logins</span>
+          <span>🏠 {filtered.length}/{logins.length} Logins</span>
           <span className="text-white/20">|</span>
-          <span>🟢 {ctos.length} CTOs</span>
+          <span>🟢 {filteredCtos.length}/{ctos.length} CTOs</span>
+          {splitters.length > 0 && <><span className="text-white/20">|</span><span>🔀 {splitters.length} Splitters</span></>}
+          {popDevices.length > 0 && <><span className="text-white/20">|</span><span>🔌 {popDevices.length} Equips POP</span></>}
           {olts.length > 0 && <><span className="text-white/20">|</span><span>📡 {olts.length} OLTs</span></>}
           {techs.length > 0 && <><span className="text-white/20">|</span><span>👷 {techs.filter(t => t.status === 'online').length}/{techs.length} Técnicos</span></>}
         </div>

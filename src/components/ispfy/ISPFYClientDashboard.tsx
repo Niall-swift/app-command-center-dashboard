@@ -29,11 +29,16 @@ import {
   Activity,
   Zap,
   Signal,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Copy,
+  ExternalLink,
+  Rocket
 } from 'lucide-react';
 import { useISPFY } from '@/hooks/useISPFY';
 import { useToast } from '@/hooks/use-toast';
 import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import type { ISPFYPixData } from '@/types/ispfy';
 import { 
   Dialog,
   DialogContent,
@@ -45,6 +50,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   AreaChart, 
   Area, 
@@ -66,6 +78,10 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
     contracts, 
     invoices, 
     logins, 
+    livePoints,
+    stationDetails,
+    bandwidthSummary,
+    testablePlans,
     loading, 
     refresh, 
     updateWifi, 
@@ -79,13 +95,18 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
     pendingContracts,
     isEligibleForUnlock,
     refreshSignal,
-    rebootOnu
+    rebootOnu,
+    activateTurbo,
+    removeTurbo
   } = useISPFY({ clientId });
 
-  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
-  const [pixData, setPixData] = useState<any>(null);
+  const [, setSelectedInvoice] = useState<string | null>(null);
+  const [pixData, setPixData] = useState<ISPFYPixData | null>(null);
   const [pixLoading, setPixLoading] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState<string | null>(null);
+  const [turboPlanId, setTurboPlanId] = useState<string>('');
+  const [turboDays, setTurboDays] = useState<string>('7');
+  const [turboBusy, setTurboBusy] = useState(false);
 
   const [wifiLoginId, setWifiLoginId] = useState<string | null>(null);
   const [newSsid, setNewSsid] = useState('');
@@ -244,20 +265,62 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                                     <RefreshCw className="w-12 h-12 animate-spin text-primary" />
                                   ) : pixData ? (
                                     <>
-                                      {pixData.qrcode && (
+                                      {(pixData.qrcode) && (
                                         <div className="p-4 bg-white rounded-xl shadow-inner">
-                                          <img src={`data:image/png;base64,${pixData.qrcode}`} alt="PIX QR Code" className="w-64 h-64" />
+                                          <img src={`data:image/png;base64,${pixData.qrcode}`} alt="PIX QR Code" className="w-56 h-56" />
                                         </div>
                                       )}
-                                      <div className="w-full space-y-2">
-                                        <Label>Copia e Cola</Label>
-                                        <div className="flex gap-2">
-                                          <Input readOnly value={pixData.qrcode_text} className="font-mono text-xs overflow-hidden" />
-                                          <Button size="icon" variant="outline" onClick={() => navigator.clipboard.writeText(pixData.qrcode_text)}>
-                                            <Download className="w-4 h-4" />
-                                          </Button>
+                                      {(pixData.pix_copia_cola || pixData.qrcode_text || pixData.qr_code) && (
+                                        <div className="w-full space-y-2">
+                                          <Label>PIX Copia e Cola</Label>
+                                          <div className="flex gap-2">
+                                            <Input
+                                              readOnly
+                                              value={pixData.pix_copia_cola || pixData.qrcode_text || pixData.qr_code || ''}
+                                              className="font-mono text-xs overflow-hidden"
+                                            />
+                                            <Button
+                                              size="icon"
+                                              variant="outline"
+                                              onClick={() => {
+                                                const code = pixData.pix_copia_cola || pixData.qrcode_text || pixData.qr_code || '';
+                                                navigator.clipboard.writeText(code);
+                                                toast({ title: 'PIX copiado!' });
+                                              }}
+                                            >
+                                              <Copy className="w-4 h-4" />
+                                            </Button>
+                                          </div>
                                         </div>
-                                      </div>
+                                      )}
+                                      {pixData.linha_digitavel && (
+                                        <div className="w-full space-y-2">
+                                          <Label>Linha Digitável do Boleto</Label>
+                                          <div className="flex gap-2">
+                                            <Input readOnly value={pixData.linha_digitavel} className="font-mono text-xs" />
+                                            <Button
+                                              size="icon"
+                                              variant="outline"
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(pixData.linha_digitavel);
+                                                toast({ title: 'Linha digitável copiada!' });
+                                              }}
+                                            >
+                                              <Copy className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {pixData.link_boleto && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="w-full"
+                                          onClick={() => window.open(pixData.link_boleto, '_blank')}
+                                        >
+                                          <ExternalLink className="w-4 h-4 mr-2" /> Abrir Fatura / Boleto Completo
+                                        </Button>
+                                      )}
                                     </>
                                   ) : (
                                     <p className="text-destructive font-medium">Erro ao gerar PIX. Tente novamente.</p>
@@ -265,7 +328,19 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                                 </div>
                               </DialogContent>
                             </Dialog>
-                            <Button size="sm" variant="ghost">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Baixar / Abrir 2ª via do Boleto"
+                              onClick={async () => {
+                                const res = await ispfyService.getBoletoPdf(invoice.id!, client?.cpf_cnpj);
+                                if (res?.url) {
+                                  window.open(res.url, '_blank');
+                                } else {
+                                  toast({ title: 'Boleto indisponível', description: 'Link de impressão não localizado para esta fatura.', variant: 'destructive' });
+                                }
+                              }}
+                            >
                               <Download className="w-4 h-4" />
                             </Button>
                           </>
@@ -277,15 +352,27 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
                 )}
               </div>
 
-              {bandwidthUsage.length > 0 && (
+              {(bandwidthSummary || bandwidthUsage.length > 0) && (
                 <div className="space-y-4 pt-6">
+                  {bandwidthSummary && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                        <p className="text-[11px] font-semibold uppercase text-muted-foreground">Download (30 dias reais)</p>
+                        <p className="text-xl font-black text-indigo-500">{bandwidthSummary.downloadGb.toFixed(2)} GB</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <p className="text-[11px] font-semibold uppercase text-muted-foreground">Upload (30 dias reais)</p>
+                        <p className="text-xl font-black text-emerald-500">{bandwidthSummary.uploadGb.toFixed(2)} GB</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">Consumo de Banda (Últimos 7 dias)</h3>
-                      <p className="text-[10px] text-muted-foreground">Monitoramento de tráfego em GB.</p>
+                      <h3 className="text-sm font-bold">Consumo de Banda Real (Últimos 7 dias)</h3>
+                      <p className="text-[10px] text-muted-foreground">Leitura diária oficial ISPFY em GB.</p>
                     </div>
                     <Badge variant="outline" className="h-6">
-                      <Activity className="w-3 h-3 mr-1" /> Real-time
+                      <Activity className="w-3 h-3 mr-1" /> API ISPFY
                     </Badge>
                   </div>
                   <div className="h-[200px] w-full">
@@ -442,7 +529,129 @@ export const ISPFYClientDashboard: React.FC<ISPFYClientDashboardProps> = ({ clie
               )}
 
               <Separator className="my-2" />
-              
+
+              {/* Status em Tempo Real ISPFY + Turbo Temporário */}
+              {livePoints.length > 0 && (
+                <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-bold flex items-center gap-2">
+                        <Rocket className="w-4 h-4 text-indigo-500" />
+                        Ponto ISPFY ao Vivo &amp; Turbo de Velocidade
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        Status instantâneo via /tool/assinante/ponto/status e liberação temporária de banda.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {livePoints.map((pt) => (
+                        <Badge
+                          key={pt.idPonto}
+                          variant={pt.conexaoStatus === 'online' ? 'default' : 'destructive'}
+                          className="text-xs"
+                        >
+                          Ponto #{pt.idPonto}: {pt.conexaoStatus.toUpperCase()} {pt.ipWan ? `• ${pt.ipWan}` : ''}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  {testablePlans.length > 0 && livePoints[0]?.idPonto && (
+                    <div className="flex flex-col md:flex-row gap-2 items-end pt-1">
+                      <div className="flex-1 w-full space-y-1">
+                        <Label className="text-xs">Plano de Turbo (Degustação / Prêmio)</Label>
+                        <Select
+                          value={turboPlanId || String(testablePlans[0]?.id || '')}
+                          onValueChange={setTurboPlanId}
+                        >
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue placeholder="Selecione um plano..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {testablePlans.map((p) => (
+                              <SelectItem key={String(p.id)} value={String(p.id)}>
+                                {String(p.nome || p.plano || p.descricao || `Plano #${p.id}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-full md:w-32 space-y-1">
+                        <Label className="text-xs">Duração</Label>
+                        <Select value={turboDays} onValueChange={setTurboDays}>
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="3">3 dias</SelectItem>
+                            <SelectItem value="7">7 dias</SelectItem>
+                            <SelectItem value="15">15 dias</SelectItem>
+                            <SelectItem value="30">30 dias</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-9 gap-1.5"
+                        disabled={turboBusy}
+                        onClick={async () => {
+                          const planToApply = turboPlanId || String(testablePlans[0]?.id || '');
+                          if (!planToApply) return;
+                          setTurboBusy(true);
+                          const days = Number(turboDays || 7);
+                          const finalDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+                            .toISOString()
+                            .split('T')[0];
+                          await activateTurbo(livePoints[0].idPonto, planToApply, finalDate);
+                          setTurboBusy(false);
+                        }}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        Ativar Turbo
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-9"
+                        disabled={turboBusy}
+                        onClick={async () => {
+                          setTurboBusy(true);
+                          await removeTurbo(livePoints[0].idPonto);
+                          setTurboBusy(false);
+                        }}
+                      >
+                        Reverter
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Histórico Recente da Estação PPPoE / Station History */}
+              {stationDetails && (stationDetails.station || stationDetails.history.length > 0) && (
+                <div className="p-4 rounded-xl border bg-secondary/15 space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Diagnóstico &amp; Histórico de Estação (ISPFY)
+                  </h4>
+                  {stationDetails.history.length > 0 ? (
+                    <div className="max-h-40 overflow-y-auto divide-y divide-border text-xs">
+                      {stationDetails.history.slice(0, 8).map((ev, idx) => (
+                        <div key={idx} className="py-1.5 flex items-center justify-between gap-2">
+                          <span className="font-medium truncate">
+                            {String(ev.evento || ev.status || ev.mensagem || ev.ip || 'Registro de sessão')}
+                          </span>
+                          <span className="text-muted-foreground font-mono shrink-0">
+                            {String(ev.data || ev.created_at || ev.data_cadastro || '')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Estação ativa monitorada sem eventos recentes de queda.</p>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-6 md:grid-cols-2">
                 {logins.map((login) => (
                   <div key={login.id} className="p-4 rounded-xl border bg-secondary/20 border-primary/5 space-y-4">

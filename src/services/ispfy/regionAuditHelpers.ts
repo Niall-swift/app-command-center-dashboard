@@ -3,9 +3,21 @@ import type {
   ISPFYConnectionHealthStatus,
   ISPFYConnectionTransitionEvent,
   ISPFYConnectionTransitionType,
+  ISPFYMassOutageAlert,
+  ISPFYOutageDetectionConfig,
   ISPFYRegionGroupSummary,
   ISPFYStreetGroupSummary,
 } from '@/types/ispfy';
+
+export const DEFAULT_OUTAGE_DETECTION_CONFIG: ISPFYOutageDetectionConfig = {
+  minClientesOfflineRua: 4,
+  minPercentualRua: 50,
+  minClientesOfflineBairro: 6,
+  minPercentualBairro: 35,
+  ignorarOfflineAntigoHoras: 72,
+  confirmarAoVivoAntesEnviar: true,
+  minChecagensConsecutivas: 4,
+};
 
 export const CHAVE_BAIRRO_VAZIO = '__SEM_BAIRRO__';
 export const CHAVE_RUA_VAZIA = '__SEM_ENDERECO__';
@@ -439,4 +451,404 @@ export function detectarTransicoesConexao(
   }
 
   return { quedas, reconexoes };
+}
+
+/**
+/**
+ * Gera chave segura para ID de documento Firestore a partir de bairro/rua normalizados.
+ */
+export function sanitizeOutageIncidentKey(raw: string): string {
+  const cleaned = String(raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return (cleaned || 'regiao').slice(0, 120);
+}
+
+/** Interpreta datas retornadas pela API ISPFY considerando fuso de Brasília (-03:00) quando sem timezone. */
+export function parseIspfyTimestampMs(raw?: string | null): number | null {
+  const texto = String(raw || '').trim();
+  if (
+    !texto ||
+    texto === '-' ||
+    texto === '0000-00-00 00:00:00' ||
+    texto === '0000-00-00'
+  ) {
+    return null;
+  }
+
+  const matchBr = texto.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+  if (matchBr) {
+    const [, dd, mm, yyyy, hh = '00', mi = '00', ss = '00'] = matchBr;
+    const ms = Date.parse(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}-03:00`);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  const matchIsoNoTz = texto.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+  if (matchIsoNoTz) {
+    const [, yyyy, mm, dd, hh = '00', mi = '00', ss = '00'] = matchIsoNoTz;
+    const ms = Date.parse(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}-03:00`);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  const fallback = Date.parse(texto);
+  return Number.isFinite(fallback) ? fallback : null;
+}
+
+/** Verifica se o ponto já está desconectado há mais tempo do que a janela de corte (ex.: 72h). */
+export function pontoEstaOfflineCronico(
+  ultimoLogin?: string | null,
+  ultimoAccounting?: string | null,
+  maxHoras = 72,
+  referenciaMs = Date.now()
+): boolean {
+  if (!maxHoras || maxHoras <= 0) return false;
+  const loginMs = parseIspfyTimestampMs(ultimoLogin);
+  const accMs = parseIspfyTimestampMs(ultimoAccounting);
+  const maisRecenteMs =
+    loginMs !== null && accMs !== null
+      ? Math.max(loginMs, accMs)
+      : loginMs ?? accMs;
+  if (maisRecenteMs === null) return false;
+  return referenciaMs - maisRecenteMs > maxHoras * 60 * 60 * 1000;
+}
+
+/**
+ * Agrupa clientes únicos ativos por rua e bairro para identificar rompimentos reais de fibra em massa.
+ * Aplica proteções anti-falso-positivo:
+ * - Disjuntor global se < 10% da base estiver online (falha de leitura API/RADIUS ou queda global);
+ * - Deduplicação por cliente único (evita inflar 1 assinante com múltiplos logins PPPoE);
+ * - Exclusão de pontos offline crônicos (sem login há mais de `ignorarOfflineAntigoHoras`);
+ * - Mínimo de clientes únicos e percentual mínimo configuráveis por rua e bairro.
+ */
+export function detectarRompimentosEmMassa(
+  registros: ISPFYClientRegionRecord[],
+  opcoes?: Partial<ISPFYOutageDetectionConfig>
+): ISPFYMassOutageAlert[] {
+  const cfg: ISPFYOutageDetectionConfig = {
+    ...DEFAULT_OUTAGE_DETECTION_CONFIG,
+    ...(opcoes || {}),
+  };
+
+  const minStreetOffline = Math.max(2, Number(cfg.minClientesOfflineRua || 4));
+  const minStreetRatio = Math.max(
+    0.1,
+    Math.min(1, Number(cfg.minPercentualRua || 50) / 100)
+  );
+  const minOffline = Math.max(2, Number(cfg.minClientesOfflineBairro || 6));
+  const minRatio = Math.max(
+    0.1,
+    Math.min(1, Number(cfg.minPercentualBairro || 35) / 100)
+  );
+  const maxOfflineHoras = Math.max(0, Number(cfg.ignorarOfflineAntigoHoras ?? 72));
+  const agoraMs = Date.now();
+
+  let totalPontosAtivosGlobais = 0;
+  let totalPontosOnlineGlobais = 0;
+  for (const reg of registros) {
+    if (reg.connectionHealth === 'inativo') continue;
+    totalPontosAtivosGlobais += 1;
+    if (reg.connectionHealth === 'ok') {
+      totalPontosOnlineGlobais += 1;
+    }
+  }
+
+  // Disjuntor global: se toda a rede/API aparecer offline ou < 10% online, bloqueia alertas por rua
+  if (
+    totalPontosAtivosGlobais >= 20 &&
+    (totalPontosOnlineGlobais === 0 ||
+      totalPontosOnlineGlobais < Math.max(5, Math.floor(totalPontosAtivosGlobais * 0.1)))
+  ) {
+    return [];
+  }
+
+  interface RuaAccumulator {
+    ruaKey: string;
+    ruaLabel: string;
+    clientesUnicos: Set<string>;
+    clientesOnline: Set<string>;
+    clientesOfflineCandidatos: Map<string, string>;
+    clienteIdsOffline: Set<string>;
+    pontoIds: string[];
+    offlineAntigosIgnorados: number;
+  }
+
+  interface BairroAccumulator {
+    bairroKey: string;
+    bairroLabel: string;
+    clientesUnicos: Set<string>;
+    clientesOnline: Set<string>;
+    clientesOfflineCandidatos: Map<string, string>;
+    clienteIdsOffline: Set<string>;
+    pontoIds: string[];
+    offlineAntigosIgnorados: number;
+    ruas: Map<string, RuaAccumulator>;
+  }
+
+  const grupos = new Map<string, BairroAccumulator>();
+
+  for (const reg of registros) {
+    if (reg.connectionHealth === 'inativo') continue;
+    if (reg.bairroKey === CHAVE_BAIRRO_VAZIO) continue;
+
+    const clienteKey = reg.clienteId
+      ? `cli:${reg.clienteId}`
+      : reg.contratoId
+      ? `ct:${reg.contratoId}`
+      : `pt:${reg.pontoId}`;
+
+    let grupo = grupos.get(reg.bairroKey);
+    if (!grupo) {
+      grupo = {
+        bairroKey: reg.bairroKey,
+        bairroLabel: reg.bairroLabel,
+        clientesUnicos: new Set<string>(),
+        clientesOnline: new Set<string>(),
+        clientesOfflineCandidatos: new Map<string, string>(),
+        clienteIdsOffline: new Set<string>(),
+        pontoIds: [],
+        offlineAntigosIgnorados: 0,
+        ruas: new Map<string, RuaAccumulator>(),
+      };
+      grupos.set(reg.bairroKey, grupo);
+    }
+
+    grupo.clientesUnicos.add(clienteKey);
+
+    let ruaStat = grupo.ruas.get(reg.ruaKey);
+    if (!ruaStat) {
+      ruaStat = {
+        ruaKey: reg.ruaKey,
+        ruaLabel: reg.ruaLabel,
+        clientesUnicos: new Set<string>(),
+        clientesOnline: new Set<string>(),
+        clientesOfflineCandidatos: new Map<string, string>(),
+        clienteIdsOffline: new Set<string>(),
+        pontoIds: [],
+        offlineAntigosIgnorados: 0,
+      };
+      grupo.ruas.set(reg.ruaKey, ruaStat);
+    }
+    ruaStat.clientesUnicos.add(clienteKey);
+
+    if (reg.connectionHealth === 'ok') {
+      grupo.clientesOnline.add(clienteKey);
+      ruaStat.clientesOnline.add(clienteKey);
+    } else if (reg.connectionHealth === 'desconectado') {
+      const cronico = pontoEstaOfflineCronico(
+        reg.ultimoLogin,
+        reg.ultimoAccounting,
+        maxOfflineHoras,
+        agoraMs
+      );
+      if (cronico) {
+        grupo.offlineAntigosIgnorados += 1;
+        ruaStat.offlineAntigosIgnorados += 1;
+        continue;
+      }
+
+      grupo.pontoIds.push(reg.pontoId);
+      if (!grupo.clientesOfflineCandidatos.has(clienteKey) && reg.nome) {
+        grupo.clientesOfflineCandidatos.set(clienteKey, reg.nome);
+      }
+      if (reg.clienteId) grupo.clienteIdsOffline.add(reg.clienteId);
+
+      ruaStat.pontoIds.push(reg.pontoId);
+      if (!ruaStat.clientesOfflineCandidatos.has(clienteKey) && reg.nome) {
+        ruaStat.clientesOfflineCandidatos.set(clienteKey, reg.nome);
+      }
+      if (reg.clienteId) ruaStat.clienteIdsOffline.add(reg.clienteId);
+    }
+  }
+
+  const extrairClientesOffline = (
+    candidatos: Map<string, string>,
+    onlineSet: Set<string>
+  ): { totalOfflineUnicos: number; nomes: string[] } => {
+    const nomes: string[] = [];
+    let totalOfflineUnicos = 0;
+    for (const [cKey, nome] of candidatos.entries()) {
+      if (onlineSet.has(cKey)) continue;
+      totalOfflineUnicos += 1;
+      if (nomes.length < 30 && nome) {
+        nomes.push(nome);
+      }
+    }
+    return { totalOfflineUnicos, nomes };
+  };
+
+  const alertas: ISPFYMassOutageAlert[] = [];
+
+  for (const g of grupos.values()) {
+    const totalBairroUnicos = g.clientesUnicos.size;
+    const {
+      totalOfflineUnicos: desconectadosBairro,
+      nomes: nomesOfflineBairro,
+    } = extrairClientesOffline(g.clientesOfflineCandidatos, g.clientesOnline);
+
+    const ratioBairro =
+      totalBairroUnicos > 0 ? desconectadosBairro / totalBairroUnicos : 0;
+    const percentualBairro =
+      totalBairroUnicos > 0 ? Math.round(ratioBairro * 1000) / 10 : 0;
+
+    const ruasDetalhadas = Array.from(g.ruas.values())
+      .map((r) => {
+        const totalRuaUnicos = r.clientesUnicos.size;
+        const { totalOfflineUnicos: offRua, nomes: nomesRua } =
+          extrairClientesOffline(r.clientesOfflineCandidatos, r.clientesOnline);
+        const ratioRua = totalRuaUnicos > 0 ? offRua / totalRuaUnicos : 0;
+        const pctRua =
+          totalRuaUnicos > 0 ? Math.round(ratioRua * 1000) / 10 : 0;
+        const atingiuMetadeOuMais =
+          r.ruaKey !== CHAVE_RUA_VAZIA &&
+          totalRuaUnicos >= minStreetOffline &&
+          offRua >= minStreetOffline &&
+          ratioRua >= minStreetRatio;
+        return {
+          ruaKey: r.ruaKey,
+          ruaLabel: r.ruaLabel,
+          desconectados: offRua,
+          totalAtivos: totalRuaUnicos,
+          totalClientesUnicos: totalRuaUnicos,
+          clientesOfflineUnicos: offRua,
+          percentualOffline: pctRua,
+          atingiuMetadeOuMais,
+          pontoIds: r.pontoIds,
+          clienteIdsOffline: Array.from(r.clienteIdsOffline),
+          clientesNomes: nomesRua,
+          offlineAntigosIgnorados: r.offlineAntigosIgnorados,
+        };
+      })
+      .filter((r) => r.desconectados > 0)
+      .sort(
+        (a, b) =>
+          Number(b.atingiuMetadeOuMais) - Number(a.atingiuMetadeOuMais) ||
+          b.percentualOffline - a.percentualOffline ||
+          b.desconectados - a.desconectados
+      );
+
+    const ruasAfetadasResumo = ruasDetalhadas.slice(0, 6).map((r) => ({
+      ruaKey: r.ruaKey,
+      ruaLabel: r.ruaLabel,
+      desconectados: r.desconectados,
+      totalAtivos: r.totalAtivos,
+      totalClientesUnicos: r.totalClientesUnicos,
+      clientesOfflineUnicos: r.clientesOfflineUnicos,
+      percentualOffline: r.percentualOffline,
+      atingiuMetadeOuMais: r.atingiuMetadeOuMais,
+      clienteIdsOffline: r.clienteIdsOffline,
+      offlineAntigosIgnorados: r.offlineAntigosIgnorados,
+    }));
+
+    const ruasCriticas = ruasDetalhadas.filter((r) => r.atingiuMetadeOuMais);
+    const bairroEmQuedaGeral =
+      desconectadosBairro >= minOffline &&
+      (ratioBairro >= minRatio || desconectadosBairro >= 15);
+
+    if (
+      ruasCriticas.length === 1 &&
+      (!bairroEmQuedaGeral ||
+        ruasCriticas[0].desconectados / Math.max(1, desconectadosBairro) >= 0.6)
+    ) {
+      const r = ruasCriticas[0];
+      alertas.push({
+        incidentKey: sanitizeOutageIncidentKey(`rua__${g.bairroKey}__${r.ruaKey}`),
+        tipoAlerta: 'rua_e_bairro',
+        bairroKey: g.bairroKey,
+        bairroLabel: g.bairroLabel,
+        totalAtivosNoBairro: totalBairroUnicos,
+        desconectadosNoBairro: desconectadosBairro,
+        desconectados: desconectadosBairro,
+        percentualOffline: percentualBairro,
+        totalClientesUnicos: totalBairroUnicos,
+        offlineAntigosIgnorados:
+          r.offlineAntigosIgnorados || g.offlineAntigosIgnorados,
+        ruaPrincipal: {
+          ruaKey: r.ruaKey,
+          ruaLabel: r.ruaLabel,
+          desconectados: r.desconectados,
+          totalAtivos: r.totalAtivos,
+          totalClientesUnicos: r.totalClientesUnicos,
+          clientesOfflineUnicos: r.clientesOfflineUnicos,
+          percentualOffline: r.percentualOffline,
+          atingiuMetadeOuMais: true,
+          clienteIdsOffline: r.clienteIdsOffline,
+          offlineAntigosIgnorados: r.offlineAntigosIgnorados,
+        },
+        ruasAfetadas: ruasAfetadasResumo,
+        pontoIds: r.pontoIds,
+        clienteIdsOffline: r.clienteIdsOffline,
+        clientesNomes: r.clientesNomes,
+      });
+      continue;
+    }
+
+    if (ruasCriticas.length === 2 && !bairroEmQuedaGeral) {
+      for (const r of ruasCriticas) {
+        alertas.push({
+          incidentKey: sanitizeOutageIncidentKey(`rua__${g.bairroKey}__${r.ruaKey}`),
+          tipoAlerta: 'rua_e_bairro',
+          bairroKey: g.bairroKey,
+          bairroLabel: g.bairroLabel,
+          totalAtivosNoBairro: totalBairroUnicos,
+          desconectadosNoBairro: desconectadosBairro,
+          desconectados: desconectadosBairro,
+          percentualOffline: percentualBairro,
+          totalClientesUnicos: totalBairroUnicos,
+          offlineAntigosIgnorados: r.offlineAntigosIgnorados,
+          ruaPrincipal: {
+            ruaKey: r.ruaKey,
+            ruaLabel: r.ruaLabel,
+            desconectados: r.desconectados,
+            totalAtivos: r.totalAtivos,
+            totalClientesUnicos: r.totalClientesUnicos,
+            clientesOfflineUnicos: r.clientesOfflineUnicos,
+            percentualOffline: r.percentualOffline,
+            atingiuMetadeOuMais: true,
+            clienteIdsOffline: r.clienteIdsOffline,
+            offlineAntigosIgnorados: r.offlineAntigosIgnorados,
+          },
+          ruasAfetadas: ruasAfetadasResumo,
+          pontoIds: r.pontoIds,
+          clienteIdsOffline: r.clienteIdsOffline,
+          clientesNomes: r.clientesNomes,
+        });
+      }
+      continue;
+    }
+
+    if (bairroEmQuedaGeral || ruasCriticas.length >= 3) {
+      alertas.push({
+        incidentKey: sanitizeOutageIncidentKey(`bairro__${g.bairroKey}`),
+        tipoAlerta: 'bairro',
+        bairroKey: g.bairroKey,
+        bairroLabel: g.bairroLabel,
+        totalAtivosNoBairro: totalBairroUnicos,
+        desconectadosNoBairro: desconectadosBairro,
+        desconectados: desconectadosBairro,
+        percentualOffline: percentualBairro,
+        totalClientesUnicos: totalBairroUnicos,
+        offlineAntigosIgnorados: g.offlineAntigosIgnorados,
+        ruaPrincipal: ruasAfetadasResumo[0] || null,
+        ruasAfetadas: ruasAfetadasResumo,
+        pontoIds: g.pontoIds,
+        clienteIdsOffline: Array.from(g.clienteIdsOffline),
+        clientesNomes: nomesOfflineBairro,
+      });
+    }
+  }
+
+  return alertas.sort(
+    (a, b) =>
+      (b.ruaPrincipal?.percentualOffline ?? b.percentualOffline) -
+        (a.ruaPrincipal?.percentualOffline ?? a.percentualOffline) ||
+      b.desconectados - a.desconectados
+  );
 }

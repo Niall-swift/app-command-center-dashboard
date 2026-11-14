@@ -18,6 +18,42 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    match /bot_config/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /active_region_outages/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /billing_ruler_logs/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /carencia_d1_notifications/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /carencia_notifications/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /ispfy_turbo_logs/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /welcome_notifications/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /ispfy_lead_conversions/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /ispfy_clients_cache/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
     // Settings: mantém manutenção pública para leitura do app Pre-Mix, mas protege asaas_config (chaves)
     match /settings/{docId} {
       allow read: if docId != 'asaas_config' || request.auth != null;
@@ -73,6 +109,11 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // Monitoramento contínuo de rompimentos (>5 min)
+    match /outage_watch/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
     // Fallback seguro: não sobrescreve coleções internas protegidas (semântica OR das rules)
     match /{collection}/{document=**} {
       allow read: if !(collection in [
@@ -83,6 +124,15 @@ service cloud.firestore {
         'bot_sessions',
         'bot_config',
         'carencia_notified',
+        'carencia_notifications',
+        'carencia_d1_notifications',
+        'billing_ruler_logs',
+        'ispfy_turbo_logs',
+        'welcome_notifications',
+        'ispfy_lead_conversions',
+        'ispfy_clients_cache',
+        'active_region_outages',
+        'outage_watch',
         'notified_payments',
         'ispfy_audit_snapshots'
       ]);

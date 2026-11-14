@@ -87,7 +87,10 @@ export default function Raffle() {
     probability: 10,
     color: '#4338FF',
     icon: 'gift-outline',
-    isDefeat: false
+    isDefeat: false,
+    rewardType: 'standard' as 'standard' | 'ispfy_turbo',
+    turboDays: 7,
+    turboPlanId: ''
   });
 
   useEffect(() => {
@@ -253,10 +256,27 @@ export default function Raffle() {
         color: newRouletteItem.color,
         icon: newRouletteItem.icon,
         isDefeat: !!newRouletteItem.isDefeat,
+        rewardType: newRouletteItem.isDefeat ? 'standard' : newRouletteItem.rewardType,
+        ...(newRouletteItem.rewardType === 'ispfy_turbo' && !newRouletteItem.isDefeat
+          ? {
+              turboDays: Math.min(30, Math.max(1, Number(newRouletteItem.turboDays || 7))),
+              turboPlanId: newRouletteItem.turboPlanId.trim() || null,
+            }
+          : {}),
         createdAt: serverTimestamp()
       });
       toast({ title: "Sucesso", description: "Item adicionado à roleta com sucesso!" });
-      setNewRouletteItem({ name: '', quantity: 10, probability: 10, color: '#4338FF', icon: 'gift-outline', isDefeat: false });
+      setNewRouletteItem({
+        name: '',
+        quantity: 10,
+        probability: 10,
+        color: '#4338FF',
+        icon: 'gift-outline',
+        isDefeat: false,
+        rewardType: 'standard',
+        turboDays: 7,
+        turboPlanId: ''
+      });
     } catch (err) {
       toast({ title: "Erro", description: "Erro ao adicionar item à roleta.", variant: "destructive" });
     }
@@ -925,6 +945,7 @@ export default function Raffle() {
                         setNewRouletteItem({
                           ...newRouletteItem, 
                           isDefeat: isDef,
+                          rewardType: isDef ? 'standard' : newRouletteItem.rewardType,
                           quantity: isDef ? -1 : 10,
                           color: isDef ? '#EF4444' : '#4338FF',
                           icon: isDef ? 'close-circle-outline' : 'gift-outline'
@@ -936,6 +957,60 @@ export default function Raffle() {
                       🚫 Este item representa uma Derrota / Sem prêmio (ex: Tente Novamente)
                     </label>
                   </div>
+
+                  {!newRouletteItem.isDefeat && (
+                    <div className="space-y-3 p-3 rounded-lg border border-cyan-200 bg-cyan-50/40">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-cyan-900">Tipo de Recompensa</Label>
+                        <select
+                          value={newRouletteItem.rewardType}
+                          onChange={(e) => {
+                            const val = e.target.value as 'standard' | 'ispfy_turbo';
+                            setNewRouletteItem({
+                              ...newRouletteItem,
+                              rewardType: val,
+                              color: val === 'ispfy_turbo' ? '#0891B2' : '#4338FF',
+                              icon: val === 'ispfy_turbo' ? 'flash-outline' : 'gift-outline',
+                            });
+                          }}
+                          className="w-full h-9 px-3 rounded-md border border-cyan-200 bg-white text-xs font-medium"
+                        >
+                          <option value="standard">🎁 Prêmio Padrão (Brinde / Vale / PIX manual)</option>
+                          <option value="ispfy_turbo">🚀 Turbo de Velocidade ISPFY (Aplica automaticamente na hora)</option>
+                        </select>
+                      </div>
+
+                      {newRouletteItem.rewardType === 'ispfy_turbo' && (
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-cyan-900">Duração do Turbo (dias)</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={30}
+                              value={newRouletteItem.turboDays}
+                              onChange={(e) =>
+                                setNewRouletteItem({ ...newRouletteItem, turboDays: Number(e.target.value) || 7 })
+                              }
+                              className="h-8 text-xs bg-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-cyan-900">ID Plano ISPFY (Opcional)</Label>
+                            <Input
+                              placeholder="Vazio = próximo plano acima"
+                              value={newRouletteItem.turboPlanId}
+                              onChange={(e) =>
+                                setNewRouletteItem({ ...newRouletteItem, turboPlanId: e.target.value })
+                              }
+                              className="h-8 text-xs bg-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={handleAddRouletteItem}>
                     <Plus className="w-4 h-4 mr-2" /> Cadastrar na Roleta
                   </Button>
@@ -965,10 +1040,15 @@ export default function Raffle() {
                             <Gift className="w-5 h-5" />
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="font-bold text-gray-900">{item.name}</h4>
                               {item.isDefeat && (
                                 <Badge className="bg-red-500 hover:bg-red-600 text-white text-[10px] px-1.5 py-0.5">Derrota</Badge>
+                              )}
+                              {!item.isDefeat && item.rewardType === 'ispfy_turbo' && (
+                                <Badge className="bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] px-1.5 py-0.5">
+                                  🚀 Turbo {item.turboDays || 7}d ISPFY
+                                </Badge>
                               )}
                             </div>
                             <div className="flex gap-4 text-xs text-gray-500 mt-1">
