@@ -3,11 +3,11 @@ import * as admin from "firebase-admin";
 import {ClientData, WelcomeMessageLog} from "./types";
 import { IspfyBackendService } from "./ispfyBackendService";
 import { runJosueChat } from "./aiProxy";
-import { processIspfyPayments } from "./ispfyPaymentMonitor";
 import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
 import { WhapiService } from "./whapiService";
 import { generateRaffleTicketImage } from "./receiptGenerator";
+import { indexZapiMessageForTracking } from "./zapiSuite";
 import axios from "axios";
 import * as https from "https";
 import { verifyAuth } from "./config/auth";
@@ -597,31 +597,91 @@ export const sendChatNotification = functions.firestore
  * 📤 Dispara quando o Admin envia uma mensagem no Painel
  * Replica essa mensagem para o WhatsApp E para o App do cliente
  */
-export const onDashboardMessageSent = functions.firestore
+export const onDashboardMessageSent = functions
+  .runWith({ memory: "256MB", timeoutSeconds: 120 })
+  .firestore
   .document("chat/{chatId}/mensagens/{messageId}")
   .onCreate(async (snapshot, context) => {
     const messageData = snapshot.data();
     const chatId = context.params.chatId; // Telefone limpo
 
-    if (messageData.isAdmin !== true || messageData.isPrivate === true) return null;
+    // Evita enviar notas internas, mensagens do cliente ou mensagens já enviadas pelo bot/celular
+    if (
+      messageData.isAdmin !== true ||
+      messageData.isPrivate === true ||
+      messageData.skipWhatsappSync === true ||
+      messageData.source === "system" ||
+      messageData.source === "josue_ai" ||
+      messageData.source === "whatsapp" ||
+      messageData.source === "whatsapp_device"
+    ) {
+      return null;
+    }
 
-    console.log(`📤 Replicando resposta do painel para: ${chatId}`);
+    console.log(
+      `📤 Replicando resposta do painel para: ${chatId} | Mídia: ${messageData.mediaType || "texto"}`
+    );
 
     let waService: WhatsAppService;
     try {
       const { apiKey: whatsappApiKey, baseUrl: whatsappBaseUrl } = getWhapiConfig();
       waService = new WhatsAppService(whatsappBaseUrl, whatsappApiKey);
     } catch (err: any) {
-      console.error("❌ WHAPI não configurado no ambiente:", err.message);
+      console.error("❌ WHAPI/Z-API não configurado no ambiente:", err.message);
+      await snapshot.ref
+        .set(
+          {
+            deliveryStatus: "FAILED",
+            deliveryError: "Z-API não configurada no servidor.",
+            deliveryUpdatedAtMs: Date.now(),
+          },
+          { merge: true }
+        )
+        .catch(() => undefined);
       return null;
     }
 
     try {
-      // 1. Enviar para WhatsApp
+      // 1. Enviar para WhatsApp e registrar messageId para confirmação de entrega/leitura (✓✓ azul)
+      let zapiResp: any = null;
       if (messageData.mediaUrl) {
-        await waService.sendMediaMessage(chatId, messageData.mediaUrl, messageData.content);
+        zapiResp = await waService.sendMediaMessage(
+          chatId,
+          messageData.mediaUrl,
+          messageData.content,
+          messageData.mediaType,
+          {
+            fileName: messageData.mediaName || null,
+            mimeType: messageData.mediaMimeType || null,
+          }
+        );
       } else {
-        await waService.sendTextMessage(chatId, messageData.content);
+        zapiResp = await waService.sendTextMessage(chatId, messageData.content);
+      }
+
+      const zapiMsgId = String(zapiResp?.messageId || zapiResp?.id || "").trim() || null;
+      const zapiZaapId = String(zapiResp?.zaapId || "").trim() || null;
+      await snapshot.ref
+        .set(
+          {
+            zapiMessageId: zapiMsgId,
+            zapiZaapId: zapiZaapId,
+            deliveryStatus: "SENT",
+            deliveryError: null,
+            deliveryUpdatedAtMs: Date.now(),
+          },
+          { merge: true }
+        )
+        .catch(() => undefined);
+
+      if (zapiMsgId || zapiZaapId) {
+        await indexZapiMessageForTracking({
+          messageId: zapiMsgId,
+          zaapId: zapiZaapId,
+          collectionPath: `chat/${chatId}/mensagens`,
+          docId: snapshot.id,
+          chatId,
+        });
       }
 
       // 2. Tentar replicar para o App (se o usuário existir)
@@ -646,7 +706,7 @@ export const onDashboardMessageSent = functions.firestore
           const newRoom = await admin.firestore().collection("chatRooms").add({
             userId,
             userName: usersSnapshot.docs[0].data().name || "Cliente",
-            lastMessage: messageData.content,
+            lastMessage: messageData.content || messageData.mediaName || "📎 Mídia",
             lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
             unreadCount: 0,
             isActive: true,
@@ -659,24 +719,42 @@ export const onDashboardMessageSent = functions.firestore
 
         // 2.2 Adicionar a mensagem na subcoleção 'messages'
         await admin.firestore().collection("chatRooms").doc(roomId).collection("messages").add({
-          content: messageData.content,
+          content: messageData.content || "",
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           isAdmin: true,
           senderId: "admin",
           senderName: "Atendente AVL",
           mediaUrl: messageData.mediaUrl || null,
+          mediaType: messageData.mediaType || null,
+          mediaName: messageData.mediaName || null,
         });
 
         // 2.3 Atualizar cabeçalho da sala
         await admin.firestore().collection("chatRooms").doc(roomId).update({
-          lastMessage: messageData.content,
+          lastMessage: messageData.content || messageData.mediaName || "📎 Mídia",
           lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
 
       return true;
-    } catch (error) {
-      console.error("❌ Erro na replicação da mensagem:", error);
+    } catch (error: any) {
+      const errMsg = String(
+        error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Erro ao entregar mensagem no WhatsApp"
+      ).slice(0, 300);
+      console.error("❌ Erro na replicação da mensagem:", errMsg, error);
+      await snapshot.ref
+        .set(
+          {
+            deliveryStatus: "FAILED",
+            deliveryError: errMsg,
+            deliveryUpdatedAtMs: Date.now(),
+          },
+          { merge: true }
+        )
+        .catch(() => undefined);
       return null;
     }
   });
@@ -813,10 +891,14 @@ export const sendUserChatNotification = functions.firestore
   });
 
 /**
- * 🤖 Webhook para o Bot de WhatsApp
+ * 🤖 Webhook para o Bot de WhatsApp (Z-API + compatibilidade Whapi)
+ * Suporta 100% de textos, fotos, stickers, vídeos, áudios (PTT) e documentos
+ * Modo Economia Firebase: usa URL direta hospedada pela Z-API (30 dias grátis, 0 MB no Storage)
  */
-export const whatsappWebhook = functions.runWith({ 
-  secrets: ["GEMINI_API_KEY"] 
+export const whatsappWebhook = functions.runWith({
+  memory: "256MB",
+  timeoutSeconds: 60,
+  secrets: ["GEMINI_API_KEY"],
 }).https.onRequest(async (req, res) => {
   if (req.method === "GET") {
     res.status(200).send("Webhook active");
@@ -824,38 +906,179 @@ export const whatsappWebhook = functions.runWith({
   }
 
   try {
-    const payload = req.body;
-    let messageData = payload.data || (payload.messages && payload.messages[0]) || payload;
+    const payload = req.body || {};
+    const messageData = payload.data || (payload.messages && payload.messages[0]) || payload;
 
-    const chatIdField = messageData.chat_id || messageData.chatId || messageData.key?.remoteJid || "";
-    const senderField = messageData.from || messageData.sender || "";
-    
+    const chatIdField = String(
+      messageData.chat_id || messageData.chatId || messageData.key?.remoteJid || ""
+    );
+    const senderField = String(
+      messageData.phone || messageData.from || messageData.sender || ""
+    );
     const from = senderField || chatIdField;
-    const text = messageData.body || messageData.text?.body || messageData.message?.conversation || (typeof messageData.text === "string" ? messageData.text : undefined);
-    const selectionId = messageData.list_reply?.id || messageData.button_reply?.id;
-    
-    // Agora verificamos explicitamente o ID do chat e o remetente para ter certeza absoluta se é grupo
-    const isGroup = chatIdField.includes("@g.us") || senderField.includes("@g.us") || messageData.isGroup === true || from?.includes("@group");
-    const fromMe = messageData.from_me === true || messageData.fromMe === true || messageData.key?.fromMe === true;
 
-    // Extrair nome do remetente (preferência para pushname da Whapi)
-    const senderName = messageData.from_name || messageData.pushname || payload.contacts?.[0]?.pushname || "Cliente WhatsApp";
+    const rawType = String(messageData.type || "").toLowerCase();
+    let mediaUrl: string | null =
+      messageData.image?.imageUrl ||
+      messageData.image?.link ||
+      messageData.image?.url ||
+      messageData.sticker?.stickerUrl ||
+      messageData.sticker?.link ||
+      messageData.audio?.audioUrl ||
+      messageData.audio?.link ||
+      messageData.voice?.audioUrl ||
+      messageData.voice?.link ||
+      messageData.video?.videoUrl ||
+      messageData.video?.link ||
+      messageData.video?.url ||
+      messageData.document?.documentUrl ||
+      messageData.document?.link ||
+      messageData.document?.url ||
+      messageData.link ||
+      messageData.url ||
+      null;
+    let mediaType: "image" | "audio" | "video" | "document" | null = null;
+    let mediaIdToDownload: string | null = null;
+    let mimeType = "";
+    let fileNameToSave: string | null = null;
+    let mediaCaption: string | undefined;
+    let mediaDuration: number | null = null;
 
-    if (!from || (!text && !selectionId && !messageData.media) || isGroup || fromMe) {
-      const reason = !from ? "Sem remetente" : 
-                     (!text && !selectionId && !messageData.media) ? "Sem conteúdo" :
-                     isGroup ? "Mensagem de grupo" :
-                     fromMe ? "Mensagem própria (fromMe)" : "Desconhecido";
-                     
-      console.log(`⏭️ Webhook ignorado. Motivo: ${reason} | From: ${from} | Texto: ${text}`);
+    if (rawType === "image" || messageData.image) {
+      mediaUrl = messageData.image?.imageUrl || messageData.image?.link || messageData.image?.url || mediaUrl;
+      mediaIdToDownload = messageData.image?.id || (rawType === "image" ? messageData.id : null);
+      mimeType = messageData.image?.mimeType || messageData.image?.mime_type || "image/jpeg";
+      mediaCaption = messageData.image?.caption;
+      mediaType = "image";
+    } else if (rawType === "sticker" || messageData.sticker) {
+      mediaUrl = messageData.sticker?.stickerUrl || messageData.sticker?.link || messageData.sticker?.url || mediaUrl;
+      mediaIdToDownload = messageData.sticker?.id || (rawType === "sticker" ? messageData.id : null);
+      mimeType = messageData.sticker?.mimeType || messageData.sticker?.mime_type || "image/webp";
+      mediaType = "image";
+    } else if (rawType === "audio" || rawType === "voice" || rawType === "ptt" || messageData.audio || messageData.voice) {
+      mediaUrl =
+        messageData.audio?.audioUrl ||
+        messageData.audio?.link ||
+        messageData.audio?.url ||
+        messageData.voice?.audioUrl ||
+        messageData.voice?.link ||
+        messageData.voice?.url ||
+        mediaUrl;
+      mediaIdToDownload =
+        messageData.audio?.id ||
+        messageData.voice?.id ||
+        (rawType === "audio" || rawType === "voice" || rawType === "ptt" ? messageData.id : null);
+      mimeType =
+        messageData.audio?.mimeType ||
+        messageData.audio?.mime_type ||
+        messageData.voice?.mimeType ||
+        messageData.voice?.mime_type ||
+        "audio/ogg";
+      const secs = Number(messageData.audio?.seconds ?? messageData.voice?.seconds ?? 0);
+      mediaDuration = Number.isFinite(secs) && secs > 0 ? Math.round(secs) : null;
+      mediaType = "audio";
+    } else if (rawType === "video" || messageData.video) {
+      mediaUrl = messageData.video?.videoUrl || messageData.video?.link || messageData.video?.url || mediaUrl;
+      mediaIdToDownload = messageData.video?.id || (rawType === "video" ? messageData.id : null);
+      mimeType = messageData.video?.mimeType || messageData.video?.mime_type || "video/mp4";
+      mediaCaption = messageData.video?.caption;
+      const secs = Number(messageData.video?.seconds ?? 0);
+      mediaDuration = Number.isFinite(secs) && secs > 0 ? Math.round(secs) : null;
+      mediaType = "video";
+    } else if (rawType === "document" || messageData.document) {
+      mediaUrl =
+        messageData.document?.documentUrl ||
+        messageData.document?.link ||
+        messageData.document?.url ||
+        mediaUrl;
+      mediaIdToDownload = messageData.document?.id || (rawType === "document" ? messageData.id : null);
+      mimeType =
+        messageData.document?.mimeType ||
+        messageData.document?.mime_type ||
+        "application/pdf";
+      fileNameToSave =
+        messageData.document?.fileName ||
+        messageData.document?.file_name ||
+        messageData.document?.filename ||
+        messageData.document?.title ||
+        null;
+      mediaCaption = messageData.document?.caption;
+      mediaType = "document";
+    }
+
+    const text =
+      messageData.body ||
+      messageData.text?.message ||
+      messageData.text?.body ||
+      messageData.message?.conversation ||
+      messageData.buttonsResponseMessage?.message ||
+      messageData.buttonResponseMessage?.message ||
+      messageData.listResponseMessage?.message ||
+      mediaCaption ||
+      (typeof messageData.text === "string" ? messageData.text : undefined);
+
+    const selectionId =
+      messageData.buttonsResponseMessage?.buttonId ||
+      messageData.buttonsResponseMessage?.selectedButtonId ||
+      messageData.buttonResponseMessage?.buttonId ||
+      messageData.buttonResponseMessage?.selectedButtonId ||
+      messageData.listResponseMessage?.selectedRowId ||
+      messageData.list_reply?.id ||
+      messageData.button_reply?.id;
+
+    const incomingMsgId = String(messageData.messageId || messageData.id || "").trim();
+
+    const isGroup =
+      chatIdField.includes("@g.us") ||
+      senderField.includes("@g.us") ||
+      messageData.isGroup === true ||
+      from.includes("@group") ||
+      from.endsWith("-group");
+    const fromMe =
+      messageData.from_me === true ||
+      messageData.fromMe === true ||
+      messageData.key?.fromMe === true;
+    const fromApi =
+      messageData.fromApi === true || messageData.from_api === true;
+
+    const senderName =
+      messageData.senderName ||
+      messageData.chatName ||
+      messageData.from_name ||
+      messageData.pushname ||
+      payload.contacts?.[0]?.pushname ||
+      "Cliente WhatsApp";
+    const senderPhoto =
+      String(messageData.photo || messageData.senderPhoto || "").trim() || null;
+
+    const hasAnyContent = Boolean(
+      text || selectionId || mediaUrl || mediaIdToDownload || mediaType || messageData.media
+    );
+
+    // Ignora grupos, eventos sem conteúdo ou ecos de mensagens enviadas pela própria API
+    if (!from || !hasAnyContent || isGroup || (fromMe && fromApi)) {
+      const reason = !from
+        ? "Sem remetente"
+        : !hasAnyContent
+        ? "Sem conteúdo"
+        : isGroup
+        ? "Mensagem de grupo"
+        : "Eco de mensagem enviada via API (fromMe+fromApi)";
+
+      console.log(`⏭️ Webhook ignorado. Motivo: ${reason} | From: ${from} | Tipo: ${rawType || mediaType || "text"}`);
       res.status(200).send("Ignored");
       return;
     }
 
     const cleanPhone = from.replace(/\D/g, "");
+    if (!cleanPhone) {
+      res.status(200).send("Ignored");
+      return;
+    }
 
-    // DEBUG: Log do objeto completo para entender a estrutura de mídia que está chegando
-    console.log(`📩 [WHAPI-DEBUG] Mensagem de ${from}:`, JSON.stringify(messageData));
+    console.log(
+      `📩 [WA-WEBHOOK] De ${senderName} (${cleanPhone}) | fromMe=${fromMe} | mediaType=${mediaType || "text"} | hasUrl=${Boolean(mediaUrl)}`
+    );
 
     const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
     const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
@@ -863,75 +1086,93 @@ export const whatsappWebhook = functions.runWith({
     const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
-    // Extrair mídia se houver (captura robusta para diferentes formatos da Whapi)
-    const type = messageData.type;
-    let mediaUrl = messageData.link || messageData.url || null;
-    let mediaType: string | null = null;
-    let mediaIdToDownload: string | null = null;
-    let mimeType: string = '';
-    let fileNameToSave: string | null = null;
-
-    if (type === 'image' || messageData.image) {
-      mediaUrl = messageData.image?.link || messageData.link || messageData.url;
-      mediaIdToDownload = messageData.image?.id || (type === 'image' ? messageData.id : null);
-      mimeType = messageData.image?.mime_type || 'image/jpeg';
-      mediaType = 'image';
-    } else if (type === 'audio' || type === 'voice' || messageData.audio || messageData.voice) {
-      mediaUrl = messageData.audio?.link || messageData.voice?.link || messageData.link || messageData.url;
-      mediaIdToDownload = messageData.audio?.id || messageData.voice?.id || ((type === 'audio' || type === 'voice') ? messageData.id : null);
-      mimeType = messageData.audio?.mime_type || messageData.voice?.mime_type || 'audio/ogg';
-      mediaType = 'audio';
-    } else if (type === 'video' || messageData.video) {
-      mediaUrl = messageData.video?.link || messageData.link || messageData.url;
-      mediaIdToDownload = messageData.video?.id || (type === 'video' ? messageData.id : null);
-      mimeType = messageData.video?.mime_type || 'video/mp4';
-      mediaType = 'video';
-    } else if (type === 'document' || messageData.document) {
-      mediaUrl = messageData.document?.link || mediaUrl;
-      mediaIdToDownload = messageData.document?.id || (type === 'document' ? messageData.id : null);
-      mimeType = messageData.document?.mime_type || 'application/pdf';
-      fileNameToSave = messageData.document?.file_name || messageData.document?.filename;
-      mediaType = 'document';
-    }
-
-    if (mediaIdToDownload && !mediaUrl && whapiApiKey) {
+    // Modo Economia Firebase:
+    // Se a Z-API já forneceu uma URL direta (hospedada grátis por 30 dias), usamos ela direto
+    // sem duplicar arquivos no Firebase Storage nem gastar banda de egress.
+    // Só fazemos fallback para o Storage se vier mediaId legado sem URL (Whapi).
+    if (mediaType && !mediaUrl && mediaIdToDownload && whapiApiKey) {
       try {
-        console.log(`⏳ Baixando mídia da Whapi... ID: ${mediaIdToDownload}`);
         const mediaBuffer = await waService.downloadMedia(mediaIdToDownload);
-        
-        const { randomUUID } = require("crypto");
-        const token = randomUUID();
-        const bucket = admin.storage().bucket("avl-telecom.appspot.com");
-        
-        // Determinar extensão
-        let ext = "";
-        if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = ".jpg";
-        else if (mimeType.includes("png")) ext = ".png";
-        else if (mimeType.includes("ogg")) ext = ".ogg";
-        else if (mimeType.includes("mp4")) ext = ".mp4";
-        else if (mimeType.includes("pdf")) ext = ".pdf";
-        
-        let finalFileName = fileNameToSave || `${mediaIdToDownload}${ext}`;
-        const filePath = `chat_media/${finalFileName}`;
-        const file = bucket.file(filePath);
-        
-        await file.save(mediaBuffer);
-        await file.setMetadata({
-          contentType: mimeType,
-          metadata: { firebaseStorageDownloadTokens: token }
-        });
-        
-        mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${token}`;
-        console.log(`✅ Mídia baixada e enviada para o Storage: ${mediaUrl}`);
+        if (mediaBuffer && mediaBuffer.length > 0) {
+          const { randomUUID } = require("crypto");
+          const token = randomUUID();
+          const bucket = admin.storage().bucket("avl-telecom.appspot.com");
+
+          const mimeLower = String(mimeType || "").toLowerCase();
+          let ext = "";
+          if (mimeLower.includes("jpeg") || mimeLower.includes("jpg")) ext = ".jpg";
+          else if (mimeLower.includes("png")) ext = ".png";
+          else if (mimeLower.includes("webp")) ext = ".webp";
+          else if (mimeLower.includes("ogg") || mimeLower.includes("opus")) ext = ".ogg";
+          else if (mimeLower.includes("mpeg") || mimeLower.includes("mp3")) ext = ".mp3";
+          else if (mimeLower.includes("mp4")) ext = mediaType === "audio" ? ".m4a" : ".mp4";
+          else if (mimeLower.includes("pdf")) ext = ".pdf";
+
+          const safeOriginalName = fileNameToSave
+            ? fileNameToSave.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120)
+            : `${incomingMsgId || mediaIdToDownload}${ext}`;
+          const finalFileName =
+            ext && !safeOriginalName.includes(".") ? `${safeOriginalName}${ext}` : safeOriginalName;
+          const filePath = `chat_media/${cleanPhone}/${Date.now()}_${finalFileName}`;
+          const file = bucket.file(filePath);
+
+          await file.save(mediaBuffer, {
+            metadata: {
+              contentType: mimeType || "application/octet-stream",
+              cacheControl: "public, max-age=604800",
+              metadata: { firebaseStorageDownloadTokens: token },
+            },
+          });
+
+          mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+            filePath
+          )}?alt=media&token=${token}`;
+          console.log(`✅ Mídia legada (sem URL direta) salva no Storage: ${filePath}`);
+        }
       } catch (err: any) {
-        console.error("❌ Falha ao processar download de mídia:", err.message);
+        console.warn(`⚠️ Falha ao baixar mídia legada (${mediaIdToDownload}): ${err.message}`);
       }
     }
 
-    const content = text || (mediaType === 'image' ? '📎 Foto' : mediaType === 'audio' ? '🎵 Áudio' : mediaType === 'document' ? '📄 Documento' : mediaType === 'video' ? '🎥 Vídeo' : '📎 Mídia');
+    const content =
+      text ||
+      (mediaType === "image"
+        ? "📎 Foto"
+        : mediaType === "audio"
+        ? "🎵 Áudio"
+        : mediaType === "document"
+        ? `📄 ${fileNameToSave || "Documento"}`
+        : mediaType === "video"
+        ? "🎥 Vídeo"
+        : "📎 Mídia");
 
-    console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? 'SIM' : 'NÃO'}`);
-    
+    // Se a mensagem foi enviada diretamente do celular/WhatsApp Web da empresa (fromMe=true, fromApi=false),
+    // sincroniza no histórico do Chat sem acionar o bot e sem reenviar pela API.
+    if (fromMe && !fromApi) {
+      await logMessageToDashboard(
+        cleanPhone,
+        content,
+        true,
+        "whatsapp_device",
+        senderName.split(" ")[0],
+        null,
+        mediaUrl,
+        mediaType,
+        {
+          fileName: fileNameToSave,
+          mimeType: mimeType || null,
+          duration: mediaDuration,
+          zapiMessageId: incomingMsgId || null,
+          avatarUrl: senderPhoto,
+          userLabel: "WhatsApp (Aparelho)",
+        }
+      );
+      res.status(200).send("Synced from device");
+      return;
+    }
+
+    console.log(`📩 Mensagem processada de ${senderName} (${cleanPhone}): ${content} | Mídia: ${mediaUrl ? "SIM" : "NÃO"}`);
+
     const sessionRef = db.collection("bot_sessions").doc(cleanPhone);
     const [sessionSnap, chatSnap, automationsSnap] = await Promise.all([
       sessionRef.get(),
@@ -974,7 +1215,7 @@ export const whatsappWebhook = functions.runWith({
           ispfyCliente: normalizedCliente,
           ispfyClienteUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
-        
+
         await db.collection("chat").doc(cleanPhone).set({
           ispfy_id: String(cliente.id),
           ixc_id: String(cliente.id),
@@ -983,10 +1224,26 @@ export const whatsappWebhook = functions.runWith({
     }
 
     const clienteDisplayName = cliente?.razao || cliente?.nome_razao || cliente?.nome || senderName;
-    const firstName = clienteDisplayName.split(' ')[0];
+    const firstName = clienteDisplayName.split(" ")[0];
 
     // --- LOG PARA DASHBOARD ---
-    await logMessageToDashboard(cleanPhone, content, false, "whatsapp", firstName, cliente, mediaUrl, mediaType);
+    await logMessageToDashboard(
+      cleanPhone,
+      content,
+      false,
+      "whatsapp",
+      firstName,
+      cliente,
+      mediaUrl,
+      mediaType,
+      {
+        fileName: fileNameToSave,
+        mimeType: mimeType || null,
+        duration: mediaDuration,
+        zapiMessageId: incomingMsgId || null,
+        avatarUrl: senderPhoto,
+      }
+    );
 
     // --- CONTROLE ADMIN ---
     const normalizedText = text?.toLowerCase().trim();
@@ -1135,6 +1392,65 @@ export const whatsappWebhook = functions.runWith({
       }
     }
 
+    // --- REAÇÃO AUTOMÁTICA PARA DOCUMENTOS/COMPROVANTES RECEBIDOS ---
+    if (incomingMsgId && (mediaType === "image" || mediaType === "document")) {
+      waService.sendReaction(from, incomingMsgId, "✅").catch(() => undefined);
+    }
+
+    // --- CAPTURA AUTOMÁTICA DE PESQUISA DE SATISFAÇÃO (CSAT BOTÕES Z-API) ---
+    if (selectionId && /^csat_(os|chat)_/i.test(String(selectionId))) {
+      const parts = String(selectionId).split("_");
+      const csatKind = parts[1] || "atendimento";
+      const csatRefId = parts.slice(2, -1).join("_") || cleanPhone;
+      const csatScore = Number(parts[parts.length - 1] || 0);
+      const csatLabel =
+        csatScore >= 5
+          ? "Excelente"
+          : csatScore >= 4
+          ? "Bom"
+          : "Ainda com problema";
+
+      await db.collection("os_csat_responses").add({
+        kind: csatKind,
+        ticketId: csatKind === "os" ? csatRefId : null,
+        chatId: cleanPhone,
+        clientName: senderName,
+        clientPhone: cleanPhone,
+        score: csatScore,
+        label: csatLabel,
+        selectionId: String(selectionId),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAtMs: Date.now(),
+      });
+
+      if (csatScore <= 2) {
+        await db.collection("chat").doc(cleanPhone).set(
+          {
+            tags: admin.firestore.FieldValue.arrayUnion("urgente", "suporte"),
+            unreadCount: admin.firestore.FieldValue.increment(1),
+            aiEnabled: false,
+            lastMessage: `⚠️ Avaliação CSAT: Ainda com problema (${csatKind === "os" ? `O.S. #${csatRefId}` : "Atendimento"})`,
+            lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        const replyUrgent =
+          `Poxa, lamentamos muito que ainda esteja enfrentando dificuldade! 🙏\n\n` +
+          `Já marcamos seu atendimento como *PRIORIDADE MÁXIMA* e um técnico/atendente da *AVL Telecom* vai falar com você agora mesmo.`;
+        await waService.sendTextMessage(from, replyUrgent);
+        await logMessageToDashboard(cleanPhone, replyUrgent, true, "system", senderName);
+      } else {
+        const replyOk =
+          `Muito obrigado pela sua avaliação (*${csatLabel}*)! 💙🚀\n\n` +
+          `Ficamos muito felizes em saber que tudo está funcionando bem. Conte sempre com a *AVL Telecom*!`;
+        await waService.sendTextMessage(from, replyOk);
+        await logMessageToDashboard(cleanPhone, replyOk, true, "system", senderName);
+      }
+
+      res.status(200).send("OK");
+      return;
+    }
+
     // --- DETECÇÃO DE INTENÇÃO ---
     console.log(`🤖 Processando mensagem de ${cleanPhone}: ${text || selectionId}`);
     const localResult = detectIntentLocal(text || "");
@@ -1278,23 +1594,51 @@ async function sendWelcomeMenu(from: string, waService: WhatsAppService, isFallb
   return menuText;
 }
 
-async function logMessageToDashboard(cleanPhone: string, content: string, isAdmin: boolean, source?: string, firstName?: string, cliente?: any, mediaUrl?: string | null, mediaType?: string | null) {
+interface DashboardMediaMeta {
+  fileName?: string | null;
+  mimeType?: string | null;
+  duration?: number | null;
+  zapiMessageId?: string | null;
+  avatarUrl?: string | null;
+  userLabel?: string | null;
+}
+
+async function logMessageToDashboard(
+  cleanPhone: string,
+  content: string,
+  isAdmin: boolean,
+  source?: string,
+  firstName?: string,
+  cliente?: any,
+  mediaUrl?: string | null,
+  mediaType?: string | null,
+  mediaMeta?: DashboardMediaMeta
+) {
   try {
     console.log(`📡 [LOG-DASHBOARD] Iniciando gravação para: ${cleanPhone}`);
     const chatRef = db.collection("chat").doc(cleanPhone);
     const serverTimestamp = admin.firestore.FieldValue.serverTimestamp();
-    
-    const update: any = { 
-      lastMessage: content, 
+
+    const update: Record<string, any> = {
+      lastMessage: content,
       lastMessageTime: serverTimestamp,
-      source: source || (isAdmin ? "system" : "whatsapp"),
-      updatedAt: serverTimestamp
+      source: source === "whatsapp_device" ? "whatsapp" : source || (isAdmin ? "system" : "whatsapp"),
+      updatedAt: serverTimestamp,
+      phone: cleanPhone,
     };
+
+    if (mediaMeta?.avatarUrl) {
+      update.avatar = mediaMeta.avatarUrl;
+    }
 
     if (!isAdmin) {
       update.unreadCount = admin.firestore.FieldValue.increment(1);
-      update.name = firstName || cliente?.razao || cliente?.nome_razao || cliente?.nome || "Cliente WhatsApp";
-      update.phone = cleanPhone;
+      update.name =
+        firstName ||
+        cliente?.razao ||
+        cliente?.nome_razao ||
+        cliente?.nome ||
+        "Cliente WhatsApp";
       if (cliente?.id) {
         update.ispfy_id = String(cliente.id);
         update.ixc_id = String(cliente.id);
@@ -1302,23 +1646,33 @@ async function logMessageToDashboard(cleanPhone: string, content: string, isAdmi
       update.isOnline = true;
     }
 
-    console.log("📡 [LOG-DASHBOARD] Tentando atualizar documento principal...");
     await chatRef.set(update, { merge: true });
-    console.log("📡 [LOG-DASHBOARD] Documento principal atualizado. Gravando mensagem...");
 
     await chatRef.collection("mensagens").add({
-      user: isAdmin ? (source === "josue_ai" ? "Josué IA" : "AVL Bot") : (firstName || "Cliente"),
+      user:
+        mediaMeta?.userLabel ||
+        (isAdmin
+          ? source === "josue_ai"
+            ? "Josué IA"
+            : "AVL Bot"
+          : firstName || "Cliente"),
       content,
       timestamp: serverTimestamp,
       isAdmin,
+      skipWhatsappSync: isAdmin ? true : false,
       source: source || (isAdmin ? "system" : "whatsapp"),
       mediaUrl: mediaUrl || null,
       mediaType: mediaType || null,
+      mediaName: mediaMeta?.fileName || null,
+      mediaMimeType: mediaMeta?.mimeType || null,
+      mediaDuration: mediaMeta?.duration ?? null,
+      zapiMessageId: mediaMeta?.zapiMessageId || null,
+      ...(isAdmin ? { deliveryStatus: "SENT" } : {}),
     });
-    
+
     console.log(`✅ [LOG-DASHBOARD] SUCESSO TOTAL para ${cleanPhone}`);
-  } catch (err: any) { 
-    console.error("❌ [LOG-DASHBOARD] ERRO FATAL:", err.message, err.stack); 
+  } catch (err: any) {
+    console.error("❌ [LOG-DASHBOARD] ERRO FATAL:", err.message, err.stack);
   }
 }
 
@@ -1632,38 +1986,8 @@ export const sendCustomNotification = functions.https.onCall(async (data, contex
   }
 });
 
-/**
- * Robô Sentinela: Verifica faturas pagas a cada 10 minutos
- * e envia agradecimento via WhatsApp se ainda não enviou.
- */
-/**
- * Trigger agendado legado mantido para compatibilidade de deploy;
- * delega de forma idempotente para o monitor oficial ISPFY (`monitorIspfyPayments`).
- */
-export const checkPaidInvoicesCron = functions.pubsub.schedule("every 10 minutes").onRun(async () => {
-  console.log("ℹ️ [CRON] checkPaidInvoicesCron delegando de forma segura ao processIspfyPayments...");
-  try {
-    const lockRef = db.collection("settings").doc("payment_cron_lock");
-    const shouldRun = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(lockRef);
-      const lastRunMs = snap.exists && snap.data()?.lastRunMs ? Number(snap.data()!.lastRunMs) : 0;
-      // Evita duplicação caso monitorIspfyPayments já tenha rodado nos últimos 8 minutos
-      if (Date.now() - lastRunMs < 8 * 60 * 1000) {
-        return false;
-      }
-      tx.set(lockRef, { lastRunMs: Date.now() }, { merge: true });
-      return true;
-    });
-
-    if (!shouldRun) {
-      console.log("⏭️ [CRON] Execução recente de pagamentos ISPFY já em andamento/concluída.");
-      return;
-    }
-    await processIspfyPayments();
-  } catch (error: any) {
-    console.error("❌ [CRON] Erro durante execução delegada ao ISPFY:", error.message);
-  }
-});
+// Comprovantes de pagamento ISPFY são executados exclusivamente por `monitorIspfyPayments`
+// (`ispfyPaymentMonitor.ts`), evitando corrida dupla com cron legado.
 
 // =========================================================================
 // 🎟️ SISTEMA DE SORTEIOS PAGOS & INTEGRAÇÃO ASAAS
@@ -1925,7 +2249,12 @@ export const asaasWebhook = functions.https.onRequest(async (req, res) => {
 
       console.log(`🎟️ Gerando ${ticketQuantity} bilhetes para o sorteio ${raffleId} em transação Firestore...`);
       
-      await db.runTransaction(async (transaction) => {
+      const txResult = await db.runTransaction(async (transaction) => {
+        const freshPaySnap = await transaction.get(validPaymentRef);
+        if (freshPaySnap.data()?.paymentStatus === "CONFIRMED") {
+          return { alreadyConfirmed: true };
+        }
+
         const raffleSnapTrans = await transaction.get(raffleRef);
         if (!raffleSnapTrans.exists) {
           throw new Error("Sorteio não encontrado.");
@@ -1963,7 +2292,15 @@ export const asaasWebhook = functions.https.onRequest(async (req, res) => {
             createdAt: admin.firestore.FieldValue.serverTimestamp()
           });
         }
+
+        return { alreadyConfirmed: false };
       });
+
+      if (txResult.alreadyConfirmed) {
+        console.log(`ℹ️ Pagamento ${paymentId} já confirmado em execução paralela.`);
+        res.status(200).send("Success: Already confirmed.");
+        return;
+      }
 
       console.log(`✅ Transação concluída com sucesso! Bilhetes gerados: ${ticketNumbers.join(", ")}`);
 
@@ -2131,4 +2468,72 @@ export * from "./ispfyPaymentMonitor";
 export * from "./ispfyCarenciaMonitor";
 export * from "./ispfyAutomations";
 export * from "./ispfyOutageMonitor";
+export * from "./zapiSuite";
 export { aiGenerateCopy, aiChatJosue } from "./aiProxy";
+
+/**
+ * 🧹 Limpeza automática diária (03:30 BRT) para manter o consumo do Firebase no mínimo:
+ * 1) Remove mídias de atendimento em Storage (`chat/` e `chat_media/`) com mais de 30 dias.
+ * 2) Remove registros expirados de rastreio (`zapi_message_index`) com mais de 7 dias.
+ */
+export const cleanupOldChatMediaCron = functions
+  .runWith({ memory: "256MB", timeoutSeconds: 180 })
+  .pubsub.schedule("30 3 * * *")
+  .timeZone("America/Sao_Paulo")
+  .onRun(async () => {
+    const now = Date.now();
+    const mediaCutoffMs = now - 30 * 24 * 60 * 60 * 1000;
+    const indexCutoffMs = now - 7 * 24 * 60 * 60 * 1000;
+
+    let deletedStorageFiles = 0;
+    let deletedIndexDocs = 0;
+
+    // 1. Limpar arquivos antigos do Storage (chat/ e chat_media/) > 30 dias
+    try {
+      const bucket = admin.storage().bucket("avl-telecom.appspot.com");
+      const prefixes = ["chat/", "chat_media/"];
+      const maxDeletesPerRun = 400;
+
+      for (const prefix of prefixes) {
+        if (deletedStorageFiles >= maxDeletesPerRun) break;
+        const [files] = await bucket.getFiles({ prefix, maxResults: 600 });
+        for (const file of files) {
+          if (deletedStorageFiles >= maxDeletesPerRun) break;
+          const createdRaw = file.metadata?.timeCreated || file.metadata?.updated;
+          const createdMs = createdRaw ? Date.parse(String(createdRaw)) : NaN;
+          if (Number.isFinite(createdMs) && createdMs < mediaCutoffMs) {
+            await file.delete({ ignoreNotFound: true }).catch(() => undefined);
+            deletedStorageFiles++;
+          }
+        }
+      }
+    } catch (storageErr: any) {
+      console.warn("⚠️ [cleanupOldChatMediaCron] Aviso ao limpar Storage:", storageErr.message);
+    }
+
+    // 2. Limpar documentos antigos de zapi_message_index > 7 dias
+    try {
+      const oldSnap = await db
+        .collection("zapi_message_index")
+        .where("createdAtMs", "<", indexCutoffMs)
+        .limit(400)
+        .get();
+
+      if (!oldSnap.empty) {
+        const batch = db.batch();
+        oldSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+        await batch.commit();
+        deletedIndexDocs = oldSnap.size;
+      }
+    } catch (indexErr: any) {
+      console.warn(
+        "⚠️ [cleanupOldChatMediaCron] Aviso ao limpar zapi_message_index:",
+        indexErr.message
+      );
+    }
+
+    console.log(
+      `🧹 [cleanupOldChatMediaCron] Concluído: ${deletedStorageFiles} mídias (>30d) e ${deletedIndexDocs} índices (>7d) removidos.`
+    );
+    return null;
+  });

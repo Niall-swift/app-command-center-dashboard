@@ -44,4 +44,5 @@ export interface WhapiResponse {
   id?: string;
   message?: string;
   error?: string;
+  timeout?: boolean;
 }

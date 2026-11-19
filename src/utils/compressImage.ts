@@ -9,8 +9,10 @@ export interface CompressImageOptions {
   maxWidth?: number;
   /** Altura máxima em pixels. Padrão: 1280 */
   maxHeight?: number;
-  /** Qualidade WebP 0..1. Padrão: 0.82 */
+  /** Qualidade 0..1. Padrão: 0.82 */
   quality?: number;
+  /** MIME de saída. Padrão: 'image/webp' (use 'image/jpeg' para máxima compatibilidade WhatsApp) */
+  mimeType?: 'image/webp' | 'image/jpeg';
 }
 
 export interface CompressImageResult {
@@ -25,7 +27,13 @@ export async function compressImage(
   file: File,
   options: CompressImageOptions = {}
 ): Promise<CompressImageResult> {
-  const { maxWidth = 1280, maxHeight = 1280, quality = 0.82 } = options;
+  const {
+    maxWidth = 1280,
+    maxHeight = 1280,
+    quality = 0.82,
+    mimeType = 'image/webp',
+  } = options;
+  const outputExt = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
 
   const originalSize = file.size;
 
@@ -59,14 +67,13 @@ export async function compressImage(
       canvas.toBlob(
         (blob) => {
           if (!blob) {
-            reject(new Error('Falha ao converter imagem para WebP'));
+            reject(new Error('Falha ao comprimir imagem'));
             return;
           }
 
-          // Nomear o arquivo com extensão .webp
           const baseName = file.name.replace(/\.[^/.]+$/, '');
-          const compressedFile = new File([blob], `${baseName}.webp`, {
-            type: 'image/webp',
+          const compressedFile = new File([blob], `${baseName}.${outputExt}`, {
+            type: mimeType,
             lastModified: Date.now(),
           });
 
@@ -75,7 +82,7 @@ export async function compressImage(
 
           resolve({ file: compressedFile, originalSize, compressedSize, reduction });
         },
-        'image/webp',
+        mimeType,
         quality
       );
     };

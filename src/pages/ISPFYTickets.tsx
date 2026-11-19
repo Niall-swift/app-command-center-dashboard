@@ -55,6 +55,73 @@ const ISPFYTickets: React.FC = () => {
   const [closingTicket, setClosingTicket] = useState(false);
   const [notifyCloseWhatsapp, setNotifyCloseWhatsapp] = useState(true);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [notifyingTechOnWay, setNotifyingTechOnWay] = useState(false);
+
+  const handleNotifyTechOnWay = async (t: ISPFYTicketData) => {
+    if (!t.id) return;
+    setNotifyingTechOnWay(true);
+    try {
+      let clientPhone: string | undefined;
+      let clientName = 'Cliente';
+      let address = '';
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+
+      if (t.id_cliente) {
+        const [cli, contatos] = await Promise.all([
+          ispfyService.getClienteById(String(t.id_cliente)).catch(() => null),
+          ispfyService.getClienteContatos(String(t.id_cliente)).catch(() => []),
+        ]);
+        if (cli) {
+          clientName = cli.nome_razao || cli.razao || cli.nome || clientName;
+          address = [cli.endereco, cli.numero, cli.bairro, cli.cidade].filter(Boolean).join(', ');
+          const lat = Number(String(cli.latitude || '').replace(',', '.'));
+          const lng = Number(String(cli.longitude || '').replace(',', '.'));
+          if (Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0) {
+            latitude = lat;
+            longitude = lng;
+          }
+          const validContato = contatos.find((c: { contato?: string; pode_enviar_mensagem?: string }) => c.contato && c.pode_enviar_mensagem !== 'n');
+          clientPhone = validContato?.contato || cli.telefone_celular || cli.telefone || undefined;
+        }
+      }
+
+      if (!clientPhone && !latitude) {
+        toast.warning('Telefone e coordenadas do cliente não encontrados no ISPFY.');
+        return;
+      }
+
+      const fn = httpsCallable<
+        Record<string, unknown>,
+        { clientNotified?: boolean; locationSentToGroup?: boolean }
+      >(functions, 'ispfyToolActions');
+      const res = await fn({
+        action: 'notify_tech_on_the_way',
+        idTicket: String(t.id),
+        clientPhone,
+        clientName,
+        techName: t.tecnico || undefined,
+        address,
+        groupPhone: selectedGroupPhone || undefined,
+        latitude,
+        longitude,
+      });
+
+      if (res.data?.clientNotified || res.data?.locationSentToGroup) {
+        toast.success(
+          `Aviso enviado!${res.data.clientNotified ? ' Cliente notificado.' : ''}${
+            res.data.locationSentToGroup ? ' Localização GPS enviada ao grupo.' : ''
+          }`
+        );
+      } else {
+        toast.error('Não foi possível enviar o aviso de deslocamento.');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao avisar deslocamento.');
+    } finally {
+      setNotifyingTechOnWay(false);
+    }
+  };
 
   // Contagem diária de O.S. (Reinicia todo dia)
   const {
@@ -539,45 +606,64 @@ const ISPFYTickets: React.FC = () => {
                     <div className="pt-4 border-t border-border space-y-3">
                       {!String(selectedTicket.status || '').toLowerCase().includes('fechado') &&
                         !String(selectedTicket.status || '').toLowerCase().includes('resolvido') && (
-                          <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20 space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <Label className="text-xs font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                Encerrar O.S. no ISPFY
-                              </Label>
-                            </div>
-                            <Textarea
-                              value={resolutionNote}
-                              onChange={(e) => setResolutionNote(e.target.value)}
-                              placeholder="Nota técnica / resumo da solução (opcional)..."
-                              className="min-h-[60px] text-xs bg-background border-input"
-                            />
-                            <div className="flex items-center justify-between gap-2 pt-0.5">
-                              <Label
-                                htmlFor="notify-close-whatsapp"
-                                className="text-[11px] text-muted-foreground cursor-pointer select-none"
-                              >
-                                Enviar pesquisa NPS no WhatsApp
-                              </Label>
-                              <Switch
-                                id="notify-close-whatsapp"
-                                checked={notifyCloseWhatsapp}
-                                onCheckedChange={setNotifyCloseWhatsapp}
-                              />
-                            </div>
+                          <div className="space-y-3">
                             <Button
                               size="sm"
-                              onClick={() => handleCloseTicket(selectedTicket)}
-                              disabled={closingTicket}
-                              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 gap-1.5"
+                              variant="outline"
+                              onClick={() => handleNotifyTechOnWay(selectedTicket)}
+                              disabled={notifyingTechOnWay}
+                              className="w-full border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs h-9 gap-1.5 font-semibold"
                             >
-                              {closingTicket ? (
+                              {notifyingTechOnWay ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                               ) : (
-                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <Send className="w-3.5 h-3.5" />
                               )}
-                              {closingTicket ? 'Encerrando no ISPFY...' : 'Concluir e Encerrar O.S.'}
+                              {notifyingTechOnWay
+                                ? 'Notificando cliente & grupo...'
+                                : '🚗 Técnico a Caminho (Avisar Cliente + GPS)'}
                             </Button>
+
+                            <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Encerrar O.S. no ISPFY
+                                </Label>
+                              </div>
+                              <Textarea
+                                value={resolutionNote}
+                                onChange={(e) => setResolutionNote(e.target.value)}
+                                placeholder="Nota técnica / resumo da solução (opcional)..."
+                                className="min-h-[60px] text-xs bg-background border-input"
+                              />
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <Label
+                                  htmlFor="notify-close-whatsapp"
+                                  className="text-[11px] text-muted-foreground cursor-pointer select-none"
+                                >
+                                  Enviar pesquisa CSAT (botões Z-API) no WhatsApp
+                                </Label>
+                                <Switch
+                                  id="notify-close-whatsapp"
+                                  checked={notifyCloseWhatsapp}
+                                  onCheckedChange={setNotifyCloseWhatsapp}
+                                />
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => handleCloseTicket(selectedTicket)}
+                                disabled={closingTicket}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 gap-1.5"
+                              >
+                                {closingTicket ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                )}
+                                {closingTicket ? 'Encerrando no ISPFY...' : 'Concluir e Encerrar O.S.'}
+                              </Button>
+                            </div>
                           </div>
                         )}
 

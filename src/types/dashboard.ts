@@ -1,3 +1,12 @@
+export interface ChatMediaPayload {
+  type: 'image' | 'audio' | 'video' | 'document';
+  url: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+  duration?: number;
+}
+
 export interface Message {
   id: string;
   user: string;
@@ -8,10 +17,17 @@ export interface Message {
   mediaType?: 'image' | 'audio' | 'video' | 'document';
   mediaUrl?: string;
   mediaName?: string;
-  source?: 'whatsapp' | 'app' | 'system';
+  mediaMimeType?: string;
+  mediaSize?: number;
+  mediaDuration?: number;
+  source?: 'whatsapp' | 'whatsapp_device' | 'app' | 'system' | 'josue_ai';
   isPrivate?: boolean;
   fromMe?: boolean;
   text?: string;
+  zapiMessageId?: string | null;
+  deliveryStatus?: 'SENDING' | 'SENT' | 'RECEIVED' | 'READ' | 'PLAYED' | 'FAILED';
+  deliveryError?: string | null;
+  reaction?: string | null;
 }
 
 export interface UserDetails {

@@ -199,6 +199,8 @@ function resolvePaymentMethod(
 
 /**
  * Processa as cobranças pagas do ISPFY para uma data específica (ou hoje).
+ * Aplica mutex global por data e trava transacional atômica em `payment_receipts/{cobrancaId}`
+ * ANTES de enviar pelo WhatsApp, eliminando envios duplicados por execução paralela ou retry.
  */
 export async function processIspfyPayments(customDate?: string) {
   console.log("Iniciando monitoramento de pagamentos ISPFY...");
@@ -210,14 +212,46 @@ export async function processIspfyPayments(customDate?: string) {
   const whapiService = new WhapiService(whapiApiKey, whapiBaseUrl);
 
   const results: any[] = [];
+  const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  // 1. Data alvo no fuso de São Paulo (YYYY-MM-DD)
+  const targetDate =
+    customDate ||
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
+
+  const cronLockRef = db.collection("settings").doc(`payment_cron_lock_${targetDate}`);
+  let ownsCronLock = false;
 
   try {
-    // 1. Data alvo no fuso de São Paulo (YYYY-MM-DD)
-    const targetDate =
-      customDate ||
-      new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Sao_Paulo",
-      }).format(new Date());
+    const lockClaimed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(cronLockRef);
+      const data = snap.exists ? snap.data() || {} : {};
+      const inProgressUntilMs = Number(data.inProgressUntilMs || 0);
+      if (inProgressUntilMs > Date.now()) {
+        return false;
+      }
+      tx.set(
+        cronLockRef,
+        {
+          targetDate,
+          lockedByRunId: runId,
+          inProgressUntilMs: Date.now() + 3 * 60 * 1000,
+          lastStartedAtMs: Date.now(),
+        },
+        { merge: true }
+      );
+      return true;
+    });
+
+    if (!lockClaimed) {
+      console.log(
+        `Execucao paralela detectada para ${targetDate} (mutex ativo). Abortando para evitar duplicidade.`
+      );
+      return results;
+    }
+    ownsCronLock = true;
 
     console.log(`Buscando pagamentos para a data: ${targetDate}`);
 
@@ -254,225 +288,310 @@ export async function processIspfyPayments(customDate?: string) {
     for (const cobranca of cobrancas) {
       const cobrancaId = String(cobranca.id);
 
-      // 3. Idempotencia - pula se ja processamos essa fatura
-      const docRef = db.collection("payment_receipts").doc(cobrancaId);
-      const docSnap = await docRef.get();
-      if (docSnap.exists) {
-        console.log(`Fatura ${cobrancaId} ja processada anteriormente. Pulando.`);
-        results.push({ cobrancaId, status: "skipped", reason: "already_processed" });
-        continue;
-      }
-
       if (!cobranca.id_contrato) {
         console.log(`Fatura ${cobrancaId} sem id_contrato. Ignorando.`);
         results.push({ cobrancaId, status: "skipped", reason: "no_contract" });
         continue;
       }
 
-      // 4. Buscar dados completos do cliente, contrato, contato e ponto de instalacao
-      let phone: string | null = null;
-      let clientName = "Cliente";
-      let id_cliente: string | null = null;
-      let contratoData: Record<string, any> | undefined;
-      let clienteData: Record<string, any> | undefined;
-      let pontoData: Record<string, any> | undefined;
-
-      try {
-        // 4.1 Contrato -> id_cliente e dados do plano
-        const contratos = await fetchIspfyObject(
-          ispfyHost,
-          ispfyToken,
-          "/api/object/cliente/contrato",
-          { filter: `id:EQ:${cobranca.id_contrato}` }
-        );
-        contratoData = contratos[0];
-        id_cliente = contratoData?.id_cliente
-          ? String(contratoData.id_cliente)
-          : null;
-
-        // 4.2 Ponto de instalacao (nao-fatal se ausente)
-        try {
-          const pontos = await fetchIspfyObject(
-            ispfyHost,
-            ispfyToken,
-            "/api/object/cliente/contrato/ponto",
-            { filter: `id_contrato:EQ:${cobranca.id_contrato}` }
-          );
-          pontoData = pontos[0];
-        } catch (pontoErr: any) {
-          console.warn(
-            `Ponto de instalacao indisponivel para contrato ${cobranca.id_contrato}:`,
-            pontoErr?.message || pontoErr
-          );
+      // 3. Idempotencia transacional atômica - reivindica o lock ANTES de consultar/enviar
+      const docRef = db.collection("payment_receipts").doc(cobrancaId);
+      const claim = await db.runTransaction(async (tx) => {
+        const docSnap = await tx.get(docRef);
+        if (docSnap.exists) {
+          const existing = docSnap.data() || {};
+          if (
+            existing.status === "sent" ||
+            existing.sucesso === true ||
+            Boolean(existing.motivo_skip) ||
+            Boolean(existing.whatsappMessageId) ||
+            existing.status === "sent_unconfirmed" ||
+            existing.status === "uncertain_error" ||
+            existing.status === "failed"
+          ) {
+            return { claimed: false, reason: "already_processed" };
+          }
+          const lockUntilMs = Number(existing.lockUntilMs || 0);
+          if (existing.status === "sending" && lockUntilMs > Date.now()) {
+            return { claimed: false, reason: "in_flight_locked" };
+          }
         }
 
-        if (id_cliente) {
-          // 4.3 Cliente + Contato em paralelo
-          const [clientes, contatos] = await Promise.all([
-            fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente", {
-              filter: `id:EQ:${id_cliente}`,
-            }),
-            fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente/contato", {
-              filter: `id_cliente:EQ:${id_cliente}`,
-            }),
-          ]);
-
-          clienteData = clientes[0];
-          clientName =
-            clienteData?.nome_razao || clienteData?.nome || clienteData?.razao || "Cliente";
-
-          const validContato = contatos.find(
-            (c: any) => c.contato && c.pode_enviar_mensagem !== "n"
-          );
-          if (validContato) phone = validContato.contato;
-        }
-      } catch (err: any) {
-        console.error(
-          `Erro ao buscar cliente/contrato para fatura ${cobrancaId}:`,
-          err.message
+        tx.set(
+          docRef,
+          {
+            cobrancaId,
+            status: "sending",
+            lockUntilMs: Date.now() + 2 * 60 * 1000,
+            lockedByRunId: runId,
+            lockedAtMs: Date.now(),
+          },
+          { merge: true }
         );
-      }
+        return { claimed: true, reason: null };
+      });
 
-      if (!phone) {
+      if (!claim.claimed) {
         console.log(
-          `Cliente (id: ${id_cliente}) sem telefone valido. Ignorando fatura ${cobrancaId}.`
+          `Fatura ${cobrancaId} ja processada/em andamento (${claim.reason}). Pulando.`
         );
-        await docRef.set({
-          cobrancaId,
-          clienteId: id_cliente || null,
-          nome: clientName,
-          telefone: null,
-          motivo_skip: "sem_telefone",
-          enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
-          sucesso: false,
-        });
-        results.push({ cobrancaId, status: "skipped", reason: "no_valid_phone" });
+        results.push({ cobrancaId, status: "skipped", reason: claim.reason });
         continue;
       }
 
-      // 5. Montar dados completos do comprovante
-      const valorPagoNum = parseMoney(cobranca.valor_pago || cobranca.valor);
-      const valorOriginalNum = parseMoney(cobranca.valor);
-      const descontoNum = parseMoney(cobranca.desconto);
-      const acrescimoNum = parseMoney(cobranca.juros) + parseMoney(cobranca.multa);
-      const hasAdjustment =
-        descontoNum > 0 ||
-        acrescimoNum > 0 ||
-        (valorOriginalNum > 0 && Math.abs(valorOriginalNum - valorPagoNum) > 0.009);
+      let zapiCallDispatched = false;
+      let receiptFinalized = false;
 
-      const [datePart, timePart] = (cobranca.data_pagamento || "").split(" ");
-      const dataFormatada = formatIsoDateBr(datePart) || "";
-      const horaFormatada = timePart ? timePart.substring(0, 5) : "00:00";
+      try {
+        // 4. Buscar dados completos do cliente, contrato, contato e ponto de instalacao
+        let phone: string | null = null;
+        let clientName = "Cliente";
+        let id_cliente: string | null = null;
+        let contratoData: Record<string, any> | undefined;
+        let clienteData: Record<string, any> | undefined;
+        let pontoData: Record<string, any> | undefined;
 
-      const baseReceiptData: ReceiptData = {
-        clientName,
-        valor: formatBrl(valorPagoNum),
-        data: dataFormatada,
-        hora: horaFormatada,
-        descricao:
-          cobranca.descricao ||
-          cobranca.referencia ||
-          contratoData?.plano ||
-          "Mensalidade de Internet",
-        cobrancaId,
-        cpfCnpj:
-          clienteData?.cpf_cnpj ||
-          clienteData?.cnpj_cpf ||
-          clienteData?.cpf ||
-          clienteData?.cnpj ||
-          undefined,
-        telefone: phone,
-        endereco: buildClientAddress(pontoData, clienteData, cidadesMap),
-        plano: contratoData?.plano || contratoData?.descricao || undefined,
-        contratoId: String(cobranca.id_contrato),
-        vencimento: formatIsoDateBr(cobranca.data_vencimento),
-        formaPagamento: resolvePaymentMethod(cobranca, carteirasMap),
-        valorOriginal:
-          hasAdjustment && valorOriginalNum > 0 ? formatBrl(valorOriginalNum) : undefined,
-        desconto: descontoNum > 0 ? formatBrl(descontoNum) : undefined,
-        acrescimo: acrescimoNum > 0 ? formatBrl(acrescimoNum) : undefined,
-        nossoNumero: cobranca.nosso_numero
-          ? String(cobranca.nosso_numero).trim()
-          : undefined,
-      };
-      const authCode = buildReceiptAuthCode(baseReceiptData);
-      const receiptData: ReceiptData = { ...baseReceiptData, authCode };
-
-      console.log(
-        `Enviando comprovante para ${clientName} (${phone}) - Fatura ${cobrancaId} [${authCode}]`
-      );
-
-      // 6. Tenta Canvas -> imagem -> fallback texto
-      let sendResult: { sent: boolean; id?: string; error?: string };
-      let enviadoComoImagem = false;
-
-      const imageBase64 = await generatePaymentReceiptImage(receiptData);
-
-      if (imageBase64) {
-        // 6a. Canvas ok -> tenta enviar como imagem via Z-API /send-image
-        const caption = buildPaymentImageCaption(clientName, receiptData);
-        sendResult = await whapiService.sendPaymentReceiptImage(
-          phone,
-          imageBase64,
-          caption
-        );
-        if (sendResult.sent) {
-          enviadoComoImagem = true;
-        } else {
-          // Z-API rejeitou a imagem -> fallback texto
-          console.warn(
-            `Envio de imagem rejeitado (${sendResult.error}). Enviando texto...`
+        try {
+          // 4.1 Contrato -> id_cliente e dados do plano
+          const contratos = await fetchIspfyObject(
+            ispfyHost,
+            ispfyToken,
+            "/api/object/cliente/contrato",
+            { filter: `id:EQ:${cobranca.id_contrato}` }
           );
+          contratoData = contratos[0];
+          id_cliente = contratoData?.id_cliente
+            ? String(contratoData.id_cliente)
+            : null;
+
+          // 4.2 Ponto de instalacao (nao-fatal se ausente)
+          try {
+            const pontos = await fetchIspfyObject(
+              ispfyHost,
+              ispfyToken,
+              "/api/object/cliente/contrato/ponto",
+              { filter: `id_contrato:EQ:${cobranca.id_contrato}` }
+            );
+            pontoData = pontos[0];
+          } catch (pontoErr: any) {
+            console.warn(
+              `Ponto de instalacao indisponivel para contrato ${cobranca.id_contrato}:`,
+              pontoErr?.message || pontoErr
+            );
+          }
+
+          if (id_cliente) {
+            // 4.3 Cliente + Contato em paralelo
+            const [clientes, contatos] = await Promise.all([
+              fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente", {
+                filter: `id:EQ:${id_cliente}`,
+              }),
+              fetchIspfyObject(ispfyHost, ispfyToken, "/api/object/cliente/contato", {
+                filter: `id_cliente:EQ:${id_cliente}`,
+              }),
+            ]);
+
+            clienteData = clientes[0];
+            clientName =
+              clienteData?.nome_razao || clienteData?.nome || clienteData?.razao || "Cliente";
+
+            const validContato = contatos.find(
+              (c: any) => c.contato && c.pode_enviar_mensagem !== "n"
+            );
+            if (validContato) phone = validContato.contato;
+          }
+        } catch (err: any) {
+          console.error(
+            `Erro ao buscar cliente/contrato para fatura ${cobrancaId}:`,
+            err.message
+          );
+        }
+
+        if (!phone) {
+          console.log(
+            `Cliente (id: ${id_cliente}) sem telefone valido. Ignorando fatura ${cobrancaId}.`
+          );
+          await docRef.set(
+            {
+              cobrancaId,
+              clienteId: id_cliente || null,
+              nome: clientName,
+              telefone: null,
+              status: "skipped",
+              motivo_skip: "sem_telefone",
+              lockUntilMs: null,
+              enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
+              sucesso: false,
+            },
+            { merge: true }
+          );
+          receiptFinalized = true;
+          results.push({ cobrancaId, status: "skipped", reason: "no_valid_phone" });
+          continue;
+        }
+
+        // 5. Montar dados completos do comprovante
+        const valorPagoNum = parseMoney(cobranca.valor_pago || cobranca.valor);
+        const valorOriginalNum = parseMoney(cobranca.valor);
+        const descontoNum = parseMoney(cobranca.desconto);
+        const acrescimoNum = parseMoney(cobranca.juros) + parseMoney(cobranca.multa);
+        const hasAdjustment =
+          descontoNum > 0 ||
+          acrescimoNum > 0 ||
+          (valorOriginalNum > 0 && Math.abs(valorOriginalNum - valorPagoNum) > 0.009);
+
+        const [datePart, timePart] = (cobranca.data_pagamento || "").split(" ");
+        const dataFormatada = formatIsoDateBr(datePart) || "";
+        const horaFormatada = timePart ? timePart.substring(0, 5) : "00:00";
+
+        const baseReceiptData: ReceiptData = {
+          clientName,
+          valor: formatBrl(valorPagoNum),
+          data: dataFormatada,
+          hora: horaFormatada,
+          descricao:
+            cobranca.descricao ||
+            cobranca.referencia ||
+            contratoData?.plano ||
+            "Mensalidade de Internet",
+          cobrancaId,
+          cpfCnpj:
+            clienteData?.cpf_cnpj ||
+            clienteData?.cnpj_cpf ||
+            clienteData?.cpf ||
+            clienteData?.cnpj ||
+            undefined,
+          telefone: phone,
+          endereco: buildClientAddress(pontoData, clienteData, cidadesMap),
+          plano: contratoData?.plano || contratoData?.descricao || undefined,
+          contratoId: String(cobranca.id_contrato),
+          vencimento: formatIsoDateBr(cobranca.data_vencimento),
+          formaPagamento: resolvePaymentMethod(cobranca, carteirasMap),
+          valorOriginal:
+            hasAdjustment && valorOriginalNum > 0 ? formatBrl(valorOriginalNum) : undefined,
+          desconto: descontoNum > 0 ? formatBrl(descontoNum) : undefined,
+          acrescimo: acrescimoNum > 0 ? formatBrl(acrescimoNum) : undefined,
+          nossoNumero: cobranca.nosso_numero
+            ? String(cobranca.nosso_numero).trim()
+            : undefined,
+        };
+        const authCode = buildReceiptAuthCode(baseReceiptData);
+        const receiptData: ReceiptData = { ...baseReceiptData, authCode };
+
+        console.log(
+          `Enviando comprovante para ${clientName} (${phone}) - Fatura ${cobrancaId} [${authCode}]`
+        );
+
+        // 6. Tenta Canvas -> imagem -> fallback texto (apenas se nao foi timeout HTTP)
+        let sendResult: { sent: boolean; id?: string; error?: string; timeout?: boolean };
+        let enviadoComoImagem = false;
+
+        const imageBase64 = await generatePaymentReceiptImage(receiptData);
+
+        if (imageBase64) {
+          // 6a. Canvas ok -> tenta enviar como imagem via Z-API /send-image
+          const caption = buildPaymentImageCaption(clientName, receiptData);
+          zapiCallDispatched = true;
+          sendResult = await whapiService.sendPaymentReceiptImage(
+            phone,
+            imageBase64,
+            caption
+          );
+          if (sendResult.sent) {
+            enviadoComoImagem = true;
+          } else if (sendResult.timeout) {
+            console.warn(
+              `Timeout no /send-image da Fatura ${cobrancaId}; fallback em texto bloqueado para evitar duplicidade.`
+            );
+          } else {
+            // Z-API rejeitou a imagem explicitamente (nao timeout) -> fallback texto
+            console.warn(
+              `Envio de imagem rejeitado (${sendResult.error}). Enviando texto...`
+            );
+            sendResult = await whapiService.sendPaymentReceipt(
+              clientName,
+              phone,
+              receiptData
+            );
+          }
+        } else {
+          // 6b. Canvas falhou -> texto direto
+          zapiCallDispatched = true;
           sendResult = await whapiService.sendPaymentReceipt(
             clientName,
             phone,
             receiptData
           );
         }
-      } else {
-        // 6b. Canvas falhou -> texto direto
-        sendResult = await whapiService.sendPaymentReceipt(
+
+        const finalStatus = sendResult.sent
+          ? "sent"
+          : sendResult.timeout
+          ? "sent_unconfirmed"
+          : "failed";
+
+        // 7. Finalizar resultado no Firestore liberando lockUntilMs
+        await docRef.set(
+          {
+            cobrancaId,
+            clienteId: id_cliente || null,
+            nome: clientName,
+            telefone: phone,
+            endereco: receiptData.endereco || null,
+            authCode,
+            valor: receiptData.valor,
+            dataPagamento: cobranca.data_pagamento,
+            enviadoComoImagem,
+            status: finalStatus,
+            whatsappMessageId: sendResult.id || null,
+            lockUntilMs: null,
+            enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            sucesso: sendResult.sent,
+            erro: sendResult.error || null,
+          },
+          { merge: true }
+        );
+        receiptFinalized = true;
+
+        console.log(
+          `${sendResult.sent ? "OK" : "FALHOU"} Fatura ${cobrancaId}: ${
+            sendResult.sent
+              ? `comprovante enviado como ${enviadoComoImagem ? "imagem" : "texto"}`
+              : sendResult.error
+          }`
+        );
+
+        results.push({
+          cobrancaId,
           clientName,
           phone,
-          receiptData
-        );
+          enviadoComoImagem,
+          sucesso: sendResult.sent,
+          erro: sendResult.error || null,
+        });
+
+        // Rate limit suave entre envios (1.2s)
+        await new Promise((r) => setTimeout(r, 1200));
+      } catch (invoiceErr: any) {
+        if (!receiptFinalized) {
+          if (!zapiCallDispatched) {
+            await docRef.delete().catch(() => undefined);
+          } else {
+            await docRef
+              .set(
+                {
+                  status: "uncertain_error",
+                  lockUntilMs: null,
+                  sucesso: false,
+                  erro: invoiceErr?.message || "Erro apos disparo ao Z-API",
+                },
+                { merge: true }
+              )
+              .catch(() => undefined);
+          }
+        }
+        throw invoiceErr;
       }
-
-      // 7. Salvar resultado no Firestore
-      await docRef.set({
-        cobrancaId,
-        clienteId: id_cliente || null,
-        nome: clientName,
-        telefone: phone,
-        endereco: receiptData.endereco || null,
-        authCode,
-        valor: receiptData.valor,
-        dataPagamento: cobranca.data_pagamento,
-        enviadoComoImagem,
-        enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        sucesso: sendResult.sent,
-        erro: sendResult.error || null,
-      });
-
-      console.log(
-        `${sendResult.sent ? "OK" : "FALHOU"} Fatura ${cobrancaId}: ${
-          sendResult.sent
-            ? `comprovante enviado como ${enviadoComoImagem ? "imagem" : "texto"}`
-            : sendResult.error
-        }`
-      );
-
-      results.push({
-        cobrancaId,
-        clientName,
-        phone,
-        enviadoComoImagem,
-        sucesso: sendResult.sent,
-        erro: sendResult.error || null,
-      });
-
-      // Rate limit suave entre envios (1.2s)
-      await new Promise((r) => setTimeout(r, 1200));
     }
   } catch (error: any) {
     console.error(
@@ -480,16 +599,29 @@ export async function processIspfyPayments(customDate?: string) {
       error.response?.data || error.message
     );
     throw error;
+  } finally {
+    if (ownsCronLock) {
+      await cronLockRef
+        .set(
+          {
+            inProgressUntilMs: 0,
+            lastFinishedAtMs: Date.now(),
+          },
+          { merge: true }
+        )
+        .catch(() => undefined);
+    }
   }
 
   return results;
 }
 
 /**
- * Funcao agendada que roda a cada 10 minutos.
+ * Funcao agendada oficial que roda a cada 10 minutos.
  */
-export const monitorIspfyPayments = functions.pubsub
-  .schedule("every 10 minutes")
+export const monitorIspfyPayments = functions
+  .runWith({ memory: "512MB", timeoutSeconds: 180 })
+  .pubsub.schedule("every 10 minutes")
   .timeZone("America/Sao_Paulo")
   .onRun(async () => {
     try {

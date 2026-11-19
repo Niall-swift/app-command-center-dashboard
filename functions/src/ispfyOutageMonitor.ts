@@ -4,6 +4,7 @@ import { getIspfyConfig, getWhapiConfig } from "./config/env";
 import { IspfyBackendService } from "./ispfyBackendService";
 import { WhapiService } from "./whapiService";
 import { verifyAuth } from "./config/auth";
+import { sendZapiLocation } from "./zapiSuite";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -86,6 +87,15 @@ export interface OutageStreetItemPayload {
   offlineAntigosIgnorados?: number;
 }
 
+export interface OutageCtoSummary {
+  ctoId: string;
+  ctoLabel: string;
+  desconectados: number;
+  totalNaCto: number;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
 export interface ObservedMassOutagePayload {
   incidentKey: string;
   tipoAlerta: "rua_e_bairro" | "bairro";
@@ -96,6 +106,7 @@ export interface ObservedMassOutagePayload {
   desconectados: number;
   percentualOffline: number;
   ruaPrincipal?: OutageStreetItemPayload | null;
+  ctoPrincipal?: OutageCtoSummary | null;
   ruasAfetadas: OutageStreetItemPayload[];
   pontoIds: string[];
   clienteIdsOffline?: string[];
@@ -437,14 +448,23 @@ export async function evaluateIspfyMassOutagesBackend(
   const ispfy = new IspfyBackendService(host, token);
   const agoraMs = Date.now();
 
-  const [allClientes, allContratos, allPontos, onlineSessoes] = await Promise.all([
+  const [allClientes, allContratos, allPontos, onlineSessoes, allCtos] = await Promise.all([
     fetchAllAtomicOrPaginated(ispfy, "/cliente", { sort: "id:ASC" }),
     fetchAllAtomicOrPaginated(ispfy, "/cliente/contrato", { sort: "id:ASC" }),
     fetchAllAtomicOrPaginated(ispfy, "/cliente/contrato/ponto", { sort: "id:ASC" }),
     fetchAllAtomicOrPaginated(ispfy, "/cliente/contrato/ponto/sessoes", {
       filter: "status:EQ:online",
     }),
+    fetchAllAtomicOrPaginated(ispfy, "/geofiber/cto", { sort: "id:ASC" }).catch(() => []),
   ]);
+
+  const ctoById = new Map<string, Record<string, any>>();
+  for (const cto of allCtos) {
+    if (cto?.id != null) ctoById.set(String(cto.id), cto);
+  }
+
+  const pontoToCtoId = new Map<string, string>();
+  const ctoTotalActiveCount = new Map<string, number>();
 
   const clientById = new Map<string, Record<string, any>>();
   for (const c of allClientes) {
@@ -521,6 +541,13 @@ export async function evaluateIspfyMassOutagesBackend(
       globalActivePoints += 1;
       if (health === "ok") {
         globalOnlinePoints += 1;
+      }
+      const rawCtoId = String(
+        pt?.id_cto || pt?.id_caixa || pt?.caixa_id || pt?.geofiber_id_cto || ""
+      ).trim();
+      if (rawCtoId && rawCtoId !== "0") {
+        pontoToCtoId.set(pontoId, rawCtoId);
+        ctoTotalActiveCount.set(rawCtoId, (ctoTotalActiveCount.get(rawCtoId) || 0) + 1);
       }
     }
 
@@ -859,6 +886,42 @@ export async function evaluateIspfyMassOutagesBackend(
     }
   }
 
+  // Correlaciona CTO principal afetada (causa raiz FTTH) quando >= 2 pontos offline compartilham a mesma CTO
+  for (const alerta of alertas) {
+    const ctoOffCounts = new Map<string, number>();
+    for (const pid of alerta.pontoIds || []) {
+      const cid = pontoToCtoId.get(pid);
+      if (cid) {
+        ctoOffCounts.set(cid, (ctoOffCounts.get(cid) || 0) + 1);
+      }
+    }
+    let bestCtoId = "";
+    let bestCount = 0;
+    ctoOffCounts.forEach((cnt, cid) => {
+      if (cnt > bestCount) {
+        bestCount = cnt;
+        bestCtoId = cid;
+      }
+    });
+    if (bestCtoId && bestCount >= 2) {
+      const ctoRow = ctoById.get(bestCtoId);
+      const rawLat = ctoRow?.latitude ?? ctoRow?.lat ?? null;
+      const rawLng = ctoRow?.longitude ?? ctoRow?.lng ?? null;
+      const latNum = rawLat != null ? Number(String(rawLat).replace(",", ".")) : NaN;
+      const lngNum = rawLng != null ? Number(String(rawLng).replace(",", ".")) : NaN;
+      alerta.ctoPrincipal = {
+        ctoId: bestCtoId,
+        ctoLabel: String(
+          ctoRow?.nome || ctoRow?.descricao || ctoRow?.codigo || `CTO #${bestCtoId}`
+        ).trim(),
+        desconectados: bestCount,
+        totalNaCto: ctoTotalActiveCount.get(bestCtoId) || bestCount,
+        latitude: Number.isFinite(latNum) && latNum !== 0 ? latNum : null,
+        longitude: Number.isFinite(lngNum) && lngNum !== 0 ? lngNum : null,
+      };
+    }
+  }
+
   return {
     alerts: alertas,
     globalAnomalyDetected: false,
@@ -877,6 +940,7 @@ function buildEquipeAvlWhatsappMessage(params: {
 }): string {
   const { alerta, elapsedMinutes, manualTrigger, verifiedLiveOfflineCount } = params;
   const rp = alerta.ruaPrincipal;
+  const cto = alerta.ctoPrincipal;
   const offBairro = alerta.desconectadosNoBairro ?? alerta.desconectados;
   const totalBairro = alerta.totalAtivosNoBairro;
   const pctBairro = alerta.percentualOffline;
@@ -888,6 +952,13 @@ function buildEquipeAvlWhatsappMessage(params: {
   const linhasRua = rp
     ? `🛣️ *Rua:* ${rp.ruaLabel}\n` +
       `👥 *Na Rua:* *${rp.desconectados}* offline de *${rp.totalAtivos}* clientes (*${rp.percentualOffline}%*)\n`
+    : "";
+
+  const linhasCto = cto
+    ? `📦 *CTO Principal Afetada:* *${cto.ctoLabel}* (${cto.desconectados}/${cto.totalNaCto} off)` +
+      (cto.latitude && cto.longitude
+        ? `\n🗺️ *Mapa da CTO:* https://maps.google.com/?q=${cto.latitude},${cto.longitude}\n`
+        : "\n")
     : "";
 
   const linhasConfirmacao =
@@ -918,6 +989,7 @@ function buildEquipeAvlWhatsappMessage(params: {
     `${cabecalho}\n\n` +
     `📍 *Bairro:* ${alerta.bairroLabel}\n` +
     linhasRua +
+    linhasCto +
     `🏘️ *No Bairro (${alerta.bairroLabel}):* *${offBairro}* offline de *${totalBairro}* clientes (*${pctBairro}%*)\n` +
     linhasConfirmacao +
     (!manualTrigger ? `⏱️ *Tempo contínuo da queda:* ${elapsedMinutes} min\n` : "") +
@@ -1062,6 +1134,7 @@ export async function syncOutageWatchesAndDispatch(params: {
           bairroLabel: alert.bairroLabel,
           ruaKey: rp?.ruaKey || null,
           ruaLabel: rp?.ruaLabel || null,
+          ctoPrincipal: alert.ctoPrincipal || null,
           totalRua: Number(rp?.totalAtivos || 0),
           offlineRua: Number(rp?.desconectados || 0),
           percentualRua: Number(rp?.percentualOffline || 0),
@@ -1241,6 +1314,15 @@ export async function syncOutageWatchesAndDispatch(params: {
 
       const sendRes = await whapi.sendCustomMessage(targetGroupId, message);
       if (sendRes.sent) {
+        if (item.alert.ctoPrincipal?.latitude && item.alert.ctoPrincipal?.longitude) {
+          await sendZapiLocation({
+            phone: targetGroupId,
+            latitude: item.alert.ctoPrincipal.latitude,
+            longitude: item.alert.ctoPrincipal.longitude,
+            title: `CTO Afetada: ${item.alert.ctoPrincipal.ctoLabel}`,
+            address: `${item.alert.ruaPrincipal?.ruaLabel || item.alert.bairroLabel} — ${item.alert.bairroLabel}`,
+          }).catch(() => undefined);
+        }
         await docRef.set(
           {
             whatsappSentAtMs: Date.now(),

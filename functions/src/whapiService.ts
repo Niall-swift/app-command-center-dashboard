@@ -279,7 +279,7 @@ export class WhapiService {
         caption: caption || "",
       };
       console.log(`[whapiService] Enviando comprovante como imagem para ${formattedPhone}...`);
-      const response = await this.client.post("/send-image", payload);
+      const response = await this.client.post("/send-image", payload, { timeout: 45000 });
       console.log("[whapiService] Imagem de comprovante enviada:", response.data);
       return {
         sent: true,
@@ -289,7 +289,13 @@ export class WhapiService {
     } catch (error) {
       console.error("[whapiService] Erro ao enviar imagem de comprovante:", error);
       if (axios.isAxiosError(error)) {
-        return { sent: false, error: error.response?.data?.message || error.message };
+        const isTimeout =
+          error.code === "ECONNABORTED" || /timeout/i.test(error.message || "");
+        return {
+          sent: false,
+          timeout: isTimeout,
+          error: error.response?.data?.message || error.message,
+        };
       }
       return { sent: false, error: "Erro desconhecido ao enviar imagem" };
     }

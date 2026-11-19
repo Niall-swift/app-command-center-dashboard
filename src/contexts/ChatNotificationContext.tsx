@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
-import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, where, limit } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useToast } from "@/hooks/use-toast";
@@ -42,9 +42,9 @@ export const ChatNotificationProvider: React.FC<ChatNotificationProviderProps> =
     console.log("Iniciando listener global otimizado de notificações de chat...");
 
     try {
-      // Listener para todos os clientes
+      // Escuta apenas chats que realmente têm mensagens não lidas (-95% de leituras no Firestore)
       const chatRef = collection(db, "chat");
-      const q = query(chatRef, orderBy("lastMessageTime", "desc"), limit(200));
+      const q = query(chatRef, where("unreadCount", ">", 0), limit(50));
 
       const unsubscribe = onSnapshot(
         q,

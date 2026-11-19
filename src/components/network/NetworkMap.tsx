@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { ispfyService } from '@/services/ispfy/ispfyService';
+import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import {
   ISPFYLoginData,
   ISPFYCaixaData,
@@ -125,6 +126,7 @@ const getSignalColor = (sinal?: string, smartStatus?: string): string => {
 
 // ---------- Main Component ----------
 const NetworkMap = () => {
+  const { rompimentosEmMassa, outagesMonitorados } = useNetworkMonitor();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [layers, setLayers] = useState<Record<LayerId, boolean>>(
     Object.fromEntries(LAYERS.map(l => [l.id, l.defaultOn])) as Record<LayerId, boolean>
@@ -788,6 +790,51 @@ const NetworkMap = () => {
             })}
           </GoogleMap>
         </APIProvider>
+      )}
+
+      {/* ===== LIVE OUTAGE / CTO ROOT-CAUSE OVERLAY ===== */}
+      {(rompimentosEmMassa.length > 0 || outagesMonitorados.some((w) => w.active)) && (
+        <div className="absolute top-3 right-3 z-20 max-w-sm space-y-1.5 pointer-events-auto">
+          {outagesMonitorados
+            .filter((w) => w.active)
+            .slice(0, 3)
+            .map((w) => (
+              <div
+                key={w.incidentKey}
+                className="px-3 py-2 rounded-xl border border-rose-500/60 bg-slate-950/90 text-white shadow-xl backdrop-blur-md text-xs space-y-0.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-rose-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 animate-pulse" />
+                    Rompimento Ativo
+                  </span>
+                  <span className="text-[10px] font-mono text-rose-300">
+                    {w.ruaLabel ? `${w.offlineRua}/${w.totalRua} off` : `${w.offlineBairro}/${w.totalBairro} off`}
+                  </span>
+                </div>
+                <p className="text-[11px] font-medium truncate">
+                  {w.ruaLabel ? `${w.ruaLabel} — ${w.bairroLabel}` : w.bairroLabel}
+                </p>
+                {w.ctoPrincipal && (
+                  <p className="text-[10px] text-violet-300 flex items-center justify-between gap-2">
+                    <span>
+                      📦 CTO: <strong>{w.ctoPrincipal.ctoLabel}</strong> ({w.ctoPrincipal.desconectados}/{w.ctoPrincipal.totalNaCto} off)
+                    </span>
+                    {w.ctoPrincipal.latitude && w.ctoPrincipal.longitude && (
+                      <a
+                        href={`https://maps.google.com/?q=${w.ctoPrincipal.latitude},${w.ctoPrincipal.longitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline text-sky-300 shrink-0"
+                      >
+                        Maps
+                      </a>
+                    )}
+                  </p>
+                )}
+              </div>
+            ))}
+        </div>
       )}
 
       {/* ===== BOTTOM STATUS BAR ===== */}

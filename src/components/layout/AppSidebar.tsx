@@ -1,335 +1,479 @@
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  MessageSquare, Send, FileText, BarChart3, Bot, Home, Activity,
-  Settings, Gift, Package, Wrench, Map, MapPin, Film, Tv,
-  Users, DollarSign, Ticket, Database, Trophy, Zap, FileSpreadsheet, Bell, Download, Calendar,
-  ClipboardList, ShieldCheck, Clock,
+  Activity,
+  BarChart3,
+  Bell,
+  Bot,
+  Calendar,
+  ChevronDown,
+  ClipboardList,
+  Clock,
+  DollarSign,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Film,
+  Gift,
+  Home,
+  Map,
+  MapPin,
+  MessageSquare,
+  Package,
+  Pin,
+  PinOff,
+  Radar,
+  Search,
+  Send,
+  Settings,
+  ShieldCheck,
+  Ticket,
+  Tv,
+  Users,
+  Wrench,
+  Zap,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarHeader, SidebarFooter,
-} from "@/components/ui/sidebar";
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { Badge } from '@/components/ui/badge';
 import { useTheme } from 'next-themes';
+import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
+import { useChatNotifications } from '@/contexts/ChatNotificationContext';
+import { useAuth } from '@/contexts/AuthContext';
 
-const menuItems = [
-  { title: "Dashboard",        url: "/",                icon: Home },
-  { title: "Chat",             url: "/chat",            icon: MessageSquare },
-  { title: "Envio em Massa",   url: "/whatsapp/bulk",   icon: Send },
-  { title: "Notificações Push",url: "/notifications",   icon: Bell },
-  { title: "Solicitações",     url: "/requests",        icon: FileText },
-  { title: "Suporte Técnico",  url: "/technical-support", icon: Wrench },
-  { title: "Mapa da Rede",     url: "/network-map",     icon: Map },
-  { title: "Gráficos",         url: "/analytics",       icon: BarChart3 },
-  { title: "Automações & Bot", url: "/bots",            icon: Bot },
-  { title: "Sorteio",          url: "/raffle",          icon: Gift },
-  { title: "Sorteios Pagos",   url: "/paid-raffles",    icon: Ticket },
-  { title: "Filmes",           url: "/movies",          icon: Film },
-  { title: "Séries",           url: "/series",          icon: Tv },
-  { title: "Métricas AVL Play", url: "/avlplay-analytics", icon: Activity },
-  { title: "Gestão de Prêmios", url: "/rewards-management", icon: Package },
-  { title: "Pedidos de Resgate", url: "/redemption-orders",  icon: Package },
-  { title: "Configurações",    url: "/settings",        icon: Settings },
+interface SidebarNavItem {
+  title: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badgeKey?: 'chat_unread' | 'region_offline' | 'new_intel';
+}
+
+interface SidebarNavGroup {
+  id: string;
+  label: string;
+  accent: 'blue' | 'emerald' | 'amber' | 'violet' | 'slate';
+  defaultOpen: boolean;
+  items: SidebarNavItem[];
+}
+
+const NAV_GROUPS: SidebarNavGroup[] = [
+  {
+    id: 'noc',
+    label: 'Operação & NOC',
+    accent: 'blue',
+    defaultOpen: true,
+    items: [
+      { title: 'Dashboard', url: '/', icon: Home },
+      { title: 'Clientes Bairro/Rua', url: '/ispfy/regiao', icon: MapPin, badgeKey: 'region_offline' },
+      { title: 'Inteligência & CTO', url: '/ispfy/inteligencia', icon: Radar, badgeKey: 'new_intel' },
+      { title: 'Nova O.S.', url: '/ispfy/nova-os', icon: ClipboardList },
+      { title: 'Tickets & O.S.', url: '/ispfy/tickets', icon: Ticket },
+      { title: 'Mapa da Rede', url: '/network-map', icon: Map },
+      { title: 'Suporte Técnico', url: '/technical-support', icon: Wrench },
+    ],
+  },
+  {
+    id: 'atendimento',
+    label: 'Atendimento & Z-API',
+    accent: 'emerald',
+    defaultOpen: true,
+    items: [
+      { title: 'Chat ao Vivo', url: '/chat', icon: MessageSquare, badgeKey: 'chat_unread' },
+      { title: 'Envio em Massa', url: '/whatsapp/bulk', icon: Send },
+      { title: 'Automações & Bot', url: '/bots', icon: Bot },
+      { title: 'Notificações Push', url: '/notifications', icon: Bell },
+      { title: 'Solicitações', url: '/requests', icon: FileText },
+    ],
+  },
+  {
+    id: 'ispfy_financeiro',
+    label: 'ISPFY & Financeiro',
+    accent: 'amber',
+    defaultOpen: true,
+    items: [
+      { title: 'Consulta Clientes', url: '/ispfy/consulta', icon: Users },
+      { title: 'Financeiro & Caixa', url: '/ispfy/financeiro', icon: DollarSign },
+      { title: 'Auditoria Base', url: '/ispfy/auditoria', icon: ShieldCheck },
+      { title: 'Vencimentos Massa', url: '/ispfy/vencimentos', icon: Calendar },
+      { title: 'Robô de Carência', url: '/ispfy/carencia', icon: Clock },
+      { title: 'Relatório DICI', url: '/ispfy/dici', icon: FileSpreadsheet },
+      { title: 'Exportar Ativos', url: '/ispfy/exportar-ativos', icon: Download },
+    ],
+  },
+  {
+    id: 'engajamento',
+    label: 'Engajamento & AVL Play',
+    accent: 'violet',
+    defaultOpen: false,
+    items: [
+      { title: 'Sorteio PreMix', url: '/raffle', icon: Gift },
+      { title: 'Sorteios Pagos', url: '/paid-raffles', icon: Ticket },
+      { title: 'Filmes', url: '/movies', icon: Film },
+      { title: 'Séries', url: '/series', icon: Tv },
+      { title: 'Métricas AVL Play', url: '/avlplay-analytics', icon: Activity },
+      { title: 'Gestão de Prêmios', url: '/rewards-management', icon: Package },
+      { title: 'Pedidos de Resgate', url: '/redemption-orders', icon: Package },
+    ],
+  },
+  {
+    id: 'sistema',
+    label: 'Analytics & Sistema',
+    accent: 'slate',
+    defaultOpen: false,
+    items: [
+      { title: 'Gráficos & BI', url: '/analytics', icon: BarChart3 },
+      { title: 'Configurações', url: '/settings', icon: Settings },
+    ],
+  },
 ];
 
-const ispfyMenuItems = [
-  { title: "🆕 Nova O.S.",           url: "/ispfy/nova-os",        icon: ClipboardList },
-  { title: "Consulta de Clientes", url: "/ispfy/consulta",   icon: Users },
-  { title: "Auditoria de Clientes", url: "/ispfy/auditoria",  icon: ShieldCheck },
-  { title: "Clientes por Bairro/Rua", url: "/ispfy/regiao", icon: MapPin },
-  { title: "Financeiro",           url: "/ispfy/financeiro",  icon: DollarSign },
-  { title: "Tickets de Suporte",   url: "/ispfy/tickets",     icon: Ticket },
-  { title: "Relatório DICI",       url: "/ispfy/dici",        icon: FileSpreadsheet },
-  { title: "Exportar Clientes",    url: "/ispfy/exportar-ativos", icon: Download },
-  { title: "Vencimentos em Massa", url: "/ispfy/vencimentos",     icon: Calendar },
-  { title: "🤖 Robô de Carência",  url: "/ispfy/carencia",        icon: Clock },
-];
+const STORAGE_KEY_GROUPS = 'avl_sidebar_groups_v2';
+const STORAGE_KEY_PINNED = 'avl_sidebar_pinned_v1';
+const SIDEBAR_AUTO_CLOSE_MS = 15_000;
 
-const containerVariants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.04, delayChildren: 0.1 } },
-};
+function loadInitialPinned(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY_PINNED) === 'true';
+  } catch {
+    return false;
+  }
+}
 
-const itemVariants = {
-  hidden: { opacity: 0, x: -16 },
-  visible: { opacity: 1, x: 0, transition: { duration: 0.3, ease: 'easeOut' } },
-};
+function loadInitialGroups(): Record<string, boolean> {
+  const defaults = Object.fromEntries(NAV_GROUPS.map((g) => [g.id, g.defaultOpen]));
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_GROUPS);
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) };
+  } catch {
+    return defaults;
+  }
+}
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  onOpenGlobalSearch?: () => void;
+}
+
+export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
   const location = useLocation();
   const { resolvedTheme } = useTheme();
+  const { dadosRegiao, rompimentosEmMassa } = useNetworkMonitor();
+  const { totalUnreadCount } = useChatNotifications();
+  const { user } = useAuth();
+  const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar();
   const isDark = resolvedTheme !== 'light';
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadInitialGroups);
+  const [isPinned, setIsPinned] = useState<boolean>(loadInitialPinned);
+  const [isHovered, setIsHovered] = useState(false);
+  const [activityTick, setActivityTick] = useState(0);
+
+  const isSidebarOpen = isMobile ? openMobile : open;
+
+  // Limpa estado de hover quando a sidebar fecha
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      setIsHovered(false);
+    }
+  }, [isSidebarOpen]);
+
+  // Fecha automaticamente a sidebar após 15s sem interação (exceto se estiver fixada)
+  useEffect(() => {
+    if (!isSidebarOpen || isPinned || (!isMobile && isHovered)) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      if (isMobile) {
+        setOpenMobile(false);
+      } else {
+        setOpen(false);
+      }
+    }, SIDEBAR_AUTO_CLOSE_MS);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    isSidebarOpen,
+    isPinned,
+    isHovered,
+    activityTick,
+    isMobile,
+    setOpen,
+    setOpenMobile,
+  ]);
+
+  const togglePinned = () => {
+    setIsPinned((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_KEY_PINNED, String(next));
+      } catch {
+        // noop
+      }
+      return next;
+    });
+  };
+
+  // Garante que o grupo da rota atual esteja sempre aberto
+  useEffect(() => {
+    const activeGroup = NAV_GROUPS.find((g) =>
+      g.items.some((item) => item.url === location.pathname)
+    );
+    if (activeGroup && !openGroups[activeGroup.id]) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
+    }
+  }, [location.pathname, openGroups]);
+
+  const toggleGroup = (groupId: string) => {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      try {
+        localStorage.setItem(STORAGE_KEY_GROUPS, JSON.stringify(next));
+      } catch {
+        // noop
+      }
+      return next;
+    });
+  };
+
+  const totalOffline = dadosRegiao?.totals.desconectados ?? 0;
+  const totalOutages = rompimentosEmMassa.length;
+  const userInitial = (user?.displayName || user?.email || 'A').charAt(0).toUpperCase();
 
   return (
     <Sidebar className="border-r-0" style={{ background: 'transparent' }}>
-      {/* Dark/Light glass background */}
       <div
-        className="absolute inset-0 pointer-events-none transition-all duration-300"
+        className="relative flex h-full w-full flex-col"
+        onMouseEnter={() => {
+          if (!isMobile) setIsHovered(true);
+        }}
+        onMouseLeave={() => {
+          if (!isMobile) setIsHovered(false);
+        }}
+        onPointerDown={() => setActivityTick((t) => t + 1)}
+        onWheel={() => setActivityTick((t) => t + 1)}
+        onTouchStart={() => setActivityTick((t) => t + 1)}
+        onKeyDown={() => setActivityTick((t) => t + 1)}
+      >
+      <div
+        className="absolute inset-0 pointer-events-none transition-colors duration-200"
         style={{
           background: isDark
-            ? 'linear-gradient(180deg, #0F172A 0%, #0F172A 60%, #0D1526 100%)'
-            : 'linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 60%, #E2E8F0 100%)',
+            ? 'linear-gradient(180deg, #0B1220 0%, #0F172A 65%, #0B1120 100%)'
+            : 'linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 65%, #E2E8F0 100%)',
           borderRight: isDark
             ? '1px solid rgba(255,255,255,0.07)'
             : '1px solid rgba(0,0,0,0.08)',
         }}
       />
 
-      {/* Ambient glow top */}
       <div
-        className="absolute top-0 left-0 right-0 h-48 pointer-events-none"
+        className="absolute top-0 left-0 right-0 h-40 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse 80% 100% at 50% 0%, rgba(37,99,235,0.15) 0%, transparent 70%)',
+          background:
+            'radial-gradient(ellipse 80% 100% at 50% 0%, rgba(37,99,235,0.14) 0%, transparent 70%)',
         }}
       />
 
-      {/* ── Header ─────────────────────────── */}
-      <SidebarHeader className="relative z-10 p-5 pb-4">
-        <motion.div
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="flex items-center gap-3"
-        >
-          {/* Logo icon with pulse glow */}
-          <motion.div
-            className="w-9 h-9 rounded-xl flex items-center justify-center relative"
-            style={{
-              background: 'linear-gradient(135deg, #2563EB, #7C3AED)',
-            }}
-            animate={{ boxShadow: [
-              '0 0 8px rgba(37,99,235,0.4)',
-              '0 0 20px rgba(37,99,235,0.8), 0 0 40px rgba(124,58,237,0.4)',
-              '0 0 8px rgba(37,99,235,0.4)',
-            ]}}
-            transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-          >
-            <Zap className="w-5 h-5 text-white" />
-          </motion.div>
-
-          <div>
-            <h2 className="text-base font-bold leading-none tracking-wide text-slate-900 dark:text-white">
-              AVL Control
-            </h2>
-            <p className="text-[10px] font-medium mt-0.5" style={{ color: isDark ? 'rgba(148,163,184,0.8)' : 'rgba(71,85,105,0.8)' }}>
-              Command Center
-            </p>
+      {/* Header */}
+      <SidebarHeader className="relative z-10 p-4 pb-3 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-md"
+              style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
+            >
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold leading-none tracking-wide text-slate-900 dark:text-white truncate">
+                AVL Control
+              </h2>
+              <p className="text-[10px] font-medium mt-1 text-slate-500 dark:text-slate-400">
+                {isPinned ? 'Menu fixado' : 'Auto-oculta em 15s'}
+              </p>
+            </div>
           </div>
-        </motion.div>
 
-        {/* Divider */}
-        <div
-          className="mt-4 h-px"
-          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
-        />
+          <button
+            type="button"
+            onClick={togglePinned}
+            title={
+              isPinned
+                ? 'Menu fixado (clique para auto-fechar em 15s)'
+                : 'Auto-fechamento em 15s ativo (clique para fixar aberto)'
+            }
+            aria-label={isPinned ? 'Desfixar menu lateral' : 'Fixar menu lateral'}
+            className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 transition-colors border ${
+              isPinned
+                ? 'bg-primary/15 text-primary border-primary/30'
+                : 'text-slate-500 dark:text-slate-400 border-transparent hover:bg-black/5 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {isPinned ? (
+              <PinOff className="w-3.5 h-3.5" />
+            ) : (
+              <Pin className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+
+        {onOpenGlobalSearch && (
+          <button
+            type="button"
+            onClick={onOpenGlobalSearch}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs border transition-colors bg-white/70 hover:bg-white dark:bg-white/5 dark:hover:bg-white/10 border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400"
+          >
+            <span className="flex items-center gap-2 truncate">
+              <Search className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Busca rápida...</span>
+            </span>
+            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-white/10">
+              ⌘K
+            </kbd>
+          </button>
+        )}
       </SidebarHeader>
 
-      {/* ── Content ────────────────────────── */}
-      <SidebarContent className="relative z-10 px-3 py-2">
+      {/* Content */}
+      <SidebarContent className="relative z-10 px-2.5 py-1 space-y-1">
+        {NAV_GROUPS.map((group) => {
+          const isOpen = openGroups[group.id] !== false;
+          const groupHasActive = group.items.some((i) => i.url === location.pathname);
 
-        {/* Main nav */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="text-xs font-bold mb-2 px-2 tracking-wider uppercase text-slate-400 dark:text-slate-400"
-          >
-            Navegação
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <motion.div
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <SidebarMenu className="space-y-0.5">
-                {menuItems.map((item) => {
-                  const isActive = location.pathname === item.url;
-                  return (
-                    <motion.div key={item.title} variants={itemVariants}>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <Link
-                            to={item.url}
-                            className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200"
-                            style={{
-                              background: isActive
-                                ? (isDark 
-                                    ? 'linear-gradient(135deg, rgba(37,99,235,0.25), rgba(124,58,237,0.15))'
-                                    : 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.08))')
-                                : 'transparent',
-                              border: isActive
-                                ? (isDark ? '1px solid rgba(37,99,235,0.3)' : '1px solid rgba(37,99,235,0.2)')
-                                : '1px solid transparent',
-                            }}
-                          >
-                            {/* Active neon left bar */}
-                            <AnimatePresence>
+          return (
+            <SidebarGroup key={group.id} className="py-1">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold tracking-wider uppercase text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      group.accent === 'blue'
+                        ? 'bg-blue-500'
+                        : group.accent === 'emerald'
+                        ? 'bg-emerald-500'
+                        : group.accent === 'amber'
+                        ? 'bg-amber-500'
+                        : group.accent === 'violet'
+                        ? 'bg-violet-500'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  {group.label}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                    isOpen ? 'rotate-0' : '-rotate-90'
+                  } ${groupHasActive ? 'text-primary' : ''}`}
+                />
+              </button>
+
+              {isOpen && (
+                <SidebarGroupContent className="mt-1">
+                  <SidebarMenu className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const isActive = location.pathname === item.url;
+                      const Icon = item.icon;
+                      return (
+                        <SidebarMenuItem key={item.url}>
+                          <SidebarMenuButton asChild>
+                            <Link
+                              to={item.url}
+                              className={`group relative flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-150 ${
+                                isActive
+                                  ? 'bg-primary/15 text-slate-900 dark:text-white border border-primary/30 shadow-sm'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+                              }`}
+                            >
                               {isActive && (
-                                <motion.div
-                                  initial={{ scaleY: 0, opacity: 0 }}
-                                  animate={{ scaleY: 1, opacity: 1 }}
-                                  exit={{ scaleY: 0, opacity: 0 }}
-                                  transition={{ duration: 0.2 }}
+                                <span
                                   className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
                                   style={{ background: 'linear-gradient(180deg, #60A5FA, #7C3AED)' }}
                                 />
                               )}
-                            </AnimatePresence>
 
-                            {/* Icon */}
-                            <motion.div
-                              whileHover={{ scale: 1.15, rotate: 5 }}
-                              transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                            >
-                              <item.icon
-                                className="w-4.5 h-4.5 transition-colors duration-200"
-                                style={{
-                                  color: isActive ? (isDark ? '#60A5FA' : '#2563EB') : (isDark ? '#94A3B8' : '#64748B'),
-                                  width: 18, height: 18,
-                                }}
-                              />
-                            </motion.div>
-
-                            {/* Label */}
-                            <span
-                              className="text-sm font-medium transition-colors duration-200"
-                              style={{ color: isActive ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#E2E8F0' : '#334155') }}
-                            >
-                              {item.title}
-                            </span>
-
-                            {/* Hover shimmer */}
-                            {!isActive && (
-                              <div
-                                className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-                                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}
-                              />
-                            )}
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </motion.div>
-                  );
-                })}
-              </SidebarMenu>
-            </motion.div>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Divider */}
-        <div
-          className="my-3 h-px mx-2"
-          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
-        />
-
-        {/* ISPFY section */}
-        <SidebarGroup>
-          <SidebarGroupLabel
-            className="text-xs font-bold mb-2 px-2 tracking-wider uppercase flex items-center gap-2 text-slate-400 dark:text-slate-400"
-          >
-            <Database style={{ width: 12, height: 12 }} />
-            Sistema ISPFY
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <motion.div
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <SidebarMenu className="space-y-0.5">
-                {ispfyMenuItems.map((item) => {
-                  const isActive = location.pathname === item.url;
-                  return (
-                    <motion.div key={item.title} variants={itemVariants}>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <Link
-                            to={item.url}
-                            className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200"
-                            style={{
-                              background: isActive
-                                ? (isDark
-                                    ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.1))'
-                                    : 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(5,150,105,0.06))')
-                                : 'transparent',
-                              border: isActive
-                                ? (isDark ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(16,185,129,0.2)')
-                                : '1px solid transparent',
-                            }}
-                          >
-                            <AnimatePresence>
-                              {isActive && (
-                                <motion.div
-                                  initial={{ scaleY: 0, opacity: 0 }}
-                                  animate={{ scaleY: 1, opacity: 1 }}
-                                  exit={{ scaleY: 0, opacity: 0 }}
-                                  className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
-                                  style={{ background: 'linear-gradient(180deg, #34D399, #059669)' }}
+                              <span className="flex items-center gap-2.5 min-w-0">
+                                <Icon
+                                  className={`w-4 h-4 shrink-0 transition-colors ${
+                                    isActive
+                                      ? 'text-primary'
+                                      : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:group-hover:text-slate-200'
+                                  }`}
                                 />
+                                <span className="truncate">{item.title}</span>
+                              </span>
+
+                              {item.badgeKey === 'chat_unread' && totalUnreadCount > 0 && (
+                                <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] bg-blue-600 text-white border-none justify-center">
+                                  {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                                </Badge>
                               )}
-                            </AnimatePresence>
 
-                            <item.icon
-                              style={{
-                                width: 18, height: 18,
-                                color: isActive ? (isDark ? '#34D399' : '#059669') : (isDark ? '#94A3B8' : '#64748B'),
-                              }}
-                            />
-                            <span
-                              className="text-sm font-medium"
-                              style={{ color: isActive ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#E2E8F0' : '#334155') }}
-                            >
-                              {item.title}
-                            </span>
+                              {item.badgeKey === 'region_offline' &&
+                                (totalOutages > 0 ? (
+                                  <Badge className="h-5 px-1.5 text-[10px] bg-rose-600 text-white border-none animate-pulse">
+                                    {totalOutages} ROMP.
+                                  </Badge>
+                                ) : totalOffline > 0 ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-5 px-1.5 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                                  >
+                                    {totalOffline}
+                                  </Badge>
+                                ) : null)}
 
-                            {!isActive && (
-                              <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }} />
-                            )}
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </motion.div>
-                  );
-                })}
-              </SidebarMenu>
-            </motion.div>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                              {item.badgeKey === 'new_intel' && (
+                                <Badge className="h-4 px-1.5 text-[9px] bg-violet-600/20 text-violet-600 dark:text-violet-300 border border-violet-500/30">
+                                  IA
+                                </Badge>
+                              )}
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              )}
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
 
-      {/* ── Footer ────────────────────────── */}
-      <SidebarFooter className="relative z-10 p-3 pb-4">
-        <div
-          className="h-px mb-3 mx-1"
-          style={{ background: isDark ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)' : 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)' }}
-        />
-        <motion.div
-          whileHover={{ scale: 1.02 }}
-          className="flex items-center gap-3 p-3 rounded-xl cursor-pointer"
-          style={{ 
-            background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', 
-            border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.08)' 
-          }}
-        >
-          <motion.div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
+      {/* Footer */}
+      <SidebarFooter className="relative z-10 p-3 pt-2">
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.07]">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
             style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
-            animate={{ boxShadow: ['0 0 6px rgba(37,99,235,0.4)', '0 0 14px rgba(37,99,235,0.7)', '0 0 6px rgba(37,99,235,0.4)'] }}
-            transition={{ duration: 2, repeat: Infinity }}
           >
-            A
-          </motion.div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold leading-none text-slate-900 dark:text-white">Admin</p>
-            <p className="text-xs mt-0.5 truncate" style={{ color: isDark ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)' }}>
-              AVL Telecom
+            {userInitial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+              {user?.displayName || 'Operador NOC'}
+            </p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+              {user?.email || 'AVL Telecom'}
             </p>
           </div>
-          <div className="w-2 h-2 rounded-full bg-emerald-400" style={{ boxShadow: '0 0 6px rgba(52,211,153,0.8)' }} />
-        </motion.div>
+        </div>
       </SidebarFooter>
+      </div>
     </Sidebar>
   );
 }

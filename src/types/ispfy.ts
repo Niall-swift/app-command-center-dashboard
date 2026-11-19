@@ -752,6 +752,15 @@ export interface ISPFYMassOutageStreetItem {
   offlineAntigosIgnorados?: number;
 }
 
+export interface ISPFYOutageCtoSummary {
+  ctoId: string;
+  ctoLabel: string;
+  desconectados: number;
+  totalNaCto: number;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
 export interface ISPFYMassOutageAlert {
   incidentKey: string;
   tipoAlerta: 'rua_e_bairro' | 'bairro';
@@ -762,6 +771,7 @@ export interface ISPFYMassOutageAlert {
   desconectados: number;
   percentualOffline: number;
   ruaPrincipal?: ISPFYMassOutageStreetItem | null;
+  ctoPrincipal?: ISPFYOutageCtoSummary | null;
   ruasAfetadas: ISPFYMassOutageStreetItem[];
   pontoIds: string[];
   clientesNomes: string[];
@@ -778,6 +788,7 @@ export interface ISPFYOutageWatchRecord {
   bairroLabel: string;
   ruaKey?: string;
   ruaLabel?: string | null;
+  ctoPrincipal?: ISPFYOutageCtoSummary | null;
   totalRua: number;
   offlineRua: number;
   percentualRua: number;

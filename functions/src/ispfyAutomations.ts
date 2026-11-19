@@ -4,6 +4,12 @@ import { verifyAuth } from "./config/auth";
 import { getIspfyConfig, getWhapiConfig } from "./config/env";
 import { IspfyBackendService, IspfyBoletoDetalhe, normalizeDigits } from "./ispfyBackendService";
 import { WhapiService } from "./whapiService";
+import {
+  indexZapiMessageForTracking,
+  sendZapiButtonList,
+  sendZapiButtonPix,
+  sendZapiLocation,
+} from "./zapiSuite";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -245,6 +251,21 @@ export async function processIspfyBillingRuler(options?: {
     }
 
     const sendRes = await whapi.sendCustomMessage(phone, message);
+    let pixButtonSent = false;
+    if (
+      sendRes.sent &&
+      matchedBoleto?.pix &&
+      rulerCfg.useNativePixButton !== false
+    ) {
+      const pixRes = await sendZapiButtonPix({
+        phone,
+        pixCode: matchedBoleto.pix,
+        message: `Toque abaixo para copiar o PIX da fatura #${invoiceId} (${formatCurrencyBr(inv.valor)}):`,
+        merchantName: "AVL Telecom",
+      }).catch(() => ({ sent: false }));
+      pixButtonSent = Boolean(pixRes.sent);
+    }
+
     await logRef.set({
       invoiceId,
       stage,
@@ -254,11 +275,21 @@ export async function processIspfyBillingRuler(options?: {
       dueIso,
       valor: inv.valor,
       hasPix: Boolean(matchedBoleto?.pix),
+      pixButtonSent,
       status: sendRes.sent ? "sent" : "error",
+      deliveryStatus: sendRes.sent ? "SENT" : null,
       error: sendRes.error || null,
       messageId: sendRes.id || null,
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    if (sendRes.sent && sendRes.id) {
+      await indexZapiMessageForTracking({
+        messageId: sendRes.id,
+        collectionPath: "billing_ruler_logs",
+        docId: logRef.id,
+      });
+    }
 
     if (sendRes.sent) sentCount++;
     items.push({
@@ -620,15 +651,22 @@ export const ispfyToolActions = functions.https.onCall(async (data, context) => 
 
     if (data?.notifyWhatsapp && data?.clientPhone) {
       try {
-        const { apiKey, baseUrl } = getWhapiConfig();
-        const whapi = new WhapiService(apiKey, baseUrl);
         const firstName = String(data?.clientName || "Cliente").trim().split(" ")[0] || "Cliente";
         const nota = data?.resolutionNote ? `\n📝 *Resumo:* ${data.resolutionNote}` : "";
         const msg =
           `Olá, *${firstName}*! ✅\n\n` +
           `Seu chamado técnico *#${idTicket}* foi *concluído e encerrado* pela equipe da *AVL Telecom*!${nota}\n\n` +
-          `De 0 a 10, como você avalia nosso atendimento hoje? Sua opinião ajuda muito a melhorar nossos serviços! 🙌`;
-        const res = await whapi.sendCustomMessage(String(data.clientPhone), msg);
+          `Como você avalia o atendimento de hoje? Toque em uma opção abaixo:`;
+        const safeId = idTicket.replace(/[^a-zA-Z0-9_-]/g, "");
+        const res = await sendZapiButtonList({
+          phone: String(data.clientPhone),
+          message: msg,
+          buttons: [
+            { id: `csat_os_${safeId}_5`, label: "⭐ Excelente" },
+            { id: `csat_os_${safeId}_4`, label: "👍 Bom" },
+            { id: `csat_os_${safeId}_1`, label: "⚠️ Ainda com problema" },
+          ],
+        });
         whatsappSent = res.sent;
       } catch (err) {
         console.warn("Aviso ao enviar WhatsApp de encerramento de O.S.:", err);
@@ -636,6 +674,46 @@ export const ispfyToolActions = functions.https.onCall(async (data, context) => 
     }
 
     return { success: closed.success, whatsappSent, result: closed };
+  }
+
+  if (action === "notify_tech_on_the_way") {
+    const idTicket = String(data?.idTicket || "").trim();
+    const clientPhone = String(data?.clientPhone || "").trim();
+    const clientName = String(data?.clientName || "Cliente").trim();
+    const firstName = clientName.split(" ")[0] || "Cliente";
+    const techName = String(data?.techName || "").trim();
+    const address = String(data?.address || "").trim();
+    const groupPhone = String(data?.groupPhone || "").trim();
+    const lat = Number(data?.latitude);
+    const lng = Number(data?.longitude);
+
+    let clientNotified = false;
+    let locationSentToGroup = false;
+
+    if (clientPhone) {
+      const { apiKey, baseUrl } = getWhapiConfig();
+      const whapi = new WhapiService(apiKey, baseUrl);
+      const msg =
+        `🚗 *Técnico AVL a Caminho!*\n\n` +
+        `Olá, *${firstName}*! Nossa equipe técnica${techName ? ` (*${techName}*)` : ""} está se deslocando agora para atender a sua *O.S. #${idTicket}*.\n` +
+        (address ? `📍 *Endereço:* ${address}\n` : "") +
+        `\nPor favor, mantenha alguém no local para acompanhar o atendimento. Qualquer dúvida, responda por aqui! 🙌`;
+      const res = await whapi.sendCustomMessage(clientPhone, msg);
+      clientNotified = res.sent;
+    }
+
+    if (groupPhone && Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0) {
+      const locRes = await sendZapiLocation({
+        phone: groupPhone,
+        latitude: lat,
+        longitude: lng,
+        title: `O.S. #${idTicket} — ${clientName}`,
+        address: address || "Localização do cliente",
+      });
+      locationSentToGroup = locRes.sent;
+    }
+
+    return { success: clientNotified || locationSentToGroup, clientNotified, locationSentToGroup };
   }
 
   if (action === "get_mikrotik_script") {

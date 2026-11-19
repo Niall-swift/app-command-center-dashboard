@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
@@ -34,6 +35,7 @@ import {
   MapPin,
   MessageSquare,
   Play,
+  Radar,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -49,7 +51,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
+  query,
+  where,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
@@ -97,11 +102,12 @@ const GRUPOS_ATALHOS_SETOR = [
     bordaGrupo: 'border-blue-500/20',
     itens: [
       { rotulo: 'Clientes Bairro/Rua', url: '/ispfy/regiao', icone: MapPin, cor: 'text-blue-500' },
+      { rotulo: 'Inteligência & CTO', url: '/ispfy/inteligencia', icone: Radar, cor: 'text-violet-500' },
       { rotulo: 'Nova O.S.', url: '/ispfy/nova-os', icone: ClipboardList, cor: 'text-emerald-500' },
       { rotulo: 'Consulta Clientes', url: '/ispfy/consulta', icone: Users, cor: 'text-indigo-500' },
       { rotulo: 'Auditoria Base', url: '/ispfy/auditoria', icone: ShieldCheck, cor: 'text-cyan-500' },
       { rotulo: 'Tickets / O.S.', url: '/ispfy/tickets', icone: Ticket, cor: 'text-amber-500' },
-      { rotulo: 'Mapa da Rede', url: '/network-map', icone: Map, cor: 'text-violet-500' },
+      { rotulo: 'Mapa da Rede', url: '/network-map', icone: Map, cor: 'text-sky-500' },
     ],
   },
   {
@@ -177,6 +183,13 @@ function extrairMilissegundos(
   return Number.isNaN(convertido) ? 0 : convertido;
 }
 
+function obterSaudacaoHorario(): string {
+  const hora = new Date().getHours();
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
 /** Painel inicial executivo com saúde da rede em tempo real, inadimplência e atalhos. */
 export default function Dashboard() {
   const navegar = useNavigate();
@@ -230,7 +243,11 @@ export default function Dashboard() {
     );
 
     const cancelarResgates = onSnapshot(
-      collection(db, 'redeemedRewards'),
+      query(
+        collection(db, 'redeemedRewards'),
+        where('status', '==', 'pending'),
+        limit(30)
+      ),
       async (snapshot) => {
         const todosResgates: ResgateRecentePreMix[] = snapshot.docs.map(
           (docSnap) => {
@@ -332,8 +349,13 @@ export default function Dashboard() {
   const pontosInativos = totaisRede?.inativos ?? 0;
   const percentualOnline =
     pontosAtivos > 0 ? Math.round((pontosOk / pontosAtivos) * 1000) / 10 : 0;
+  const percentualBloqueados =
+    pontosAtivos > 0 ? Math.round((pontosBloqueados / pontosAtivos) * 1000) / 10 : 0;
+  const percentualDesconectados =
+    pontosAtivos > 0 ? Math.round((pontosDesconectados / pontosAtivos) * 1000) / 10 : 0;
 
   const carregandoIndicadoresRede = carregandoRegiao && !totaisRede;
+  const saudacaoAtual = obterSaudacaoHorario();
 
   const cardsIndicadoresRede = [
     {
@@ -341,9 +363,10 @@ export default function Dashboard() {
       titulo: 'Clientes Ativos (Pontos)',
       valor: pontosAtivos.toLocaleString('pt-BR'),
       corBarra: 'bg-blue-500',
+      glowBg: 'bg-blue-500',
       bordaHover: 'hover:border-blue-500/50',
       corValor: 'text-foreground',
-      caixaIcone: 'bg-blue-500/10 text-blue-500',
+      caixaIcone: 'bg-blue-500/12 text-blue-600 dark:text-blue-400 border border-blue-500/20',
       Icone: Users,
       rodape: (
         <p className="text-xs text-muted-foreground mt-2.5 font-medium">
@@ -357,9 +380,10 @@ export default function Dashboard() {
       titulo: 'Com Internet OK',
       valor: pontosOk.toLocaleString('pt-BR'),
       corBarra: 'bg-emerald-500',
+      glowBg: 'bg-emerald-500',
       bordaHover: 'hover:border-emerald-500/50',
       corValor: 'text-emerald-600 dark:text-emerald-400',
-      caixaIcone: 'bg-emerald-500/10 text-emerald-500',
+      caixaIcone: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
       Icone: Wifi,
       rodape: (
         <p className="text-xs text-muted-foreground mt-2.5 font-medium flex items-center gap-1.5">
@@ -373,11 +397,12 @@ export default function Dashboard() {
       titulo: 'Sem Internet (Quedas)',
       valor: pontosDesconectados.toLocaleString('pt-BR'),
       corBarra: 'bg-rose-500',
+      glowBg: 'bg-rose-500',
       bordaHover: `hover:border-rose-500/60 ${
-        pontosDesconectados > 0 ? 'ring-1 ring-rose-500/20' : ''
+        pontosDesconectados > 0 ? 'ring-1 ring-rose-500/25' : ''
       }`,
       corValor: 'text-rose-600 dark:text-rose-400',
-      caixaIcone: 'bg-rose-500/10 text-rose-500',
+      caixaIcone: 'bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-500/20',
       Icone: WifiOff,
       rodape: (
         <p className="text-xs text-muted-foreground mt-2.5 font-medium">
@@ -390,9 +415,10 @@ export default function Dashboard() {
       titulo: 'Bloqueados / Em Atraso',
       valor: pontosBloqueados.toLocaleString('pt-BR'),
       corBarra: 'bg-amber-500',
+      glowBg: 'bg-amber-500',
       bordaHover: 'hover:border-amber-500/50',
       corValor: 'text-amber-600 dark:text-amber-400',
-      caixaIcone: 'bg-amber-500/10 text-amber-500',
+      caixaIcone: 'bg-amber-500/12 text-amber-600 dark:text-amber-400 border border-amber-500/20',
       Icone: Lock,
       rodape: (
         <p className="text-xs text-muted-foreground mt-2.5 font-medium">
@@ -409,61 +435,153 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 text-foreground pb-10">
       {/* ── Cabeçalho Executivo & Monitor ao Vivo ── */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-5 sm:p-6 border border-blue-500/20 shadow-xl text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded-full border border-emerald-400/25">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    monitorAtivo
-                      ? 'bg-emerald-400 animate-pulse'
-                      : 'bg-slate-400'
+      <div className="relative overflow-hidden rounded-2xl avl-hero-mesh p-5 sm:p-6 border border-blue-500/25 shadow-2xl text-white">
+        <div className="relative z-10 space-y-5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded-full border border-emerald-400/25">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      monitorAtivo
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  {monitorAtivo
+                    ? `Monitor Global Ativo (${intervaloVerificacaoSeg}s)`
+                    : 'Monitor Pausado'}
+                </span>
+                {ultimaAtualizacaoEm && (
+                  <span className="text-[11px] text-slate-300 flex items-center gap-1 font-mono">
+                    <Clock className="w-3 h-3 text-blue-300" />
+                    Atualizado às {ultimaAtualizacaoEm.toLocaleTimeString('pt-BR')}
+                  </span>
+                )}
+              </div>
+
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+                {saudacaoAtual}, {userData?.name || user?.displayName || 'Operador'}!
+              </h1>
+              <p className="text-slate-300 text-xs sm:text-sm max-w-2xl">
+                Central executiva da rede ISPFY, saúde de conectividade em tempo real, radar de inadimplência e ações rápidas do NOC.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navegar('/ispfy/regiao')}
+                className="bg-white/10 hover:bg-white/20 border-white/15 text-white text-xs h-9 rounded-xl backdrop-blur-sm"
+              >
+                <MapPin className="w-3.5 h-3.5 mr-1.5 text-blue-300" />
+                Mapa Bairro/Rua
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navegar('/ispfy/inteligencia')}
+                className="bg-white/10 hover:bg-white/20 border-white/15 text-white text-xs h-9 rounded-xl backdrop-blur-sm"
+              >
+                <Radar className="w-3.5 h-3.5 mr-1.5 text-violet-300" />
+                Inteligência &amp; CTO
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navegar('/ispfy/nova-os')}
+                className="bg-white/10 hover:bg-white/20 border-white/15 text-white text-xs h-9 rounded-xl backdrop-blur-sm hidden sm:inline-flex"
+              >
+                <ClipboardList className="w-3.5 h-3.5 mr-1.5 text-emerald-300" />
+                Nova O.S.
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navegar('/chat')}
+                className="bg-white/10 hover:bg-white/20 border-white/15 text-white text-xs h-9 rounded-xl backdrop-blur-sm hidden sm:inline-flex"
+              >
+                <MessageSquare className="w-3.5 h-3.5 mr-1.5 text-sky-300" />
+                Chat ao Vivo
+              </Button>
+              <Button
+                size="sm"
+                onClick={atualizarTudo}
+                disabled={carregandoRegiao || verificandoAgora}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-xs h-9 rounded-xl shadow-lg shadow-blue-600/30 font-semibold"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 mr-1.5 ${
+                    carregandoRegiao || verificandoAgora ? 'animate-spin' : ''
                   }`}
                 />
-                {monitorAtivo
-                  ? `Monitor Global Ativo (${intervaloVerificacaoSeg}s)`
-                  : 'Monitor Pausado'}
-              </span>
-              {ultimaAtualizacaoEm && (
-                <span className="text-[11px] text-slate-300 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-blue-300" />
-                  Atualizado às {ultimaAtualizacaoEm.toLocaleTimeString('pt-BR')}
+                Atualizar
+              </Button>
+            </div>
+          </div>
+
+          {/* Barra Segmentada de Saúde da Rede ao Vivo */}
+          <div className="rounded-xl bg-white/[0.06] border border-white/10 backdrop-blur-md p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  Saúde da Rede ao Vivo
                 </span>
+              </div>
+              {carregandoIndicadoresRede ? (
+                <Skeleton className="h-4 w-36 bg-white/15" />
+              ) : (
+                <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-300">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    Online:{' '}
+                    <strong className="text-emerald-300 font-mono">
+                      {percentualOnline}%
+                    </strong>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    Bloqueados:{' '}
+                    <strong className="text-amber-300 font-mono">
+                      {percentualBloqueados}%
+                    </strong>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-400" />
+                    Quedas:{' '}
+                    <strong className="text-rose-300 font-mono">
+                      {percentualDesconectados}%
+                    </strong>
+                  </span>
+                </div>
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Olá, {userData?.name || user?.displayName || 'Usuário'}! 👋
-            </h1>
-            <p className="text-slate-300 text-xs sm:text-sm max-w-2xl">
-              Visão organizada da rede ISPFY, clientes conectados vs. sem internet, inadimplência por vencimento e ferramentas operacionais.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navegar('/ispfy/regiao')}
-              className="bg-white/10 hover:bg-white/20 border-white/20 text-white text-xs h-9"
-            >
-              <MapPin className="w-3.5 h-3.5 mr-1.5" />
-              Mapa Bairro / Rua
-            </Button>
-            <Button
-              size="sm"
-              onClick={atualizarTudo}
-              disabled={carregandoRegiao || verificandoAgora}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-xs h-9"
-            >
-              <RefreshCw
-                className={`w-3.5 h-3.5 mr-1.5 ${
-                  carregandoRegiao || verificandoAgora ? 'animate-spin' : ''
-                }`}
-              />
-              Atualizar Painel
-            </Button>
+            <div className="h-2.5 w-full rounded-full bg-slate-900/70 overflow-hidden flex p-[1px] gap-[2px] border border-white/10">
+              {carregandoIndicadoresRede ? (
+                <div className="h-full w-full rounded-full animate-shimmer bg-white/10" />
+              ) : (
+                <>
+                  <div
+                    className="h-full rounded-l-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700"
+                    style={{ width: `${Math.max(percentualOnline, 0)}%` }}
+                    title={`Internet OK: ${pontosOk} (${percentualOnline}%)`}
+                  />
+                  <div
+                    className="h-full bg-amber-400 transition-all duration-700"
+                    style={{ width: `${Math.max(percentualBloqueados, 0)}%` }}
+                    title={`Bloqueados: ${pontosBloqueados} (${percentualBloqueados}%)`}
+                  />
+                  <div
+                    className="h-full rounded-r-full bg-rose-500 transition-all duration-700"
+                    style={{ width: `${Math.max(percentualDesconectados, 0)}%` }}
+                    title={`Sem Internet: ${pontosDesconectados} (${percentualDesconectados}%)`}
+                  />
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -476,30 +594,42 @@ export default function Dashboard() {
             <Card
               key={indicador.statusFiltro}
               onClick={() => aoNavegarRegiao(indicador.statusFiltro)}
-              className={`cursor-pointer transition-all bg-card border-border shadow-sm relative overflow-hidden ${indicador.bordaHover}`}
+              className={`kpi-card group cursor-pointer bg-card border-border/80 relative overflow-hidden ${indicador.bordaHover}`}
             >
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute -top-10 -right-10 w-28 h-28 rounded-full blur-2xl opacity-15 group-hover:opacity-30 transition-opacity ${indicador.glowBg}`}
+              />
               <div
                 className={`absolute top-0 left-0 w-1.5 h-full ${indicador.corBarra}`}
               />
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                       {indicador.titulo}
                     </p>
-                    <h3
-                      className={`text-3xl font-black mt-1 tabular-nums ${indicador.corValor}`}
-                    >
-                      {carregandoIndicadoresRede ? '...' : indicador.valor}
-                    </h3>
+                    {carregandoIndicadoresRede ? (
+                      <Skeleton className="h-9 w-24 mt-1.5 rounded-lg" />
+                    ) : (
+                      <h3
+                        className={`text-3xl font-black mt-1 tabular-nums tracking-tight ${indicador.corValor}`}
+                      >
+                        {indicador.valor}
+                      </h3>
+                    )}
                   </div>
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${indicador.caixaIcone}`}
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105 ${indicador.caixaIcone}`}
                   >
                     <IconeCard className="w-5 h-5" />
                   </div>
                 </div>
                 {indicador.rodape}
+                <div className="mt-3 pt-2.5 border-t border-border/50 flex items-center justify-between text-[11px] font-semibold text-muted-foreground group-hover:text-primary transition-colors">
+                  <span>Ver detalhes na região</span>
+                  <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+                </div>
               </CardContent>
             </Card>
           );
@@ -609,11 +739,13 @@ export default function Dashboard() {
                     <p className="text-[11px] font-bold text-muted-foreground uppercase">
                       Cadastros no App
                     </p>
-                    <p className="text-2xl font-black text-foreground mt-0.5">
-                      {carregandoPreMix
-                        ? '...'
-                        : totalUsuariosPreMix.toLocaleString('pt-BR')}
-                    </p>
+                    {carregandoPreMix ? (
+                      <Skeleton className="h-7 w-16 mt-1 rounded-md" />
+                    ) : (
+                      <p className="text-2xl font-black text-foreground mt-0.5 tabular-nums">
+                        {totalUsuariosPreMix.toLocaleString('pt-BR')}
+                      </p>
+                    )}
                   </div>
                   <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center">
                     <Users className="w-4 h-4" />
@@ -625,9 +757,13 @@ export default function Dashboard() {
                     <p className="text-[11px] font-bold text-muted-foreground uppercase">
                       Resgates Pendentes
                     </p>
-                    <p className="text-2xl font-black text-foreground mt-0.5">
-                      {carregandoPreMix ? '...' : qtdResgatesPendentes}
-                    </p>
+                    {carregandoPreMix ? (
+                      <Skeleton className="h-7 w-14 mt-1 rounded-md" />
+                    ) : (
+                      <p className="text-2xl font-black text-foreground mt-0.5 tabular-nums">
+                        {qtdResgatesPendentes}
+                      </p>
+                    )}
                   </div>
                   <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center">
                     <Hourglass className="w-4 h-4" />

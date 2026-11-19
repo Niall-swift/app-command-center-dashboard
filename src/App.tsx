@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { AnimatePresence } from "framer-motion";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { NetworkMonitorProvider } from "./contexts/NetworkMonitorContext";
@@ -43,60 +42,67 @@ const ISPFYNovaOS = lazy(() => import("./pages/ISPFYNovaOS"));
 const ISPFYAuditoria = lazy(() => import("./pages/ISPFYAuditoria"));
 const ISPFYClientesRegiao = lazy(() => import("./pages/ISPFYClientesRegiao"));
 const ISPFYCarencia = lazy(() => import("./pages/ISPFYCarencia"));
+const ISPFYInteligencia = lazy(() => import("./pages/ISPFYInteligencia"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const AVLPlayAnalytics = lazy(() => import("./pages/AVLPlayAnalytics"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function PageLoader() {
   return (
-    <div className="min-h-[60vh] flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-        <p className="mt-2 text-sm text-muted-foreground">Carregando módulo...</p>
+    <div className="min-h-[50vh] flex items-center justify-center">
+      <div className="text-center space-y-2">
+        <div className="animate-spin rounded-full h-7 w-7 border-2 border-primary border-t-transparent mx-auto" />
+        <p className="text-xs text-muted-foreground font-medium">Carregando módulo...</p>
       </div>
     </div>
   );
 }
 
 function AnimatedRoutes() {
-  const location = useLocation();
-
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/chat" element={<Chat />} />
-        <Route path="/requests" element={<Requests />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/bots" element={<Bots />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/raffle" element={<Raffle />} />
-        <Route path="/paid-raffles" element={<PaidRaffles />} />
-        <Route path="/movies" element={<Movies />} />
-        <Route path="/series" element={<Series />} />
-        <Route path="/avlplay-analytics" element={<AVLPlayAnalytics />} />
-        <Route path="/technical-support" element={<TechnicalSupport />} />
-        <Route path="/network-map" element={<NetworkMap />} />
-        <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
-        <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
-        <Route path="/ispfy/regiao" element={<ISPFYClientesRegiao />} />
-        <Route path="/ispfy/cliente/:id" element={<ISPFYClientDetails />} />
-        <Route path="/ispfy/financeiro" element={<ISPFYFinanceiro />} />
-        <Route path="/ispfy/tickets" element={<ISPFYTickets />} />
-        <Route path="/ispfy/dici" element={<ISPFYDici />} />
-        <Route path="/ispfy/exportar-ativos" element={<ISPFYActiveClientsExport />} />
-        <Route path="/ispfy/vencimentos" element={<ISPFYVencimentos />} />
-        <Route path="/ispfy/nova-os" element={<ISPFYNovaOS />} />
-        <Route path="/ispfy/carencia" element={<ISPFYCarencia />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
-        <Route path="/rewards-management" element={<RewardsManagement />} />
-        <Route path="/redemption-orders" element={<RedemptionOrders />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </AnimatePresence>
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/chat" element={<Chat />} />
+      <Route path="/requests" element={<Requests />} />
+      <Route path="/analytics" element={<Analytics />} />
+      <Route path="/bots" element={<Bots />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="/raffle" element={<Raffle />} />
+      <Route path="/paid-raffles" element={<PaidRaffles />} />
+      <Route path="/movies" element={<Movies />} />
+      <Route path="/series" element={<Series />} />
+      <Route path="/avlplay-analytics" element={<AVLPlayAnalytics />} />
+      <Route path="/technical-support" element={<TechnicalSupport />} />
+      <Route path="/network-map" element={<NetworkMap />} />
+      <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
+      <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
+      <Route path="/ispfy/regiao" element={<ISPFYClientesRegiao />} />
+      <Route path="/ispfy/inteligencia" element={<ISPFYInteligencia />} />
+      <Route path="/ispfy/cliente/:id" element={<ISPFYClientDetails />} />
+      <Route path="/ispfy/financeiro" element={<ISPFYFinanceiro />} />
+      <Route path="/ispfy/tickets" element={<ISPFYTickets />} />
+      <Route path="/ispfy/dici" element={<ISPFYDici />} />
+      <Route path="/ispfy/exportar-ativos" element={<ISPFYActiveClientsExport />} />
+      <Route path="/ispfy/vencimentos" element={<ISPFYVencimentos />} />
+      <Route path="/ispfy/nova-os" element={<ISPFYNovaOS />} />
+      <Route path="/ispfy/carencia" element={<ISPFYCarencia />} />
+      <Route path="/notifications" element={<Notifications />} />
+      <Route path="/whatsapp/bulk" element={<WhatsAppBulkSender />} />
+      <Route path="/rewards-management" element={<RewardsManagement />} />
+      <Route path="/redemption-orders" element={<RedemptionOrders />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 }
 

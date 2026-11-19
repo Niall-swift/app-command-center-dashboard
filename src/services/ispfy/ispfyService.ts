@@ -442,61 +442,185 @@ class ISPFYService {
     return rows[0] ?? null;
   }
 
+  private buildPhoneLookupKeys(rawPhone: string): {
+    digits: string;
+    local: string;
+    ddd: string;
+    suffix8: string;
+    variants: Set<string>;
+    formattedCandidates: string[];
+  } {
+    const digits = String(rawPhone || '').replace(/\D/g, '');
+    let local = digits;
+    if (local.startsWith('55') && local.length >= 12) {
+      local = local.slice(2);
+    }
+    const ddd = local.length >= 10 ? local.slice(0, 2) : '';
+    const rest = ddd ? local.slice(2) : local;
+    const suffix8 = local.slice(-8);
+
+    const variants = new Set<string>();
+    if (digits) variants.add(digits);
+    if (local) {
+      variants.add(local);
+      if (local.length >= 10) variants.add(`55${local}`);
+    }
+    if (ddd && rest.length === 9 && rest.startsWith('9')) {
+      const noNine = `${ddd}${rest.slice(1)}`;
+      variants.add(noNine);
+      variants.add(`55${noNine}`);
+    } else if (ddd && rest.length === 8) {
+      const withNine = `${ddd}9${rest}`;
+      variants.add(withNine);
+      variants.add(`55${withNine}`);
+    }
+
+    const formattedCandidates: string[] = [];
+    if (ddd && rest.length === 9) {
+      formattedCandidates.push(
+        local,
+        `55${local}`,
+        `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`,
+        `(${ddd}) ${rest.slice(1, 5)}-${rest.slice(5)}`
+      );
+    } else if (ddd && rest.length === 8) {
+      formattedCandidates.push(
+        local,
+        `55${local}`,
+        `(${ddd}) 9${rest.slice(0, 4)}-${rest.slice(4)}`,
+        `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`
+      );
+    } else if (local) {
+      formattedCandidates.push(local);
+    }
+
+    return {
+      digits,
+      local,
+      ddd,
+      suffix8,
+      variants,
+      formattedCandidates: Array.from(new Set(formattedCandidates.filter(Boolean))),
+    };
+  }
+
+  private doesPhoneMatchKeys(
+    candidateRaw: unknown,
+    target: ReturnType<ISPFYService['buildPhoneLookupKeys']>
+  ): boolean {
+    const candDigits = String(candidateRaw || '').replace(/\D/g, '');
+    if (candDigits.length < 8) return false;
+
+    const candLocal =
+      candDigits.startsWith('55') && candDigits.length >= 12
+        ? candDigits.slice(2)
+        : candDigits;
+
+    if (target.variants.has(candDigits) || target.variants.has(candLocal)) {
+      return true;
+    }
+
+    // Tolerância para números gravados sem o 9º dígito ou sem DDD
+    if (target.suffix8.length === 8 && candLocal.endsWith(target.suffix8)) {
+      if (candLocal.length <= 9 || !target.ddd) return true;
+      return candLocal.slice(0, 2) === target.ddd;
+    }
+
+    return false;
+  }
+
   async getClienteByPhone(phone: string): Promise<ISPFYClienteData | null> {
-    console.log(`🔍 Iniciando busca no ISPFY para o telefone: ${phone}`);
+    const keys = this.buildPhoneLookupKeys(phone);
+    if (keys.suffix8.length < 8) return null;
 
-    let cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.startsWith('55') && cleanPhone.length > 10) {
-      cleanPhone = cleanPhone.substring(2);
+    // 1. Busca instantânea (0 HTTP) no cache em memória de contatos + clientes se já carregado
+    if (this.regionMetadataCache) {
+      const { allContatos, allClientes } = this.regionMetadataCache;
+      const matchedContato = allContatos.find((ct: Record<string, unknown>) =>
+        [ct?.contato, ct?.valor, ct?.numero, ct?.telefone, ct?.fone, ct?.celular].some((v) =>
+          this.doesPhoneMatchKeys(v, keys)
+        )
+      );
+      if (matchedContato?.id_cliente) {
+        const cid = String(matchedContato.id_cliente);
+        const fromCache = allClientes.find((c) => String(c.id) === cid);
+        if (fromCache) return fromCache;
+        const fresh = await this.getClienteById(cid).catch(() => null);
+        if (fresh) return fresh;
+      }
+
+      const matchedClient = allClientes.find((cli) =>
+        [
+          cli.fone_whatsapp,
+          cli.fone_celular,
+          cli.telefone_celular,
+          cli.fone_residencial,
+          cli.telefone,
+          cli.celular,
+        ].some((v) => this.doesPhoneMatchKeys(v, keys))
+      );
+      if (matchedClient) return matchedClient;
     }
-    console.log(`📱 Telefone limpo para busca: ${cleanPhone}`);
 
-    const ddd = cleanPhone.slice(0, 2);
-    const rest = cleanPhone.slice(2);
-
-    let formattedCel = '';
-    let formattedFix = '';
-
-    if (rest.length === 9) {
-      formattedCel = `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
-      formattedFix = `(${ddd}) ${rest.slice(1, 5)}-${rest.slice(5)}`;
-    } else if (rest.length === 8) {
-      formattedCel = `(${ddd}) 9${rest.slice(0, 4)}-${rest.slice(4)}`;
-      formattedFix = `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+    // 2. Busca real na tabela /cliente/contato do ISPFY (onde ficam os WhatsApps/telefones)
+    try {
+      const contatoResp = await this.makeRequest<Record<string, unknown>>('/cliente/contato', {
+        search: keys.suffix8,
+        limit: 40,
+      });
+      const contatos = this.getRows(contatoResp);
+      const matchContato = contatos.find((ct) =>
+        [ct?.contato, ct?.valor, ct?.numero, ct?.telefone, ct?.fone, ct?.celular].some((v) =>
+          this.doesPhoneMatchKeys(v, keys)
+        )
+      );
+      if (matchContato?.id_cliente) {
+        const client = await this.getClienteById(String(matchContato.id_cliente));
+        if (client) return client;
+      }
+    } catch {
+      // segue para busca direta em /cliente
     }
 
-    const fields = [
-      'fone_celular',
-      'fone_whatsapp',
-      'fone_residencial',
-      'telefone_celular',
-    ];
+    // 3. Busca textual em /cliente pelos últimos 8 dígitos
+    try {
+      const cliResp = await this.makeRequest<ISPFYClienteData>('/cliente', {
+        search: keys.suffix8,
+        limit: 25,
+      });
+      const clientes = this.getRows(cliResp);
+      const matchCli = clientes.find((cli) =>
+        [
+          cli.fone_whatsapp,
+          cli.fone_celular,
+          cli.telefone_celular,
+          cli.fone_residencial,
+          cli.telefone,
+          cli.celular,
+        ].some((v) => this.doesPhoneMatchKeys(v, keys))
+      );
+      if (matchCli) return matchCli;
+    } catch {
+      // segue para fallback exato
+    }
 
-    const searchTerms = [formattedCel, formattedFix, `%${cleanPhone.slice(-8)}%`].filter(
-      (t) => t !== ''
-    );
-
-    for (const term of searchTerms) {
-      const operator: ISPFYOperator = 'EQ';
-      for (const field of fields) {
-        console.log(`📡 Tentando campo: ${field} com termo: ${term}`);
-        try {
-          const response = await this.makeRequest<ISPFYClienteData>('/cliente', {
-            filter: buildFilter(field, operator, term),
-            limit: 1,
-          });
-          const rows = this.getRows(response);
-          if (rows.length > 0) {
-            console.log(`✅ Cliente encontrado! Campo: ${field}, Termo: ${term}`, rows[0].razao);
-            return rows[0];
-          }
-        } catch {
-          // Continua tentando
+    // 4. Fallback por filtro EQ em /cliente/contato para formatos comuns (com/sem máscara e 9º dígito)
+    for (const candidate of keys.formattedCandidates) {
+      try {
+        const resp = await this.makeRequest<Record<string, unknown>>('/cliente/contato', {
+          filter: buildFilter('contato', 'EQ', candidate),
+          limit: 5,
+        });
+        const rows = this.getRows(resp);
+        if (rows[0]?.id_cliente) {
+          const client = await this.getClienteById(String(rows[0].id_cliente));
+          if (client) return client;
         }
+      } catch {
+        // tenta próximo formato
       }
     }
 
-    console.warn(`⚠️ Nenhum cliente encontrado no ISPFY para o telefone ${phone}`);
     return null;
   }
 
@@ -915,16 +1039,24 @@ class ISPFYService {
   // =====================================================================
 
   async getFaturasByCliente(idCliente: string): Promise<ISPFYFaturaData[]> {
-    // Cobranca nao tem id_cliente, busca pelos contratos do cliente primeiro
+    // Cobrança não tem id_cliente: busca em todos os contratos recentes do cliente (não apenas o 1º)
     const contratos = await this.getContratosByCliente(idCliente);
     if (contratos.length === 0) return [];
-    const contratoId = contratos[0].id; // usa o primeiro contrato
-    const response = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('id_contrato', 'EQ', contratoId),
-      limit: 1000,
-      sort: 'data_vencimento:ASC',
-    });
-    return this.getRows(response);
+
+    const contratosAlvo = contratos.slice(0, 5).filter((c) => Boolean(c.id));
+    const listas = await Promise.all(
+      contratosAlvo.map((c) =>
+        this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+          filter: buildFilter('id_contrato', 'EQ', String(c.id)),
+          limit: 200,
+          sort: 'data_vencimento:ASC',
+        })
+          .then((resp) => this.getRows(resp))
+          .catch(() => [] as ISPFYFaturaData[])
+      )
+    );
+
+    return listas.flat();
   }
 
   async getFaturasAbertas(idCliente?: string): Promise<ISPFYFaturaData[]> {
@@ -1213,8 +1345,68 @@ class ISPFYService {
   }
 
   // =====================================================================
-  // PIX / BOLETO (Tool Oficial + Fallback Object)
+  // PIX / BOLETO (Campos diretos + Tool Oficial + Fallback Object)
   // =====================================================================
+
+  extractPixFromInvoiceRecord(rec: Record<string, unknown> | null | undefined): string {
+    if (!rec || typeof rec !== 'object') return '';
+    const directCandidates = [
+      rec.pix_copia_cola,
+      rec.pix_copia_e_cola,
+      rec.pix_qrcode,
+      rec.qrcode_pix,
+      rec.codigo_pix,
+      rec.pix,
+      rec.qrcode_text,
+      rec.qr_code,
+      rec.emv,
+      rec.pix_emv,
+      rec.gateway_link,
+      rec.link_getwere,
+      rec.url_boleto,
+      rec.b_link_getwere,
+    ];
+    for (const val of directCandidates) {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed.startsWith('000201') && trimmed.length > 30) {
+          return trimmed;
+        }
+      }
+    }
+    // Varredura genérica em qualquer propriedade que contenha um BR Code EMV (000201...)
+    for (const val of Object.values(rec)) {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed.startsWith('000201') && trimmed.length > 30) {
+          return trimmed;
+        }
+      }
+    }
+    return '';
+  }
+
+  extractHttpLinkFromInvoiceRecord(rec: Record<string, unknown> | null | undefined): string {
+    if (!rec || typeof rec !== 'object') return '';
+    const candidates = [
+      rec.url_boleto,
+      rec.link_boleto,
+      rec.gateway_link,
+      rec.link_getwere,
+      rec.b_link_getwere,
+      rec.link,
+      rec.linkPublico,
+    ];
+    for (const val of candidates) {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (/^https?:\/\//i.test(trimmed)) {
+          return trimmed;
+        }
+      }
+    }
+    return '';
+  }
 
   async getBoletosAssinante(
     cpfCnpj: string,
@@ -1223,10 +1415,10 @@ class ISPFYService {
     const digits = cpfCnpj.replace(/\D/g, '');
     if (!digits) return [];
     const masked = this.formatCpfCnpjForTool(digits);
-    const tipo = options?.tipo || 'fatura';
+    const tipos = options?.tipo ? [options.tipo] : (['fatura', 'carne'] as const);
 
-    const run = async (docParam: string) => {
-      const baseParams: Record<string, any> = { doc: docParam, tipo };
+    const run = async (docParam: string, tipoParam: string) => {
+      const baseParams: Record<string, any> = { doc: docParam, tipo: tipoParam };
       if (options?.status) baseParams.status = options.status;
 
       const [detalhesRaw, linksRaw] = await Promise.all([
@@ -1238,30 +1430,58 @@ class ISPFYService {
         }).catch(() => null),
       ]);
 
-      const cobrancas: any[] = Array.isArray(detalhesRaw?.cobrancas) ? detalhesRaw.cobrancas : [];
-      const links: string[] = Array.isArray(linksRaw?.links) ? linksRaw.links : [];
+      const cobrancas: any[] = Array.isArray(detalhesRaw?.cobrancas)
+        ? detalhesRaw.cobrancas
+        : Array.isArray(detalhesRaw?.dados)
+        ? detalhesRaw.dados
+        : Array.isArray(detalhesRaw)
+        ? detalhesRaw
+        : [];
+      const links: string[] = Array.isArray(linksRaw?.links)
+        ? linksRaw.links
+        : Array.isArray(linksRaw)
+        ? linksRaw
+        : [];
 
       return cobrancas.map((item, idx) => {
         const idStr = String(item?.id || '');
         const matchedLink =
           links.find((l) => idStr && String(l).endsWith(`/${idStr}`)) ||
           links[idx] ||
-          item?.link ||
+          this.extractHttpLinkFromInvoiceRecord(item) ||
           '';
+        const extractedPix =
+          this.extractPixFromInvoiceRecord(item) || String(item?.pix || '').trim();
         return {
           id: idStr,
-          vencimento: String(item?.vencimento || ''),
+          vencimento: String(item?.vencimento || item?.data_vencimento || ''),
           valor: String(item?.valor || ''),
-          linha: String(item?.linha || ''),
+          linha: String(item?.linha || item?.linha_digitavel || ''),
           link: String(matchedLink || ''),
-          pix: String(item?.pix || ''),
+          pix: extractedPix,
         };
       });
     };
 
-    const viaMask = await run(masked);
-    if (viaMask.length > 0 || masked === digits) return viaMask;
-    return run(digits);
+    const collected: ISPFYBoletoToolDetalhe[] = [];
+    const seen = new Set<string>();
+
+    for (const tipoItem of tipos) {
+      let rows = await run(masked, tipoItem);
+      if (rows.length === 0 && masked !== digits) {
+        rows = await run(digits, tipoItem);
+      }
+      for (const r of rows) {
+        const key = r.id || `${r.vencimento}_${r.valor}_${r.pix.slice(0, 12)}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          collected.push(r);
+        }
+      }
+      if (collected.some((b) => Boolean(b.pix))) break;
+    }
+
+    return collected;
   }
 
   private async resolveCpfByInvoiceId(idFatura: string): Promise<string | null> {
@@ -1290,30 +1510,97 @@ class ISPFYService {
     }
   }
 
-  async getPixQrCode(idFatura: string, cpfCnpj?: string): Promise<ISPFYPixData | null> {
+  async getPixQrCode(
+    idFatura: string,
+    cpfCnpj?: string,
+    invoiceHint?: ISPFYFaturaData | null
+  ): Promise<ISPFYPixData | null> {
     try {
+      // 1. Verifica imediatamente se o registro da fatura já possui PIX EMV (000201...)
+      if (invoiceHint) {
+        const inlinePix = this.extractPixFromInvoiceRecord(invoiceHint);
+        const inlineLink = this.extractHttpLinkFromInvoiceRecord(invoiceHint);
+        if (inlinePix) {
+          return {
+            qrcode: inlinePix,
+            qrcode_text: inlinePix,
+            qr_code: inlinePix,
+            pix_copia_cola: inlinePix,
+            linha_digitavel: String(invoiceHint.linha_digitavel || ''),
+            link_boleto: inlineLink,
+          };
+        }
+      }
+
+      // 2. Busca o registro atualizado da cobrança no /cliente/contrato/cobranca
+      let directInvoice: ISPFYFaturaData | null = null;
+      if (idFatura) {
+        const invResp = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+          filter: buildFilter('id', 'EQ', idFatura),
+          limit: 1,
+        }).catch(() => null);
+        directInvoice = invResp ? this.getRows(invResp)[0] ?? null : null;
+        if (directInvoice) {
+          const directPix = this.extractPixFromInvoiceRecord(directInvoice);
+          if (directPix) {
+            return {
+              qrcode: directPix,
+              qrcode_text: directPix,
+              qr_code: directPix,
+              pix_copia_cola: directPix,
+              linha_digitavel: String(directInvoice.linha_digitavel || ''),
+              link_boleto: this.extractHttpLinkFromInvoiceRecord(directInvoice),
+            };
+          }
+        }
+      }
+
+      // 3. Consulta rota oficial /api/tool/assinante/boleto (fatura + carnê)
       const doc = cpfCnpj || (await this.resolveCpfByInvoiceId(idFatura));
       if (doc) {
-        const boletos = await this.getBoletosAssinante(doc).catch(() => []);
-        const match = boletos.find((b) => b.id === String(idFatura)) || boletos[0];
-        if (match?.pix || match?.linha) {
+        let boletos = await this.getBoletosAssinante(doc, { status: 'aberto' }).catch(() => []);
+        if (boletos.length === 0 || !boletos.some((b) => b.id === String(idFatura) && b.pix)) {
+          const todos = await this.getBoletosAssinante(doc).catch(() => []);
+          if (todos.length > 0) boletos = [...boletos, ...todos];
+        }
+        const match =
+          boletos.find((b) => b.id === String(idFatura) && b.pix) ||
+          boletos.find((b) => b.id === String(idFatura)) ||
+          boletos.find((b) => Boolean(b.pix)) ||
+          boletos[0];
+
+        if (match?.pix || match?.linha || match?.link) {
           return {
             qrcode: match.pix || '',
             qrcode_text: match.pix || '',
             qr_code: match.pix || '',
             pix_copia_cola: match.pix || '',
-            linha_digitavel: match.linha || '',
-            link_boleto: match.link || '',
+            linha_digitavel: match.linha || String(directInvoice?.linha_digitavel || ''),
+            link_boleto: match.link || this.extractHttpLinkFromInvoiceRecord(directInvoice),
           };
         }
       }
 
-      const response = await this.client.post<ISPFYPixData>(
-        `/api/object/get_pix_qrcode/${idFatura}`,
-        { id: idFatura },
-        { headers: this.token ? { Token: this.token } : {} }
-      );
-      return response.data;
+      // 4. Se não houve PIX mas a cobrança tem linha digitável ou link de boleto, devolve para não travar o atendente
+      const fallbackLinha = String(
+        directInvoice?.linha_digitavel || invoiceHint?.linha_digitavel || ''
+      ).trim();
+      const fallbackLink =
+        this.extractHttpLinkFromInvoiceRecord(directInvoice) ||
+        this.extractHttpLinkFromInvoiceRecord(invoiceHint);
+
+      if (fallbackLinha || fallbackLink) {
+        return {
+          qrcode: '',
+          qrcode_text: '',
+          qr_code: '',
+          pix_copia_cola: '',
+          linha_digitavel: fallbackLinha,
+          link_boleto: fallbackLink,
+        };
+      }
+
+      return null;
     } catch (error) {
       console.error(`Erro ao obter PIX para fatura ${idFatura}:`, error);
       return null;

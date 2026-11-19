@@ -89,6 +89,7 @@ interface IspfyAutomationsSettings {
     sendD0DueToday?: boolean;
     sendD5Overdue?: boolean;
     sendD15Warning?: boolean;
+    useNativePixButton?: boolean;
   };
   welcomeSync?: {
     enabled?: boolean;
@@ -108,7 +109,9 @@ interface BillingRulerLogItem {
   dueIso?: string;
   valor?: unknown;
   hasPix?: boolean;
+  pixButtonSent?: boolean;
   status?: string;
+  deliveryStatus?: 'SENT' | 'RECEIVED' | 'READ' | 'PLAYED' | null;
   error?: string | null;
   sentAt?: unknown;
 }
@@ -841,6 +844,27 @@ export default function Bots() {
                   })}
                 </div>
 
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20">
+                  <div>
+                    <p className="text-xs font-semibold">Enviar Botão Nativo de PIX (Z-API `/send-button-pix`)</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Além da mensagem com resumo, envia o botão interativo de copiar PIX com 1 toque quando a fatura possuir código PIX.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.billingRuler?.useNativePixButton !== false}
+                    disabled={savingKey === 'useNativePixButton'}
+                    onCheckedChange={(checked) =>
+                      updateAutomationSettings('useNativePixButton', {
+                        billingRuler: {
+                          ...settings.billingRuler,
+                          useNativePixButton: checked,
+                        },
+                      })
+                    }
+                  />
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t">
                   <div className="w-full sm:w-56">
                     <Select
@@ -950,11 +974,22 @@ export default function Bots() {
                             Fatura #{log.invoiceId} • Venc: {log.dueIso || '—'} • {log.phone || 'sem telefone'}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                           <Badge variant="outline">{log.stage}</Badge>
-                          <Badge variant={log.status === 'sent' ? 'default' : 'destructive'}>
-                            {log.status === 'sent' ? 'Enviado' : log.status || 'Erro'}
-                          </Badge>
+                          {log.pixButtonSent && (
+                            <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-600 dark:text-emerald-300">
+                              BT PIX
+                            </Badge>
+                          )}
+                          {log.deliveryStatus === 'READ' || log.deliveryStatus === 'PLAYED' ? (
+                            <Badge className="bg-sky-600 text-white text-[10px]">✓✓ Lido</Badge>
+                          ) : log.deliveryStatus === 'RECEIVED' ? (
+                            <Badge variant="secondary" className="text-[10px]">✓✓ Entregue</Badge>
+                          ) : (
+                            <Badge variant={log.status === 'sent' ? 'default' : 'destructive'}>
+                              {log.status === 'sent' ? 'Enviado' : log.status || 'Erro'}
+                            </Badge>
+                          )}
                           <span className="text-[11px] text-muted-foreground">
                             {formatTimestamp(log.sentAt)}
                           </span>
@@ -1356,6 +1391,11 @@ export default function Bots() {
                             {typeof w.consecutiveHits === 'number' && (
                               <Badge variant="outline" className="text-[10px]">
                                 {w.consecutiveHits} checagem(ns)
+                              </Badge>
+                            )}
+                            {w.ctoPrincipal?.ctoLabel && (
+                              <Badge variant="outline" className="text-[10px] border-violet-500/40 text-violet-600 dark:text-violet-300">
+                                CTO: {w.ctoPrincipal.ctoLabel} ({w.ctoPrincipal.desconectados}/{w.ctoPrincipal.totalNaCto})
                               </Badge>
                             )}
                             <span className="font-bold truncate">

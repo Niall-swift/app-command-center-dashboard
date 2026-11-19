@@ -1,116 +1,122 @@
 import axios, { AxiosInstance } from 'axios';
+import { httpsCallable } from 'firebase/functions';
 import type {
   WhapiMessage,
   WhapiResponse,
   WhapiBulkRecipient,
   WhapiSendProgress,
   WhapiSendLog,
-  WhapiGroup
+  WhapiGroup,
 } from '@/types/whapi';
-import { fillTemplate, getTemplateForGroup, formatCurrency, formatDate, calculateDaysOverdue, calculateDaysRemaining } from './messageTemplates';
+import {
+  fillTemplate,
+  getTemplateForGroup,
+  formatCurrency,
+  formatDate,
+  calculateDaysRemaining,
+} from './messageTemplates';
 import { spin } from '@/utils/spintax';
-import { db } from '@/config/firebase';
+import { db, functions } from '@/config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { generateAIBillingMessage } from '@/services/gemini/geminiService';
 
 export const DEFAULT_AVL_WHATSAPP_GROUPS: WhapiGroup[] = [
-  { phone: "120363426874994471-group", name: "⚙️ OPERAÇÃO INTERNA DAS OS  • AVL TELECOM" },
-  { phone: "120363040961050323-group", name: "EQUIPE AVL " },
-  { phone: "120363406862014109-group", name: "IMPORTANTE AVL" },
-  { phone: "120363040545792966-group", name: "IMPORTANTE  BASE 1💼" },
-  { phone: "120363424849771979-group", name: "🚀 OPERAÇÃO GOL • AVL TELECOM" },
-  { phone: "120363424698066312-group", name: "🚀 OPERAÇÃO UNO  • AVL TELECOM" },
-  { phone: "120363428422691143-group", name: "* 📍 AVL | LOCALIZAÇÃO DE CLIENTES" },
-  { phone: "120363426375742932-group", name: "🔥 💼 MIGUEL COUTO | VENDA • TROCA • OPORTUNIDADES 💼 🔥" },
-  { phone: "120363426865123546-group", name: "🍀COMUNIDADE  PRE-MIX 🍀" },
-  { phone: "120363413676936204-group", name: "Grupo de estudos" },
+  { phone: '120363426874994471-group', name: '⚙️ OPERAÇÃO INTERNA DAS OS • AVL TELECOM' },
+  { phone: '120363040961050323-group', name: 'EQUIPE AVL' },
+  { phone: '120363406862014109-group', name: 'IMPORTANTE AVL' },
+  { phone: '120363040545792966-group', name: 'IMPORTANTE BASE 1💼' },
+  { phone: '120363424849771979-group', name: '🚀 OPERAÇÃO GOL • AVL TELECOM' },
+  { phone: '120363424698066312-group', name: '🚀 OPERAÇÃO UNO • AVL TELECOM' },
+  { phone: '120363428422691143-group', name: '📍 AVL | LOCALIZAÇÃO DE CLIENTES' },
+  { phone: '120363426375742932-group', name: '🔥 💼 MIGUEL COUTO | VENDA • TROCA • OPORTUNIDADES 💼 🔥' },
+  { phone: '120363426865123546-group', name: '🍀 COMUNIDADE PRE-MIX 🍀' },
+  { phone: '120363413676936204-group', name: 'Grupo de estudos' },
 ];
 
+export interface ZapiStatusResult {
+  connected: boolean;
+  smartphoneConnected: boolean;
+  error?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface ZapiQrResult {
+  connected: boolean;
+  qrCodeBase64: string | null;
+}
+
+export interface ZapiButtonOption {
+  id: string;
+  label: string;
+}
+
 export class WhapiService {
-  private client: AxiosInstance;
-  private apiKey: string;
-  private rateLimit: number; // mensagens por segundo
+  private fallbackClient: AxiosInstance | null = null;
+  private rateLimit: number;
 
   constructor() {
-    const instanceId = import.meta.env.VITE_ZAPI_INSTANCE_ID || '3F95A6BAE5232173E9473AA12C97C203';
-    const token = import.meta.env.VITE_ZAPI_TOKEN || 'FC515FBAF1E892D0F1E3FFAB';
-    const baseURL = `https://api.z-api.io/instances/${instanceId}/token/${token}`;
-    const rateLimit = parseInt(import.meta.env.VITE_WHAPI_RATE_LIMIT || '10');
+    this.rateLimit = parseInt(import.meta.env.VITE_WHAPI_RATE_LIMIT || '10', 10);
 
-    this.rateLimit = rateLimit;
-
-    const clientToken = import.meta.env.VITE_ZAPI_CLIENT_TOKEN || 'Fa64a52f41c274de0847cf445392dbeedS'; 
-    
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    
-    if (clientToken) {
-      headers['Client-Token'] = clientToken;
+    // Fallback direto somente se variáveis VITE_ZAPI_* estiverem explícitas no .env local;
+    // em produção todas as chamadas passam pela Cloud Function autenticada `zapiToolActions`.
+    const instanceId = import.meta.env.VITE_ZAPI_INSTANCE_ID;
+    const token = import.meta.env.VITE_ZAPI_TOKEN;
+    const clientToken = import.meta.env.VITE_ZAPI_CLIENT_TOKEN;
+    if (instanceId && token) {
+      this.fallbackClient = axios.create({
+        baseURL: `https://api.z-api.io/instances/${instanceId}/token/${token}`,
+        timeout: 35000,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(clientToken ? { 'Client-Token': clientToken } : {}),
+        },
+      });
     }
-
-    this.client = axios.create({
-      baseURL,
-      timeout: 30000,
-      headers,
-    });
   }
 
-  /**
-   * Formatar número de telefone para formato internacional
-   * Entrada: (11) 99999-9999 ou 11999999999
-   * Saída: 5511999999999
-   */
+  private async callZapiProxy<T = Record<string, unknown>>(
+    payload: Record<string, unknown>
+  ): Promise<T> {
+    const fn = httpsCallable<Record<string, unknown>, T>(functions, 'zapiToolActions');
+    const res = await fn(payload);
+    return res.data;
+  }
+
   private formatPhoneNumber(phone: string): string {
-    // Preservar identificadores de grupos WhatsApp (ex: 120363040961050323-group ou @g.us)
     if (phone.includes('-group') || phone.includes('@g.us') || phone.includes('-')) {
       return phone.trim();
     }
-
-    // Remover caracteres não numéricos
     const cleaned = phone.replace(/\D/g, '');
-    
-    // Se não começar com 55, adicionar
-    let formatted = cleaned;
-    if (!formatted.startsWith('55')) {
-      formatted = '55' + formatted;
-    }
-    
-    return formatted;
+    if (!cleaned) return '';
+    return cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
   }
 
-  /**
-   * Aguardar um tempo (para rate limiting)
-   */
   private async sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  /**
-   * Salvar progresso no Firebase
-   */
   async saveProgress(groupId: string, lastClientId: string, lastClientName: string): Promise<void> {
     try {
       const docRef = doc(db, 'bulk_send_states', groupId);
-      await setDoc(docRef, {
-        lastClientId,
-        lastClientName,
-        timestamp: Date.now(),
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      await setDoc(
+        docRef,
+        {
+          lastClientId,
+          lastClientName,
+          timestamp: Date.now(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     } catch (error) {
       console.error('Erro ao salvar progresso no Firebase:', error);
     }
   }
 
-  /**
-   * Ler último progresso do Firebase
-   */
   async getLastProgress(groupId: string): Promise<string | null> {
     try {
       const docRef = doc(db, 'bulk_send_states', groupId);
       const docSnap = await getDoc(docRef);
-      
       if (docSnap.exists()) {
         return docSnap.data().lastClientId as string;
       }
@@ -121,107 +127,301 @@ export class WhapiService {
     }
   }
 
-  /**
-   * Enviar mensagem individual
-   */
   async sendMessage(message: WhapiMessage): Promise<WhapiResponse> {
+    const formattedPhone = this.formatPhoneNumber(message.to);
+    if (!formattedPhone) {
+      return { sent: false, error: 'Número de telefone inválido' };
+    }
+
     try {
-      const formattedPhone = this.formatPhoneNumber(message.to);
-      
-      // Simular digitação usando a rota /presence da Z-API, se solicitado
       if (message.typing_time && message.typing_time > 0) {
-        try {
-           await this.client.post('/presence', { phone: formattedPhone, presence: 'composing' });
-           // Aguarda o tempo de digitação estipulado
-           await new Promise(resolve => setTimeout(resolve, message.typing_time));
-           // (A Z-API pode limpar o status de "escrevendo..." automaticamente após o envio da mensagem)
-        } catch (presenceError) {
-           console.warn('⚠️ Não foi possível definir o status de "escrevendo":', presenceError);
-        }
+        await this.callZapiProxy({
+          action: 'presence',
+          phone: formattedPhone,
+          presence: 'composing',
+        }).catch(() => undefined);
+        await this.sleep(Math.min(message.typing_time, 6000));
       }
 
-      const payload = {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_text',
         phone: formattedPhone,
-        message: message.body
-      };
-      
-      console.log(`📦 Enviando texto para Z-API:`, JSON.stringify(payload, null, 2));
-      const response = await this.client.post('/send-text', payload);
+        message: message.body,
+      });
 
       return {
-        sent: true,
-        id: response.data?.messageId || response.data?.id,
-        message: 'Mensagem enviada com sucesso'
+        sent: res.sent !== false,
+        id: res.id,
+        message: 'Mensagem enviada com sucesso',
       };
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        return {
-          sent: false,
-          error: error.response?.data?.message || error.message
-        };
+    } catch (proxyErr) {
+      if (this.fallbackClient) {
+        try {
+          const response = await this.fallbackClient.post('/send-text', {
+            phone: formattedPhone,
+            message: message.body,
+          });
+          return {
+            sent: true,
+            id: response.data?.messageId || response.data?.id,
+            message: 'Mensagem enviada com sucesso',
+          };
+        } catch (err) {
+          return {
+            sent: false,
+            error: axios.isAxiosError(err) ? err.response?.data?.message || err.message : 'Erro Z-API',
+          };
+        }
       }
       return {
         sent: false,
-        error: 'Erro desconhecido ao enviar mensagem'
+        error: proxyErr instanceof Error ? proxyErr.message : 'Erro ao enviar mensagem',
       };
     }
   }
 
-  /**
-   * Enviar imagem via WhatsApp
-   */
   async sendImage(params: {
     to: string;
     imageDataUrl: string;
     caption?: string;
   }): Promise<WhapiResponse> {
+    const formattedPhone = this.formatPhoneNumber(params.to);
     try {
-      const formattedPhone = this.formatPhoneNumber(params.to);
-      
-      // Converter data URL para Base64
-      const response = await fetch(params.imageDataUrl);
-      const blob = await response.blob();
-      
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      
-      const payload = {
+      let base64 = params.imageDataUrl;
+      if (!base64.startsWith('data:') && !base64.startsWith('http')) {
+        const response = await fetch(params.imageDataUrl);
+        const blob = await response.blob();
+        base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string }>({
+        action: 'send_image',
         phone: formattedPhone,
         image: base64,
-        caption: params.caption || ""
-      };
-      
-      console.log('📸 Enviando imagem para Z-API:', formattedPhone);
-
-      const apiResponse = await this.client.post('/send-image', payload);
-
+        caption: params.caption || '',
+      });
       return {
-        sent: true,
-        id: apiResponse.data.messageId || apiResponse.data.id,
-        message: 'Imagem enviada com sucesso'
+        sent: res.sent !== false,
+        id: res.id,
+        message: 'Imagem enviada com sucesso',
       };
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.error('❌ Erro ao enviar imagem:', error.response?.data);
-        return {
-          sent: false,
-          error: error.response?.data?.message || error.message
-        };
-      }
       return {
         sent: false,
-        error: 'Erro desconhecido ao enviar imagem'
+        error: error instanceof Error ? error.message : 'Erro ao enviar imagem',
       };
     }
   }
 
-  /**
-   * Enviar mensagens em massa com rate limiting
-   */
+  async sendButtonPix(params: {
+    to: string;
+    pixCode: string;
+    message?: string;
+    merchantName?: string;
+  }): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_button_pix',
+        phone: this.formatPhoneNumber(params.to),
+        pixCode: params.pixCode,
+        message: params.message,
+        merchantName: params.merchantName || 'AVL Telecom',
+      });
+      return {
+        sent: Boolean(res.sent),
+        id: res.id,
+        error: res.error,
+        message: res.sent ? 'Botão PIX enviado com sucesso!' : undefined,
+      };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar botão PIX',
+      };
+    }
+  }
+
+  async sendButtonList(params: {
+    to: string;
+    message: string;
+    buttons: ZapiButtonOption[];
+  }): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_button_list',
+        phone: this.formatPhoneNumber(params.to),
+        message: params.message,
+        buttons: params.buttons,
+      });
+      return { sent: Boolean(res.sent), id: res.id, error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar botões',
+      };
+    }
+  }
+
+  async sendCsatSurvey(params: {
+    to: string;
+    clientName?: string;
+    ticketId?: string;
+    chatId?: string;
+  }): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_csat_survey',
+        phone: this.formatPhoneNumber(params.to),
+        clientName: params.clientName,
+        ticketId: params.ticketId,
+        chatId: params.chatId,
+      });
+      return { sent: Boolean(res.sent), id: res.id, error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar pesquisa de satisfação',
+      };
+    }
+  }
+
+  async sendDocument(params: {
+    to: string;
+    document: string;
+    fileName?: string;
+    caption?: string;
+    extension?: string;
+  }): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_document',
+        phone: this.formatPhoneNumber(params.to),
+        document: params.document,
+        fileName: params.fileName,
+        caption: params.caption,
+        extension: params.extension || 'pdf',
+      });
+      return { sent: Boolean(res.sent), id: res.id, error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar documento',
+      };
+    }
+  }
+
+  async sendLocation(params: {
+    to: string;
+    latitude: number;
+    longitude: number;
+    title?: string;
+    address?: string;
+  }): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'send_location',
+        phone: this.formatPhoneNumber(params.to),
+        latitude: params.latitude,
+        longitude: params.longitude,
+        title: params.title,
+        address: params.address,
+      });
+      return { sent: Boolean(res.sent), id: res.id, error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar localização',
+      };
+    }
+  }
+
+  async sendReaction(to: string, messageId: string, reaction: string): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; error?: string }>({
+        action: 'send_reaction',
+        phone: this.formatPhoneNumber(to),
+        messageId,
+        reaction,
+      });
+      return { sent: Boolean(res.sent), error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao enviar reação',
+      };
+    }
+  }
+
+  async checkPhoneExists(phone: string): Promise<boolean> {
+    try {
+      const res = await this.callZapiProxy<{ exists?: boolean }>({
+        action: 'phone_exists',
+        phone: this.formatPhoneNumber(phone),
+      });
+      return Boolean(res.exists);
+    } catch {
+      return true;
+    }
+  }
+
+  async checkPhonesBatch(
+    phones: string[]
+  ): Promise<Array<{ phone: string; exists: boolean }>> {
+    const res = await this.callZapiProxy<{
+      results?: Array<{ phone: string; exists: boolean }>;
+    }>({
+      action: 'phone_exists_batch',
+      phones,
+    });
+    return res.results || [];
+  }
+
+  async getInstanceStatus(): Promise<ZapiStatusResult> {
+    try {
+      const res = await this.callZapiProxy<{
+        connected?: boolean;
+        smartphoneConnected?: boolean;
+        raw?: Record<string, unknown>;
+      }>({ action: 'status' });
+      return {
+        connected: Boolean(res.connected),
+        smartphoneConnected: res.smartphoneConnected !== false,
+        raw: res.raw,
+      };
+    } catch (err) {
+      return {
+        connected: false,
+        smartphoneConnected: false,
+        error: err instanceof Error ? err.message : 'Erro ao consultar status Z-API',
+      };
+    }
+  }
+
+  async getQrCode(): Promise<ZapiQrResult> {
+    const res = await this.callZapiProxy<{
+      connected?: boolean;
+      qrCodeBase64?: string | null;
+    }>({ action: 'qr_code' });
+    return {
+      connected: Boolean(res.connected),
+      qrCodeBase64: res.qrCodeBase64 || null,
+    };
+  }
+
+  async restartInstance(): Promise<boolean> {
+    try {
+      await this.callZapiProxy({ action: 'restart' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async sendBulkMessages(
     recipients: WhapiBulkRecipient[],
     group: string,
@@ -231,24 +431,20 @@ export class WhapiService {
     messageOverride?: (recipient: WhapiBulkRecipient) => Promise<string | null>
   ): Promise<WhapiSendLog[]> {
     const logs: WhapiSendLog[] = [];
-
-    // Variável para contar mensagens enviadas NESTA sessão para controlar os lotes de 5
     let messagesSentInSession = 0;
 
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
-      
-      // Atualizar progresso
+
       if (onProgress) {
         onProgress({
           total: recipients.length,
           sent: i,
-          failed: logs.filter(l => l.status === 'failed').length,
-          current: recipient.nome
+          failed: logs.filter((l) => l.status === 'failed').length,
+          current: recipient.nome,
         });
       }
 
-      // Executar ação prévia (ex: enviar e-mail)
       if (onBeforeSend) {
         try {
           await onBeforeSend(recipient);
@@ -257,14 +453,12 @@ export class WhapiService {
         }
       }
 
-      // Preparar dados
-      const linkBoleto = recipient.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento';
+      const linkBoleto =
+        recipient.fatura.linkBoleto || 'Solicite a 2ª via pelo nosso atendimento';
       const valorFormatado = `R$ ${formatCurrency(recipient.fatura.valor)}`;
       const dataFormatada = formatDate(recipient.fatura.dataVencimento);
 
-      // Tentar gerar mensagem com IA (Gemini) ou usar o override fornecido
       let messageBody: string | null = null;
-
       if (messageOverride) {
         messageBody = await messageOverride(recipient);
       } else if (group !== 'warmup') {
@@ -277,7 +471,6 @@ export class WhapiService {
         });
       }
 
-      // Fallback: usar template + spintax se Gemini falhar ou for warmup
       if (!messageBody) {
         const templateData = {
           nome: recipient.nome,
@@ -291,18 +484,13 @@ export class WhapiService {
         messageBody = spin(fillTemplate(template, templateData));
       }
 
-      // Enviar mensagem
-      // Typing time calculado baseado no tamanho da mensagem (Simular humano)
-      // ~5 caracteres por segundo
-      const estimatedTypingTime = Math.min(Math.floor(messageBody.length / 5) * 1000, 10000); 
-      
+      const estimatedTypingTime = Math.min(Math.floor(messageBody.length / 5) * 1000, 6000);
       const result = await this.sendMessage({
         to: recipient.telefone,
         body: messageBody,
-        typing_time: estimatedTypingTime
+        typing_time: estimatedTypingTime,
       });
 
-      // Criar log
       const log: WhapiSendLog = {
         timestamp: new Date().toISOString(),
         clienteId: recipient.clienteId,
@@ -310,209 +498,107 @@ export class WhapiService {
         telefone: recipient.telefone,
         status: result.sent ? 'success' : 'failed',
         error: result.error,
-        messageId: result.id
+        messageId: result.id,
       };
-
       logs.push(log);
-      
-      if (onLog) {
-        onLog(log);
-      }
+      if (onLog) onLog(log);
 
-      // Salvar progresso após cada envio bem-sucedido (ou falha, para não repetir)
       await this.saveProgress(group, recipient.clienteId, recipient.nome);
-
       messagesSentInSession++;
 
-      // Rate limiting humanizado (Anti-Ban)
       if (i < recipients.length - 1) {
-        
-        // SUPER BATCH PAUSE: A cada 50 mensagens (5 lotes de 10), fazer pausa de 30 minutos
         if (messagesSentInSession > 0 && messagesSentInSession % 50 === 0) {
-           const longPause = 30 * 60 * 1000; // 30 minutos
-           
-           console.log(`☕ PAUSA LONGA (5 LOTES / 50 MSGS): Aguardando 30 minutos...`);
-           
-           // Timer regressivo no console/progresso
-           if (onProgress) {
-             for (let remaining = 30; remaining > 0; remaining--) {
-                onProgress({
-                    total: recipients.length,
-                    sent: i + 1,
-                    failed: logs.filter(l => l.status === 'failed').length,
-                    current: `PAUSA DE SEGURANÇA (30m): ${remaining} minutos restantes...`
-                });
-                await this.sleep(60000);
-             }
-           } else {
-             await this.sleep(longPause);
-           }
-
-        // BATCH PAUSE: A cada 10 mensagens, fazer uma pausa média e ALEATÓRIA (1 a 5 minutos)
-        } else if (messagesSentInSession > 0 && messagesSentInSession % 10 === 0) {
-           const minTime = 3 * 60 * 1000; // 3 minutos
-           const maxTime = 13 * 60 * 1000; // 13 minutos
-           const mediumPause = Math.floor(Math.random() * (maxTime - minTime + 1) + minTime); 
-           
-           const minutes = Math.floor(mediumPause / 60000);
-           const seconds = Math.floor((mediumPause % 60000) / 1000);
-
-           console.log(`☕ PAUSA ALEATÓRIA (LOTE DE 10): Aguardando ${minutes}m ${seconds}s...`);
-           
-           if (onProgress) {
-             onProgress({
+          if (onProgress) {
+            for (let remaining = 30; remaining > 0; remaining--) {
+              onProgress({
                 total: recipients.length,
                 sent: i + 1,
-                failed: logs.filter(l => l.status === 'failed').length,
-                current: `PAUSA DE LOTE (${minutes}m ${seconds}s)...`
-             });
-           }
-           
-           await this.sleep(mediumPause);
-
+                failed: logs.filter((l) => l.status === 'failed').length,
+                current: `PAUSA DE SEGURANÇA (30m): ${remaining} minutos restantes...`,
+              });
+              await this.sleep(60000);
+            }
+          } else {
+            await this.sleep(30 * 60 * 1000);
+          }
+        } else if (messagesSentInSession > 0 && messagesSentInSession % 10 === 0) {
+          const minTime = 3 * 60 * 1000;
+          const maxTime = 13 * 60 * 1000;
+          const mediumPause = Math.floor(Math.random() * (maxTime - minTime + 1) + minTime);
+          const minutes = Math.floor(mediumPause / 60000);
+          const seconds = Math.floor((mediumPause % 60000) / 1000);
+          if (onProgress) {
+            onProgress({
+              total: recipients.length,
+              sent: i + 1,
+              failed: logs.filter((l) => l.status === 'failed').length,
+              current: `PAUSA DE LOTE (${minutes}m ${seconds}s)...`,
+            });
+          }
+          await this.sleep(mediumPause);
         } else {
-           // Pausa normal entre mensagens (1 a 4 minutos)
-           const minDelay = 1 * 60 * 1000;
-           const maxDelay = 4 * 60 * 1000;
-           const baseDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
-           
-           const minutes = Math.floor(baseDelay / 60000);
-           const seconds = Math.floor((baseDelay % 60000) / 1000);
-           
-           console.log(`⏳ Aguardando ${minutes}m ${seconds}s para a próxima mensagem...`);
-           await this.sleep(baseDelay);
+          const minDelay = 1 * 60 * 1000;
+          const maxDelay = 4 * 60 * 1000;
+          const baseDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+          await this.sleep(baseDelay);
         }
       }
     }
 
-    // Progresso final
     if (onProgress) {
       onProgress({
         total: recipients.length,
-        sent: logs.filter(l => l.status === 'success').length,
-        failed: logs.filter(l => l.status === 'failed').length
+        sent: logs.filter((l) => l.status === 'success').length,
+        failed: logs.filter((l) => l.status === 'failed').length,
       });
     }
 
     return logs;
   }
 
-  /**
-   * Buscar foto de perfil do WhatsApp de um contato
-   */
   async getContactProfilePicture(phone: string): Promise<string | null> {
     try {
       const contactId = this.formatPhoneNumber(phone);
-      console.log('📸 Buscando foto de perfil de:', contactId);
-
-      // Tentar até 3 vezes
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        const response = await this.client.get(`/profile-picture?phone=${contactId}`);
-        const data = response.data;
-
-        console.log(`📸 Resposta perfil (tentativa ${attempt}):`, JSON.stringify(data));
-
-        // Z-API retorna pictureUrl
-        const imageUrl = data?.pictureUrl || data?.link || null;
-
-        if (imageUrl && imageUrl.trim() !== '') {
-          console.log('✅ Foto de perfil encontrada:', imageUrl);
-          return imageUrl;
-        }
-
-        if (attempt < 3) {
-          console.log(`ℹ️ Foto vazia na tentativa ${attempt}, aguardando 2s...`);
-          await this.sleep(2000);
-        }
-      }
-
-      console.log('ℹ️ Contato sem foto de perfil após 3 tentativas.');
-      return null;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.warn('⚠️ Não foi possível buscar foto de perfil:', error.response?.data || error.message);
-      } else {
-        console.warn('⚠️ Erro desconhecido ao buscar foto de perfil:', error);
-      }
+      const res = await this.callZapiProxy<{ pictureUrl?: string | null }>({
+        action: 'get_profile_picture',
+        phone: contactId,
+      });
+      return res.pictureUrl || null;
+    } catch {
       return null;
     }
   }
 
-  /**
-   * Verificar status da conexão com Z-API
-   */
   async checkConnection(): Promise<boolean> {
-    try {
-      const response = await this.client.get('/status');
-      return response.data?.connected === true || response.status === 200;
-    } catch (error) {
-      console.error('Erro ao verificar conexão Z-API:', error);
-      return false;
-    }
+    const status = await this.getInstanceStatus();
+    return status.connected;
   }
 
-  /**
-   * Obter informações da conta
-   */
-  async getAccountInfo(): Promise<any> {
-    try {
-      const response = await this.client.get('/status');
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao obter informações da conta:', error);
-      return null;
-    }
+  async getAccountInfo(): Promise<Record<string, unknown> | null> {
+    const status = await this.getInstanceStatus();
+    return status.raw || null;
   }
 
-  /**
-   * Obter lista de grupos do WhatsApp conectados via Z-API
-   */
   async getGroups(): Promise<WhapiGroup[]> {
     try {
-      const response = await this.client.get('/groups');
-      const data = response.data;
-      if (Array.isArray(data) && data.length > 0) {
-        return data
-          .filter((g: any) => g.phone && g.name)
-          .map((g: any) => ({
-            phone: g.phone,
-            name: g.name.trim(),
-            unread: g.unread || g.messagesUnread || '0',
-            lastMessageTime: g.lastMessageTime || '',
-          }));
+      const res = await this.callZapiProxy<{ groups?: WhapiGroup[] }>({
+        action: 'get_groups',
+      });
+      if (Array.isArray(res.groups) && res.groups.length > 0) {
+        return res.groups;
       }
       return DEFAULT_AVL_WHATSAPP_GROUPS;
-    } catch (error) {
-      console.warn('Usando lista padrão de grupos AVL Telecom devido a:', error);
+    } catch {
       return DEFAULT_AVL_WHATSAPP_GROUPS;
     }
   }
 
-  /**
-   * Enviar mensagem diretamente para um grupo do WhatsApp
-   */
   async sendGroupMessage(groupPhone: string, messageText: string): Promise<WhapiResponse> {
-    try {
-      const payload = {
-        phone: groupPhone.trim(),
-        message: messageText,
-      };
-      console.log(`📦 Enviando O.S. para Grupo WhatsApp (${groupPhone}):`, payload);
-      const response = await this.client.post('/send-text', payload);
-      return {
-        sent: true,
-        message: 'Mensagem enviada para o grupo com sucesso!',
-        id: response.data?.zaapId || response.data?.id,
-      };
-    } catch (error: any) {
-      console.error('Erro ao enviar mensagem para grupo WhatsApp:', error);
-      return {
-        sent: false,
-        error: error.response?.data?.message || error.message || 'Falha ao enviar para o grupo',
-      };
-    }
+    return this.sendMessage({
+      to: groupPhone.trim(),
+      body: messageText,
+    });
   }
 }
 
-// Instância singleton
 export const whapiService = new WhapiService();

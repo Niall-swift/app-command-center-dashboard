@@ -70,6 +70,53 @@ export default function WhatsAppBulkSender() {
   const [filteredClients, setFilteredClients] = useState<WhapiBulkRecipient[]>([]);
   const [previewMessage, setPreviewMessage] = useState<string>('');
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [validatingPhones, setValidatingPhones] = useState(false);
+  const [phoneValidityMap, setPhoneValidityMap] = useState<Record<string, boolean>>({});
+
+  const normalizeBrDigits = (ph: string) => {
+    const clean = String(ph || '').replace(/\D/g, '');
+    return clean.startsWith('55') ? clean : `55${clean}`;
+  };
+
+  const handleValidatePreviewPhones = async () => {
+    if (filteredClients.length === 0) return;
+    setValidatingPhones(true);
+    try {
+      const phones = filteredClients.map((c) => c.telefone).filter(Boolean);
+      const res = await whapiService.checkPhonesBatch(phones);
+      const nextMap: Record<string, boolean> = {};
+      for (const item of res) {
+        nextMap[normalizeBrDigits(item.phone)] = item.exists;
+      }
+      setPhoneValidityMap(nextMap);
+      const invalidCount = res.filter((r) => !r.exists).length;
+      toast({
+        title: 'Validação Z-API concluída',
+        description: `${res.length} telefone(s) verificado(s): ${res.length - invalidCount} com WhatsApp ativo e ${invalidCount} inválido(s).`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Erro ao validar telefones na Z-API',
+        description: err instanceof Error ? err.message : 'Tente novamente',
+        variant: 'destructive',
+      });
+    } finally {
+      setValidatingPhones(false);
+    }
+  };
+
+  const handleRemoveInvalidPhones = () => {
+    const before = filteredClients.length;
+    const kept = filteredClients.filter((c) => {
+      const key = normalizeBrDigits(c.telefone);
+      return phoneValidityMap[key] !== false;
+    });
+    setFilteredClients(kept);
+    toast({
+      title: 'Lista higienizada',
+      description: `${before - kept.length} contato(s) sem WhatsApp removidos antes do disparo.`,
+    });
+  };
   
   // Search for individual client
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -1344,23 +1391,68 @@ export default function WhatsAppBulkSender() {
           )}
           
           <div className="flex-1 overflow-y-auto min-h-[150px] border rounded-md p-2 space-y-2">
-            <h4 className="text-sm font-medium sticky top-0 bg-background pb-2 border-b">
+            <div className="sticky top-0 bg-background pb-2 border-b flex flex-wrap items-center justify-between gap-2 z-10">
+              <h4 className="text-sm font-medium">
                 Lista de Destinatários ({filteredClients.length}):
-            </h4>
-            {filteredClients.map((client, idx) => (
-              <div key={`${client.clienteId}-${idx}`} className="flex items-center justify-between text-sm p-2 hover:bg-muted rounded">
-                <div className="flex flex-col">
-                  <span className="font-medium">{client.nome}</span>
-                  <span className="text-xs text-muted-foreground">{client.telefone}</span>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-medium">R$ {client.fatura.valor.toFixed(2)}</span>
-                  <span className={`text-xs ${client.fatura.diasAtraso > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                    Vence: {formatDate(client.fatura.dataVencimento)}
-                  </span>
-                </div>
+              </h4>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1"
+                  disabled={validatingPhones || filteredClients.length === 0}
+                  onClick={handleValidatePreviewPhones}
+                >
+                  {validatingPhones ? (
+                    <Clock className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                  )}
+                  Validar WhatsApp (Z-API)
+                </Button>
+                {Object.values(phoneValidityMap).some((v) => v === false) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 text-xs"
+                    onClick={handleRemoveInvalidPhones}
+                  >
+                    Remover Inválidos
+                  </Button>
+                )}
               </div>
-            ))}
+            </div>
+            {filteredClients.map((client, idx) => {
+              const validity = phoneValidityMap[normalizeBrDigits(client.telefone)];
+              return (
+                <div key={`${client.clienteId}-${idx}`} className="flex items-center justify-between text-sm p-2 hover:bg-muted rounded">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{client.nome}</span>
+                      {validity === true && (
+                        <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30 text-[10px] h-4 px-1.5">
+                          WA OK
+                        </Badge>
+                      )}
+                      {validity === false && (
+                        <Badge variant="destructive" className="text-[10px] h-4 px-1.5">
+                          Sem WhatsApp
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">{client.telefone}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="font-medium">R$ {client.fatura.valor.toFixed(2)}</span>
+                    <span className={`text-xs ${client.fatura.diasAtraso > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                      Vence: {formatDate(client.fatura.dataVencimento)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="bg-muted p-4 rounded-md mt-2">

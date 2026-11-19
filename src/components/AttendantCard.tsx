@@ -8,8 +8,10 @@ import { Sun, Moon, Sunrise, Send, Settings, User, X, Check, Search, Users } fro
 import { db } from "@/config/firebase";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 
+import type { ChatMediaPayload } from "@/types/dashboard";
+
 interface AttendantCardProps {
-  onSendMessage: (message: string, media?: { type: 'image' | 'audio', url: string }) => void;
+  onSendMessage: (message: string, media?: ChatMediaPayload) => void;
 }
 
 export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
