@@ -4,12 +4,13 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from './AppSidebar';
 import { UserMenu } from '../auth/UserMenu';
 import { useTheme } from 'next-themes';
-import { Sun, Moon, Search, ChevronRight } from 'lucide-react';
+import { Sun, Moon, Search, ChevronRight, MonitorDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'react-router-dom';
 import { GlobalNetworkAlertPill } from './GlobalNetworkAlertPill';
 import { ZapiHealthPill } from './ZapiHealthPill';
 import { MobileBottomDock } from './MobileBottomDock';
+import { usePwaInstall } from '@/hooks/usePwaInstall';
 import {
   GlobalCommandPalette,
   GlobalSearchTriggerButton,
@@ -54,6 +55,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const location = useLocation();
   const [commandOpen, setCommandOpen] = useState(false);
+  const { canInstall, promptInstall } = usePwaInstall();
 
   const currentInfo = ROUTE_INFO[location.pathname] || {
     title: location.pathname.startsWith('/ispfy/cliente/') ? 'Ficha do Cliente ISPFY' : 'Command Center',
@@ -110,6 +112,22 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
               {/* Monitor Global de Conexões ISPFY em Tempo Real */}
               <GlobalNetworkAlertPill />
+
+              {/* Instalar como App no PC / Celular (1 clique) */}
+              {canInstall && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    promptInstall().catch(() => undefined);
+                  }}
+                  className="h-9 px-2.5 sm:px-3 rounded-xl border-primary/35 bg-primary/10 hover:bg-primary/20 text-primary gap-1.5 transition-all shadow-sm font-semibold text-xs"
+                  title="Instalar AVL NOC como aplicativo no computador ou celular"
+                >
+                  <MonitorDown className="w-4 h-4 shrink-0" />
+                  <span className="hidden md:inline">Instalar App</span>
+                </Button>
+              )}
 
               {/* Botão de Alternância de Tema */}
               <Button

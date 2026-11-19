@@ -13,6 +13,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import QuickOSFab from "./components/ispfy/QuickOSFab";
+import { PwaAppBridge } from "./components/layout/PwaAppBridge";
 
 // Code-splitting por rota para reduzir o bundle inicial e acelerar o carregamento do PWA
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -133,6 +134,7 @@ function AppContent() {
           </ErrorBoundary>
         </DashboardLayout>
         <QuickOSFab />
+        <PwaAppBridge />
       </NetworkMonitorProvider>
     </ProtectedRoute>
   );

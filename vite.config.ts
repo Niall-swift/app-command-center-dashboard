@@ -59,28 +59,85 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: [
+        'favicon.ico',
+        'apple-touch-icon.png',
+        'mask-icon.svg',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'pwa-maskable-512x512.png',
+      ],
       manifest: {
-        name: 'AVL Telecom Dashboard',
-        short_name: 'AVL Dashboard',
-        description: 'Command Center Dashboard for AVL Telecom',
-        theme_color: '#ffffff',
+        id: '/',
+        name: 'AVL Telecom — Command Center NOC',
+        short_name: 'AVL NOC',
+        description: 'Painel executivo NOC, atendimento WhatsApp 360°, ISPFY e monitoramento 24h AVL Telecom.',
+        lang: 'pt-BR',
+        start_url: '/?source=pwa',
+        scope: '/',
+        display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
+        orientation: 'any',
+        background_color: '#0b1222',
+        theme_color: '#0b1222',
+        categories: ['business', 'productivity', 'utilities'],
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any',
           },
           {
-            src: 'pwa-512x512.png',
+            src: '/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
-          }
-        ]
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+        shortcuts: [
+          {
+            name: 'Chat WhatsApp 360°',
+            short_name: 'Chat WA',
+            description: 'Abrir atendimento ao vivo WhatsApp e ISPFY',
+            url: '/chat?source=pwa-shortcut',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'Mapa Bairro / Rua (NOC)',
+            short_name: 'NOC Região',
+            description: 'Monitorar clientes online/offline e rompimentos',
+            url: '/ispfy/regiao?source=pwa-shortcut',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'Inteligência & CTO',
+            short_name: 'Intel. CTO',
+            description: 'Viabilidade de CTO, sinal óptico e Turbo',
+            url: '/ispfy/inteligencia?source=pwa-shortcut',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'Nova Ordem de Serviço',
+            short_name: 'Nova O.S.',
+            description: 'Abrir chamado técnico no ISPFY',
+            url: '/ispfy/nova-os?source=pwa-shortcut',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+        ],
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 6000000,
-      }
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+      },
     }),
     mode === 'development' &&
     componentTagger(),

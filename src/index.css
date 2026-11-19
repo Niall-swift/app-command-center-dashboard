@@ -129,6 +129,23 @@
     color: inherit;
   }
 
+  /* Acabamento de aplicativo nativo no modo PWA instalado (Desktop & Mobile) */
+  @media (display-mode: standalone) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    header,
+    nav,
+    aside,
+    button {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+  }
+
   /* Modern card elevation in dark mode */
   .dark .bg-card,
   .dark [class*="bg-card"],
