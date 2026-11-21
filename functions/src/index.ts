@@ -644,6 +644,7 @@ export const onDashboardMessageSent = functions
     try {
       // 1. Enviar para WhatsApp e registrar messageId para confirmação de entrega/leitura (✓✓ azul)
       let zapiResp: any = null;
+      const replyToZapiId = String(messageData.replyTo?.zapiMessageId || "").trim() || null;
       if (messageData.mediaUrl) {
         zapiResp = await waService.sendMediaMessage(
           chatId,
@@ -653,10 +654,11 @@ export const onDashboardMessageSent = functions
           {
             fileName: messageData.mediaName || null,
             mimeType: messageData.mediaMimeType || null,
+            replyToMessageId: replyToZapiId,
           }
         );
       } else {
-        zapiResp = await waService.sendTextMessage(chatId, messageData.content);
+        zapiResp = await waService.sendTextMessage(chatId, messageData.content, replyToZapiId);
       }
 
       const zapiMsgId = String(zapiResp?.messageId || zapiResp?.id || "").trim() || null;

@@ -357,6 +357,45 @@ export class WhapiService {
     }
   }
 
+  async editMessage(to: string, messageId: string, newMessage: string): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; id?: string; error?: string }>({
+        action: 'edit_message',
+        phone: this.formatPhoneNumber(to),
+        messageId,
+        message: newMessage,
+      });
+      return { sent: Boolean(res.sent), id: res.id, error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao editar mensagem',
+      };
+    }
+  }
+
+  async deleteMessage(
+    to: string,
+    messageId: string,
+    options?: { owner?: boolean; deleteForMe?: boolean }
+  ): Promise<WhapiResponse> {
+    try {
+      const res = await this.callZapiProxy<{ sent?: boolean; error?: string }>({
+        action: 'delete_message',
+        phone: this.formatPhoneNumber(to),
+        messageId,
+        owner: options?.owner !== false,
+        deleteForMe: options?.deleteForMe === true,
+      });
+      return { sent: Boolean(res.sent), error: res.error };
+    } catch (error) {
+      return {
+        sent: false,
+        error: error instanceof Error ? error.message : 'Erro ao apagar mensagem',
+      };
+    }
+  }
+
   async checkPhoneExists(phone: string): Promise<boolean> {
     try {
       const res = await this.callZapiProxy<{ exists?: boolean }>({

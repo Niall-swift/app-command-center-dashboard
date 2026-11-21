@@ -7,6 +7,14 @@ export interface ChatMediaPayload {
   duration?: number;
 }
 
+export interface ReplyToSnapshot {
+  id: string;
+  zapiMessageId?: string | null;
+  user: string;
+  content: string;
+  mediaType?: 'image' | 'audio' | 'video' | 'document';
+}
+
 export interface Message {
   id: string;
   user: string;
@@ -28,6 +36,10 @@ export interface Message {
   deliveryStatus?: 'SENDING' | 'SENT' | 'RECEIVED' | 'READ' | 'PLAYED' | 'FAILED';
   deliveryError?: string | null;
   reaction?: string | null;
+  edited?: boolean;
+  editedAt?: Date | null;
+  deletedForEveryone?: boolean;
+  replyTo?: ReplyToSnapshot | null;
 }
 
 export interface UserDetails {

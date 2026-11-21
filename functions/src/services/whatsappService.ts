@@ -10,6 +10,7 @@ export interface WhatsAppMessage {
 export interface SendMediaOptions {
   fileName?: string | null;
   mimeType?: string | null;
+  replyToMessageId?: string | null;
 }
 
 const PLACEHOLDER_CAPTIONS = new Set([
@@ -87,12 +88,20 @@ export class WhatsAppService {
     });
   }
 
-  async sendTextMessage(to: string, body: string): Promise<any> {
+  async sendTextMessage(
+    to: string,
+    body: string,
+    replyToMessageId?: string | null
+  ): Promise<any> {
     try {
-      const response = await this.client.post('/send-text', {
+      const payload: Record<string, any> = {
         phone: this.formatPhone(to),
         message: body,
-      });
+      };
+      if (replyToMessageId && String(replyToMessageId).trim()) {
+        payload.messageId = String(replyToMessageId).trim();
+      }
+      const response = await this.client.post('/send-text', payload);
       return response.data;
     } catch (error: any) {
       console.error('❌ Erro ao enviar mensagem WhatsApp:', error.response?.data || error.message);
@@ -145,12 +154,15 @@ export class WhatsAppService {
         mime.startsWith("text/") ||
         /\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip|rar|xml)(\?|$)/i.test(lower);
 
+      const replyId = String(options?.replyToMessageId || "").trim();
+
       if (isAudio) {
-        const payload = {
+        const payload: Record<string, any> = {
           phone: formattedPhone,
           audio: mediaUrl,
           waveform: true,
         };
+        if (replyId) payload.messageId = replyId;
         const response = await this.client.post("/send-audio", payload, { timeout: 60000 });
         if (cleanCaption) {
           await this.sendTextMessage(formattedPhone, cleanCaption).catch(() => undefined);
@@ -164,6 +176,7 @@ export class WhatsAppService {
           video: mediaUrl,
         };
         if (cleanCaption) payload.caption = cleanCaption;
+        if (replyId) payload.messageId = replyId;
         const response = await this.client.post("/send-video", payload, { timeout: 120000 });
         return response.data;
       }
@@ -178,6 +191,7 @@ export class WhatsAppService {
           fileName: safeFileName,
         };
         if (cleanCaption) payload.caption = cleanCaption;
+        if (replyId) payload.messageId = replyId;
 
         try {
           const response = await this.client.post(`/send-document/${ext}`, payload, {
@@ -202,6 +216,7 @@ export class WhatsAppService {
         image: mediaUrl,
       };
       if (cleanCaption) payload.caption = cleanCaption;
+      if (replyId) payload.messageId = replyId;
       const response = await this.client.post("/send-image", payload, { timeout: 60000 });
       return response.data;
     } catch (error: any) {

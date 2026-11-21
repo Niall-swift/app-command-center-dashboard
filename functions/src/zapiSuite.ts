@@ -357,6 +357,101 @@ export async function sendZapiReaction(params: {
 }
 
 /**
+ * Edita o texto de uma mensagem já enviada via Z-API (/send-text com editMessageId).
+ * Respeita o limite oficial do WhatsApp (~15 minutos após o envio original).
+ */
+export async function editZapiTextMessage(params: {
+  phone: string;
+  messageId: string;
+  message: string;
+}): Promise<ZapiActionResponse> {
+  const client = createZapiClient();
+  const formattedPhone = formatZapiPhone(params.phone);
+  const messageId = String(params.messageId || "").trim();
+  const newText = String(params.message || "").trim();
+
+  if (!formattedPhone || !messageId || !newText) {
+    return {
+      sent: false,
+      error: "Telefone, ID da mensagem e novo texto são obrigatórios.",
+    };
+  }
+
+  try {
+    const resp = await client.post("/send-text", {
+      phone: formattedPhone,
+      message: newText,
+      editMessageId: messageId,
+    });
+    if (resp.data?.error || resp.data?.status === "error") {
+      return {
+        sent: false,
+        error: String(resp.data?.message || resp.data?.error || "Z-API recusou a edição."),
+      };
+    }
+    return {
+      sent: true,
+      id: resp.data?.messageId || resp.data?.id || messageId,
+      zaapId: resp.data?.zaapId,
+      data: resp.data,
+    };
+  } catch (err: unknown) {
+    return {
+      sent: false,
+      error: axios.isAxiosError(err)
+        ? err.response?.data?.message || err.response?.data?.error || err.message
+        : "Erro ao editar mensagem no WhatsApp.",
+    };
+  }
+}
+
+/**
+ * Apaga uma mensagem no WhatsApp via Z-API (DELETE /messages).
+ * Quando deleteForMe é false/omitido e owner é true, apaga PARA TODOS.
+ */
+export async function deleteZapiMessage(params: {
+  phone: string;
+  messageId: string;
+  owner?: boolean;
+  deleteForMe?: boolean;
+}): Promise<ZapiActionResponse> {
+  const client = createZapiClient();
+  const formattedPhone = formatZapiPhone(params.phone);
+  const messageId = String(params.messageId || "").trim();
+
+  if (!formattedPhone || !messageId) {
+    return { sent: false, error: "Telefone e ID da mensagem são obrigatórios." };
+  }
+
+  try {
+    const queryParams: Record<string, string> = {
+      messageId,
+      phone: formattedPhone,
+      owner: params.owner === false ? "false" : "true",
+    };
+    if (params.deleteForMe === true) {
+      queryParams.deleteForMe = "true";
+    }
+
+    const resp = await client.delete("/messages", { params: queryParams });
+    if (resp.data?.error || resp.data?.status === "error") {
+      return {
+        sent: false,
+        error: String(resp.data?.message || resp.data?.error || "Z-API recusou a exclusão."),
+      };
+    }
+    return { sent: true, data: resp.data };
+  } catch (err: unknown) {
+    return {
+      sent: false,
+      error: axios.isAxiosError(err)
+        ? err.response?.data?.message || err.response?.data?.error || err.message
+        : "Erro ao apagar mensagem no WhatsApp.",
+    };
+  }
+}
+
+/**
  * Proxy autenticado central da Z-API: protege credenciais no servidor e expõe
  * saúde/QR Code, botão PIX nativo, botões CSAT, validação de WhatsApp em lote,
  * documentos PDF, localização de campo e grupos.
@@ -495,6 +590,25 @@ export const zapiToolActions = functions
           phone: String(data?.phone || ""),
           messageId: String(data?.messageId || ""),
           reaction: String(data?.reaction || "✅"),
+        });
+        return { success: res.sent, ...res };
+      }
+
+      if (action === "edit_message") {
+        const res = await editZapiTextMessage({
+          phone: String(data?.phone || ""),
+          messageId: String(data?.messageId || ""),
+          message: String(data?.message || ""),
+        });
+        return { success: res.sent, ...res };
+      }
+
+      if (action === "delete_message") {
+        const res = await deleteZapiMessage({
+          phone: String(data?.phone || ""),
+          messageId: String(data?.messageId || ""),
+          owner: data?.owner !== false,
+          deleteForMe: data?.deleteForMe === true,
         });
         return { success: res.sent, ...res };
       }

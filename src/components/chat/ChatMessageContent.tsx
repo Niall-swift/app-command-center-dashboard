@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
+  Ban,
   Check,
   CheckCheck,
   Clock,
+  Copy,
   Download,
   ExternalLink,
   FileArchive,
@@ -11,8 +13,13 @@ import {
   FileText,
   Film,
   ImageOff,
+  Loader2,
   Lock,
+  Pencil,
+  Reply,
   RotateCcw,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Message } from '@/types/dashboard';
@@ -28,13 +35,13 @@ const PLACEHOLDER_TEXTS = new Set([
 ]);
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🙏', '✅'] as const;
+const WHATSAPP_EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 function isPlaceholderCaption(text?: string): boolean {
   if (!text) return true;
   const trimmed = text.trim();
   if (!trimmed) return true;
-  if (PLACEHOLDER_TEXTS.has(trimmed.toLowerCase())) return true;
-  return false;
+  return PLACEHOLDER_TEXTS.has(trimmed.toLowerCase());
 }
 
 function formatBytes(bytes?: number): string {
@@ -80,7 +87,37 @@ function getFileExtension(name: string, mime?: string): string {
   return 'ARQ';
 }
 
-function renderInlineWhatsAppText(text: string, fromMe: boolean): React.ReactNode[] {
+function highlightSegment(
+  segment: string,
+  highlightQuery: string | undefined,
+  keyPrefix: string
+): React.ReactNode {
+  const q = String(highlightQuery || '').trim();
+  if (!q) return segment;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const split = segment.split(regex);
+  if (split.length <= 1) return segment;
+
+  return split.map((part, idx) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark
+        key={`${keyPrefix}-h-${idx}`}
+        className="bg-amber-300 text-slate-950 rounded px-0.5 font-semibold"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={`${keyPrefix}-p-${idx}`}>{part}</span>
+    )
+  );
+}
+
+function renderInlineWhatsAppText(
+  text: string,
+  fromMe: boolean,
+  highlightQuery?: string
+): React.ReactNode[] {
   const tokenRegex =
     /(https?:\/\/[^\s]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|`[^`\n]+`)/g;
   const parts: React.ReactNode[] = [];
@@ -90,7 +127,12 @@ function renderInlineWhatsAppText(text: string, fromMe: boolean): React.ReactNod
 
   while ((match = tokenRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+      const currentKey = keyIdx++;
+      parts.push(
+        <span key={`t-${currentKey}`}>
+          {highlightSegment(text.slice(lastIndex, match.index), highlightQuery, `seg-${currentKey}`)}
+        </span>
+      );
     }
     const token = match[0];
     if (token.startsWith('http://') || token.startsWith('https://')) {
@@ -112,19 +154,19 @@ function renderInlineWhatsAppText(text: string, fromMe: boolean): React.ReactNod
     } else if (token.startsWith('*') && token.endsWith('*')) {
       parts.push(
         <strong key={`b-${keyIdx++}`} className="font-bold">
-          {token.slice(1, -1)}
+          {highlightSegment(token.slice(1, -1), highlightQuery, `b-${keyIdx}`)}
         </strong>
       );
     } else if (token.startsWith('_') && token.endsWith('_')) {
       parts.push(
         <em key={`i-${keyIdx++}`} className="italic">
-          {token.slice(1, -1)}
+          {highlightSegment(token.slice(1, -1), highlightQuery, `i-${keyIdx}`)}
         </em>
       );
     } else if (token.startsWith('~') && token.endsWith('~')) {
       parts.push(
         <span key={`s-${keyIdx++}`} className="line-through opacity-80">
-          {token.slice(1, -1)}
+          {highlightSegment(token.slice(1, -1), highlightQuery, `s-${keyIdx}`)}
         </span>
       );
     } else if (token.startsWith('`') && token.endsWith('`')) {
@@ -143,29 +185,130 @@ function renderInlineWhatsAppText(text: string, fromMe: boolean): React.ReactNod
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+    const currentKey = keyIdx++;
+    parts.push(
+      <span key={`tail-${currentKey}`}>
+        {highlightSegment(text.slice(lastIndex), highlightQuery, `tail-${currentKey}`)}
+      </span>
+    );
   }
   return parts;
 }
 
 interface ChatMessageContentProps {
   message: Message;
+  highlightQuery?: string;
   onExpandImage: (url: string) => void;
   onRetryMessage?: (message: Message) => void;
   onReactMessage?: (message: Message, emoji: string) => void;
+  onReplyMessage?: (message: Message) => void;
+  onEditMessage?: (message: Message, newText: string) => Promise<boolean>;
+  onDeleteForEveryone?: (message: Message) => Promise<boolean>;
+  onScrollToMessage?: (messageId: string) => void;
 }
 
-/** Renderizador completo de bolha de mensagem estilo WhatsApp (Texto, Foto, Vídeo, Áudio e Documento). */
+/**
+ * Renderizador completo de bolha estilo WhatsApp Desktop:
+ * Texto formatado, Foto, Vídeo, Áudio, Documento, Citação/Resposta,
+ * Edição inline (Z-API editMessageId), Apagar para todos (DELETE /messages) e Reações.
+ */
 export function ChatMessageContent({
   message,
+  highlightQuery,
   onExpandImage,
   onRetryMessage,
   onReactMessage,
+  onReplyMessage,
+  onEditMessage,
+  onDeleteForEveryone,
+  onScrollToMessage,
 }: ChatMessageContentProps) {
   const [imgFailed, setImgFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const fromMe = Boolean(message.fromMe);
   const captionText = message.text || message.content || '';
   const showCaption = !isPlaceholderCaption(captionText);
+
+  // Mensagem apagada para todos
+  if (message.deletedForEveryone) {
+    return (
+      <div className="space-y-1">
+        <div
+          className={`flex items-center gap-1.5 text-xs italic ${
+            fromMe ? 'text-primary-foreground/80' : 'text-muted-foreground'
+          }`}
+        >
+          <Ban className="w-3.5 h-3.5 shrink-0 opacity-80" />
+          <span>{fromMe ? 'Você apagou esta mensagem' : 'Esta mensagem foi apagada'}</span>
+        </div>
+        <div
+          className={`flex items-center justify-end gap-1 text-[10px] font-mono ${
+            fromMe ? 'text-primary-foreground/65' : 'text-muted-foreground/80'
+          }`}
+        >
+          <span>{format(message.timestamp, 'HH:mm')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const ageMs = Date.now() - message.timestamp.getTime();
+  const canEdit =
+    Boolean(onEditMessage) &&
+    fromMe &&
+    !message.mediaUrl &&
+    (Boolean(message.isPrivate) ||
+      (Boolean(message.zapiMessageId) && ageMs <= WHATSAPP_EDIT_WINDOW_MS));
+
+  const canDeleteForEveryone =
+    Boolean(onDeleteForEveryone) &&
+    fromMe &&
+    (Boolean(message.isPrivate) || Boolean(message.zapiMessageId));
+
+  const handleCopyText = () => {
+    const textToCopy = captionText.trim() || message.mediaUrl || '';
+    if (!textToCopy) return;
+    navigator.clipboard?.writeText(textToCopy).catch(() => undefined);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const handleStartEdit = () => {
+    setEditDraft(captionText);
+    setConfirmingDelete(false);
+    setIsEditing(true);
+  };
+
+  const handleSubmitEdit = async () => {
+    const trimmed = editDraft.trim();
+    if (!trimmed || trimmed === captionText.trim()) {
+      setIsEditing(false);
+      return;
+    }
+    if (!onEditMessage) return;
+    setSavingEdit(true);
+    const ok = await onEditMessage(message, trimmed);
+    setSavingEdit(false);
+    if (ok) {
+      setIsEditing(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!onDeleteForEveryone) return;
+    setDeleting(true);
+    const ok = await onDeleteForEveryone(message);
+    setDeleting(false);
+    if (ok) {
+      setConfirmingDelete(false);
+    }
+  };
 
   const docFileName = message.mediaType === 'document' ? extractFileName(message) : '';
   const docExt =
@@ -195,24 +338,81 @@ export function ChatMessageContent({
 
   return (
     <div className="group/bubble relative">
-      {/* Barra flutuante de reações WhatsApp */}
-      {message.zapiMessageId && !message.isPrivate && onReactMessage && (
+      {/* Barra flutuante unificada (Reações + Responder + Copiar + Editar + Apagar para todos) */}
+      {!isEditing && !confirmingDelete && (
         <div
-          className={`opacity-0 group-hover/bubble:opacity-100 focus-within:opacity-100 transition-opacity absolute -top-8 z-20 flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-popover border border-border shadow-lg ${
+          className={`opacity-0 group-hover/bubble:opacity-100 focus-within:opacity-100 transition-opacity absolute -top-9 z-20 flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-popover/95 backdrop-blur-md border border-border shadow-xl ${
             fromMe ? 'right-0' : 'left-0'
           }`}
         >
-          {QUICK_REACTIONS.map((emoji) => (
+          {message.zapiMessageId && !message.isPrivate && onReactMessage && (
+            <>
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => onReactMessage(message, emoji)}
+                  className="w-6 h-6 rounded-full hover:bg-secondary flex items-center justify-center text-xs transition-transform hover:scale-125"
+                  title={`Reagir com ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              <span className="w-px h-4 bg-border/80 mx-0.5" />
+            </>
+          )}
+
+          {onReplyMessage && !message.isPrivate && (
             <button
-              key={emoji}
               type="button"
-              onClick={() => onReactMessage(message, emoji)}
-              className="w-6 h-6 rounded-full hover:bg-secondary flex items-center justify-center text-xs transition-transform hover:scale-125"
-              title={`Reagir com ${emoji}`}
+              onClick={() => onReplyMessage(message)}
+              className="w-6 h-6 rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+              title="Responder (citar no WhatsApp)"
             >
-              {emoji}
+              <Reply className="w-3.5 h-3.5" />
             </button>
-          ))}
+          )}
+
+          {showCaption && (
+            <button
+              type="button"
+              onClick={handleCopyText}
+              className="w-6 h-6 rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+              title="Copiar texto"
+            >
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
+
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleStartEdit}
+              className="w-6 h-6 rounded-full hover:bg-primary/15 text-muted-foreground hover:text-primary flex items-center justify-center transition-colors"
+              title="Editar mensagem no WhatsApp (até 15 min)"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {canDeleteForEveryone && (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="w-6 h-6 rounded-full hover:bg-rose-500/15 text-muted-foreground hover:text-rose-500 flex items-center justify-center transition-colors"
+              title={
+                message.isPrivate
+                  ? 'Apagar nota interna'
+                  : 'Apagar para todos no WhatsApp'
+              }
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
@@ -223,185 +423,302 @@ export function ChatMessageContent({
         </div>
       )}
 
-      {/* 1. FOTO / IMAGEM */}
-      {message.mediaType === 'image' && message.mediaUrl && (
-        <div className="space-y-2">
-          {imgFailed ? (
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-black/10 text-xs">
-              <ImageOff className="w-4 h-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">Não foi possível carregar a imagem</p>
-                <a
-                  href={message.mediaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline text-[11px] opacity-90"
-                >
-                  Abrir link original
-                </a>
-              </div>
-            </div>
-          ) : (
-            <div className="relative group/img overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-              <img
-                src={message.mediaUrl}
-                alt="Imagem enviada no chat"
-                loading="lazy"
-                onError={() => setImgFailed(true)}
-                onClick={() => onExpandImage(message.mediaUrl!)}
-                className="max-w-full max-h-[340px] w-auto object-cover cursor-pointer transition-transform duration-200 group-hover/img:scale-[1.01]"
-              />
-              <a
-                href={message.mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                onClick={(e) => e.stopPropagation()}
-                title="Baixar imagem"
-                className="opacity-0 group-hover/img:opacity-100 transition-opacity absolute top-2 right-2 h-8 w-8 rounded-full bg-black/65 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-sm"
-              >
-                <Download className="w-4 h-4" />
-              </a>
-            </div>
-          )}
-          {showCaption && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {renderInlineWhatsAppText(captionText, fromMe)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* 2. VÍDEO */}
-      {message.mediaType === 'video' && message.mediaUrl && (
-        <div className="space-y-2">
-          <div className="rounded-xl overflow-hidden bg-black/90 border border-black/15 dark:border-white/10">
-            <video
-              src={message.mediaUrl}
-              controls
-              playsInline
-              preload="none"
-              className="max-w-full max-h-[360px] w-full rounded-t-xl"
-            />
-            <div className="px-2.5 py-1.5 bg-black/60 text-white/85 flex items-center justify-between text-[10px]">
-              <span className="flex items-center gap-1.5 truncate">
-                <Film className="w-3 h-3 text-sky-300 shrink-0" />
-                <span className="truncate">{message.mediaName || 'Vídeo WhatsApp'}</span>
-              </span>
-              <a
-                href={message.mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="inline-flex items-center gap-1 hover:text-white font-semibold shrink-0 ml-2"
-              >
-                <Download className="w-3 h-3" />
-                Baixar
-              </a>
-            </div>
-          </div>
-          {showCaption && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {renderInlineWhatsAppText(captionText, fromMe)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* 3. ÁUDIO / MENSAGEM DE VOZ */}
-      {message.mediaType === 'audio' && message.mediaUrl && (
-        <div className="space-y-2">
-          <ChatAudioPlayer
-            url={message.mediaUrl}
-            fromMe={fromMe}
-            durationHint={message.mediaDuration}
-          />
-          {showCaption && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {renderInlineWhatsAppText(captionText, fromMe)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* 4. DOCUMENTO */}
-      {message.mediaType === 'document' && message.mediaUrl && (
-        <div className="space-y-2">
-          <div
-            className={`flex items-center gap-3 p-3 rounded-xl border transition-colors min-w-[235px] sm:min-w-[270px] ${
-              fromMe
-                ? 'bg-black/15 border-white/15'
-                : 'bg-secondary/60 border-border/80'
+      {/* Cartão de Mensagem Citada / Respondida (estilo WhatsApp) */}
+      {message.replyTo && (
+        <button
+          type="button"
+          onClick={() => onScrollToMessage?.(message.replyTo!.id)}
+          className={`w-full text-left mb-2 px-2.5 py-1.5 rounded-lg border-l-[3px] transition-colors block ${
+            fromMe
+              ? 'bg-black/15 hover:bg-black/20 border-sky-300 text-primary-foreground/90'
+              : 'bg-secondary/80 hover:bg-secondary border-primary text-foreground'
+          }`}
+        >
+          <p
+            className={`text-[10px] font-bold truncate ${
+              fromMe ? 'text-sky-200' : 'text-primary'
             }`}
           >
-            <div
-              className={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center shrink-0 ${
-                fromMe
-                  ? 'bg-white/15 border-white/25 text-white'
-                  : docBadgeColor
-              }`}
+            {message.replyTo.user}
+          </p>
+          <p className="text-[11px] opacity-85 truncate">
+            {message.replyTo.content}
+          </p>
+        </button>
+      )}
+
+      {/* Confirmação inline de Apagar para Todos */}
+      {confirmingDelete && (
+        <div
+          className={`mb-2 p-2.5 rounded-xl border text-xs space-y-2 ${
+            fromMe
+              ? 'bg-black/25 border-white/20 text-white'
+              : 'bg-rose-500/10 border-rose-500/30 text-foreground'
+          }`}
+        >
+          <p className="font-semibold flex items-center gap-1.5">
+            <Trash2 className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+            {message.isPrivate
+              ? 'Apagar esta nota interna?'
+              : 'Apagar esta mensagem para todos no WhatsApp?'}
+          </p>
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => setConfirmingDelete(false)}
+              className="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[11px] font-semibold"
             >
-              <DocIcon className="w-4 h-4" />
-              <span className="text-[8px] font-black leading-none mt-0.5">{docExt}</span>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate" title={docFileName}>
-                {docFileName}
-              </p>
-              <p
-                className={`text-[10px] mt-0.5 ${
-                  fromMe ? 'text-primary-foreground/75' : 'text-muted-foreground'
-                }`}
-              >
-                Documento {docExt}
-                {message.mediaSize ? ` • ${formatBytes(message.mediaSize)}` : ''}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              <a
-                href={message.mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Abrir documento"
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
-                  fromMe
-                    ? 'bg-white/15 hover:bg-white/25 text-white'
-                    : 'bg-background hover:bg-muted text-foreground border border-border/60'
-                }`}
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <a
-                href={message.mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download={docFileName}
-                title="Baixar documento"
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
-                  fromMe
-                    ? 'bg-white/15 hover:bg-white/25 text-white'
-                    : 'bg-background hover:bg-muted text-foreground border border-border/60'
-                }`}
-              >
-                <Download className="w-3.5 h-3.5" />
-              </a>
-            </div>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={handleConfirmDelete}
+              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold inline-flex items-center gap-1"
+            >
+              {deleting ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Trash2 className="w-3 h-3" />
+              )}
+              Apagar para todos
+            </button>
           </div>
-          {docCaptionVisible && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {renderInlineWhatsAppText(captionText, fromMe)}
-            </p>
-          )}
         </div>
       )}
 
-      {/* 5. TEXTO PURO (ou fallback de mídia sem URL) */}
-      {(!message.mediaType || !message.mediaUrl) && (
-        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-          {renderInlineWhatsAppText(captionText, fromMe)}
-        </p>
+      {/* Editor inline de Mensagem */}
+      {isEditing ? (
+        <div className="space-y-2 min-w-[230px]">
+          <textarea
+            value={editDraft}
+            onChange={(e) => setEditDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmitEdit();
+              } else if (e.key === 'Escape') {
+                setIsEditing(false);
+              }
+            }}
+            rows={Math.min(5, Math.max(2, editDraft.split('\n').length))}
+            autoFocus
+            className={`w-full rounded-xl p-2 text-sm resize-none border focus:outline-none ${
+              fromMe
+                ? 'bg-black/20 border-white/30 text-white placeholder:text-white/60'
+                : 'bg-background border-border text-foreground'
+            }`}
+          />
+          <div className="flex items-center justify-between gap-2 text-[10px]">
+            <span className="opacity-75">Enter salva • Esc cancela</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => setIsEditing(false)}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-semibold inline-flex items-center gap-1"
+              >
+                <X className="w-3 h-3" />
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit || !editDraft.trim()}
+                onClick={handleSubmitEdit}
+                className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-bold inline-flex items-center gap-1"
+              >
+                {savingEdit ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Check className="w-3 h-3" />
+                )}
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 1. FOTO / IMAGEM */}
+          {message.mediaType === 'image' && message.mediaUrl && (
+            <div className="space-y-2">
+              {imgFailed ? (
+                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-black/10 text-xs">
+                  <ImageOff className="w-4 h-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">Não foi possível carregar a imagem</p>
+                    <a
+                      href={message.mediaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-[11px] opacity-90"
+                    >
+                      Abrir link original
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative group/img overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+                  <img
+                    src={message.mediaUrl}
+                    alt="Imagem enviada no chat"
+                    loading="lazy"
+                    onError={() => setImgFailed(true)}
+                    onClick={() => onExpandImage(message.mediaUrl!)}
+                    className="max-w-full max-h-[340px] w-auto object-cover cursor-pointer transition-transform duration-200 group-hover/img:scale-[1.01]"
+                  />
+                  <a
+                    href={message.mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    onClick={(e) => e.stopPropagation()}
+                    title="Baixar imagem"
+                    className="opacity-0 group-hover/img:opacity-100 transition-opacity absolute top-2 right-2 h-8 w-8 rounded-full bg-black/65 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                  </a>
+                </div>
+              )}
+              {showCaption && (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {renderInlineWhatsAppText(captionText, fromMe, highlightQuery)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 2. VÍDEO */}
+          {message.mediaType === 'video' && message.mediaUrl && (
+            <div className="space-y-2">
+              <div className="rounded-xl overflow-hidden bg-black/90 border border-black/15 dark:border-white/10">
+                <video
+                  src={message.mediaUrl}
+                  controls
+                  playsInline
+                  preload="none"
+                  className="max-w-full max-h-[360px] w-full rounded-t-xl"
+                />
+                <div className="px-2.5 py-1.5 bg-black/60 text-white/85 flex items-center justify-between text-[10px]">
+                  <span className="flex items-center gap-1.5 truncate">
+                    <Film className="w-3 h-3 text-sky-300 shrink-0" />
+                    <span className="truncate">{message.mediaName || 'Vídeo WhatsApp'}</span>
+                  </span>
+                  <a
+                    href={message.mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    className="inline-flex items-center gap-1 hover:text-white font-semibold shrink-0 ml-2"
+                  >
+                    <Download className="w-3 h-3" />
+                    Baixar
+                  </a>
+                </div>
+              </div>
+              {showCaption && (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {renderInlineWhatsAppText(captionText, fromMe, highlightQuery)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 3. ÁUDIO / MENSAGEM DE VOZ */}
+          {message.mediaType === 'audio' && message.mediaUrl && (
+            <div className="space-y-2">
+              <ChatAudioPlayer
+                url={message.mediaUrl}
+                fromMe={fromMe}
+                durationHint={message.mediaDuration}
+              />
+              {showCaption && (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {renderInlineWhatsAppText(captionText, fromMe, highlightQuery)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 4. DOCUMENTO */}
+          {message.mediaType === 'document' && message.mediaUrl && (
+            <div className="space-y-2">
+              <div
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-colors min-w-[235px] sm:min-w-[270px] ${
+                  fromMe
+                    ? 'bg-black/15 border-white/15'
+                    : 'bg-secondary/60 border-border/80'
+                }`}
+              >
+                <div
+                  className={`w-10 h-10 rounded-xl border flex flex-col items-center justify-center shrink-0 ${
+                    fromMe ? 'bg-white/15 border-white/25 text-white' : docBadgeColor
+                  }`}
+                >
+                  <DocIcon className="w-4 h-4" />
+                  <span className="text-[8px] font-black leading-none mt-0.5">{docExt}</span>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate" title={docFileName}>
+                    {docFileName}
+                  </p>
+                  <p
+                    className={`text-[10px] mt-0.5 ${
+                      fromMe ? 'text-primary-foreground/75' : 'text-muted-foreground'
+                    }`}
+                  >
+                    Documento {docExt}
+                    {message.mediaSize ? ` • ${formatBytes(message.mediaSize)}` : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <a
+                    href={message.mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Abrir documento"
+                    className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
+                      fromMe
+                        ? 'bg-white/15 hover:bg-white/25 text-white'
+                        : 'bg-background hover:bg-muted text-foreground border border-border/60'
+                    }`}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <a
+                    href={message.mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download={docFileName}
+                    title="Baixar documento"
+                    className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
+                      fromMe
+                        ? 'bg-white/15 hover:bg-white/25 text-white'
+                        : 'bg-background hover:bg-muted text-foreground border border-border/60'
+                    }`}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+              {docCaptionVisible && (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {renderInlineWhatsAppText(captionText, fromMe, highlightQuery)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 5. TEXTO PURO */}
+          {(!message.mediaType || !message.mediaUrl) && (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {renderInlineWhatsAppText(captionText, fromMe, highlightQuery)}
+            </p>
+          )}
+        </>
       )}
 
       {/* Aviso de falha na entrega WhatsApp + botão Reenviar */}
@@ -415,7 +732,10 @@ export function ChatMessageContent({
         >
           <span className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-300" />
-            <span className="truncate" title={message.deliveryError || 'Erro ao entregar no WhatsApp'}>
+            <span
+              className="truncate"
+              title={message.deliveryError || 'Erro ao entregar no WhatsApp'}
+            >
               {message.deliveryError || 'Falha no envio WhatsApp'}
             </span>
           </span>
@@ -432,14 +752,20 @@ export function ChatMessageContent({
         </div>
       )}
 
-      {/* Rodapé: Hora + Origem + Ticks WhatsApp */}
+      {/* Rodapé: Editada + Origem + Hora + Ticks WhatsApp */}
       <div
         className={`flex items-center gap-1 mt-1.5 justify-end ${
           fromMe ? 'text-primary-foreground/75' : 'text-muted-foreground'
         }`}
       >
+        {message.edited && (
+          <span className="text-[9px] italic opacity-85 mr-1">Editada</span>
+        )}
         {message.source === 'whatsapp_device' && (
-          <span className="text-[9px] font-semibold opacity-80 mr-1" title="Enviada pelo celular WhatsApp">
+          <span
+            className="text-[9px] font-semibold opacity-80 mr-1"
+            title="Enviada pelo celular WhatsApp"
+          >
             Celular
           </span>
         )}
@@ -460,7 +786,13 @@ export function ChatMessageContent({
               <Clock className="w-3 h-3 opacity-80 animate-pulse" />
             </span>
           ) : message.deliveryStatus === 'READ' || message.deliveryStatus === 'PLAYED' ? (
-            <span title={message.deliveryStatus === 'PLAYED' ? 'Áudio reproduzido' : 'Visualizado pelo cliente'}>
+            <span
+              title={
+                message.deliveryStatus === 'PLAYED'
+                  ? 'Áudio reproduzido'
+                  : 'Visualizado pelo cliente'
+              }
+            >
               <CheckCheck className="w-3.5 h-3.5 text-sky-300" />
             </span>
           ) : message.deliveryStatus === 'RECEIVED' ? (

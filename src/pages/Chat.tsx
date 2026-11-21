@@ -33,6 +33,9 @@ import {
   ExternalLink,
   UploadCloud,
   ChevronUp,
+  ChevronDown,
+  ArrowDown,
+  Reply,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PredefinedMessages from '@/components/PredefinedMessages';
@@ -48,7 +51,7 @@ import {
 } from '@/components/chat/ChatMediaStagingBar';
 import { useToast } from '@/hooks/use-toast';
 import { useNotifications } from '@/hooks/use-notifications';
-import type { Message, Client, ChatMediaPayload } from '@/types/dashboard';
+import type { Message, Client, ChatMediaPayload, ReplyToSnapshot } from '@/types/dashboard';
 import { db, storage } from '@/config/firebase';
 import {
   collection,
@@ -221,6 +224,12 @@ export default function Chat() {
 
   // Estados de atendimento / UI
   const [isPrivateMode, setIsPrivateMode] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<ReplyToSnapshot | null>(null);
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [chatFilter, setChatFilter] = useState<
     'all' | 'unread' | 'ai' | 'urgente' | 'suporte' | 'financeiro'
   >('all');
@@ -235,6 +244,7 @@ export default function Chat() {
   const { toast } = useToast();
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasAutoSelectedRef = useRef(false);
   const fetchedAvatarsRef = useRef<Set<string>>(new Set());
@@ -387,6 +397,10 @@ export default function Chat() {
           deliveryStatus: data.deliveryStatus || undefined,
           deliveryError: data.deliveryError || null,
           reaction: data.reaction || null,
+          edited: Boolean(data.edited),
+          editedAt: data.editedAt?.toDate?.() || null,
+          deletedForEveryone: Boolean(data.deletedForEveryone),
+          replyTo: data.replyTo || null,
         };
       });
 
@@ -581,6 +595,10 @@ export default function Chat() {
           if (finalMedia.duration) messageDoc.mediaDuration = finalMedia.duration;
         }
 
+        if (replyingTo && !isPrivateMode) {
+          messageDoc.replyTo = replyingTo;
+        }
+
         await addDoc(collection(db, 'chat', selectedClient.id, 'mensagens'), messageDoc);
         await setDoc(
           doc(db, 'chat', selectedClient.id),
@@ -598,13 +616,14 @@ export default function Chat() {
             textareaRef.current.style.height = 'auto';
           }
         }
+        setReplyingTo(null);
         setShowEmojiPicker(false);
         if (isPrivateMode) setIsPrivateMode(false);
       } catch {
         toast({ title: 'Erro ao enviar mensagem', variant: 'destructive' });
       }
     },
-    [selectedClient, newMessage, stagedMedia, isPrivateMode, uploadFileToStorage, toast]
+    [selectedClient, newMessage, stagedMedia, isPrivateMode, replyingTo, uploadFileToStorage, toast]
   );
 
   // Preparar arquivo selecionado/arrastado/colado (com compressão automática de fotos p/ economia de Storage)
@@ -872,8 +891,12 @@ export default function Chat() {
     setSelectedClient(client);
     setMessageLimit(30);
     setStagedMedia(null);
+    setReplyingTo(null);
     setShowAttachMenu(false);
     setShowEmojiPicker(false);
+    setShowMessageSearch(false);
+    setMessageSearchQuery('');
+    setShowScrollBottom(false);
     if (client.unreadCount > 0) {
       setDoc(doc(db, 'chat', client.id), { unreadCount: 0 }, { merge: true }).catch(
         () => undefined
@@ -913,6 +936,157 @@ export default function Chat() {
         variant: 'destructive',
       });
     }
+  };
+
+  const handleEditMessage = async (msg: Message, newText: string): Promise<boolean> => {
+    if (!selectedClient) return false;
+    const trimmed = newText.trim();
+    if (!trimmed) return false;
+
+    if (!msg.isPrivate) {
+      if (!msg.zapiMessageId) {
+        toast({
+          title: 'Edição indisponível',
+          description: 'Esta mensagem não possui ID da Z-API para edição no WhatsApp.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      const phone = selectedClient.phone || selectedClient.id;
+      const res = await whapiService.editMessage(phone, msg.zapiMessageId, trimmed);
+      if (!res.sent) {
+        toast({
+          title: 'Não foi possível editar no WhatsApp',
+          description:
+            res.error || 'O WhatsApp permite editar apenas até 15 minutos após o envio.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+    }
+
+    try {
+      await updateDoc(doc(db, 'chat', selectedClient.id, 'mensagens', msg.id), {
+        content: trimmed,
+        edited: true,
+        editedAt: new Date(),
+      });
+
+      const msgs = clientMessages[selectedClient.id] || [];
+      if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+        await setDoc(
+          doc(db, 'chat', selectedClient.id),
+          { lastMessage: msg.isPrivate ? `📝 Nota: ${trimmed}` : trimmed },
+          { merge: true }
+        ).catch(() => undefined);
+      }
+
+      toast({
+        title: msg.isPrivate ? 'Nota editada' : 'Mensagem editada no WhatsApp',
+      });
+      return true;
+    } catch {
+      toast({ title: 'Erro ao salvar edição', variant: 'destructive' });
+      return false;
+    }
+  };
+
+  const handleDeleteForEveryone = async (msg: Message): Promise<boolean> => {
+    if (!selectedClient) return false;
+
+    if (!msg.isPrivate) {
+      if (!msg.zapiMessageId) {
+        toast({
+          title: 'Exclusão indisponível no WhatsApp',
+          description: 'Esta mensagem não possui ID da Z-API para apagar para todos.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      const phone = selectedClient.phone || selectedClient.id;
+      const res = await whapiService.deleteMessage(phone, msg.zapiMessageId, {
+        owner: true,
+        deleteForMe: false,
+      });
+      if (!res.sent) {
+        toast({
+          title: 'Não foi possível apagar para todos',
+          description: res.error || 'Verifique a conexão Z-API ou o prazo do WhatsApp.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+    }
+
+    try {
+      await updateDoc(doc(db, 'chat', selectedClient.id, 'mensagens', msg.id), {
+        deletedForEveryone: true,
+        content: '🚫 Você apagou esta mensagem',
+        mediaUrl: null,
+        mediaType: null,
+        mediaName: null,
+        deletedAt: new Date(),
+      });
+
+      const msgs = clientMessages[selectedClient.id] || [];
+      if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+        await setDoc(
+          doc(db, 'chat', selectedClient.id),
+          { lastMessage: '🚫 Mensagem apagada' },
+          { merge: true }
+        ).catch(() => undefined);
+      }
+
+      toast({
+        title: msg.isPrivate ? 'Nota apagada' : 'Mensagem apagada para todos no WhatsApp',
+      });
+      return true;
+    } catch {
+      toast({ title: 'Erro ao atualizar exclusão', variant: 'destructive' });
+      return false;
+    }
+  };
+
+  const handleReplyMessage = (msg: Message) => {
+    const snippet =
+      msg.content?.trim() ||
+      (msg.mediaType === 'image'
+        ? '📎 Foto'
+        : msg.mediaType === 'video'
+        ? '🎥 Vídeo'
+        : msg.mediaType === 'audio'
+        ? '🎵 Áudio'
+        : msg.mediaType === 'document'
+        ? `📄 ${msg.mediaName || 'Documento'}`
+        : '');
+    setReplyingTo({
+      id: msg.id,
+      zapiMessageId: msg.zapiMessageId || null,
+      user: msg.fromMe ? 'Você' : selectedClient?.name || msg.user,
+      content: snippet.slice(0, 140),
+      mediaType: msg.mediaType,
+    });
+    if (isPrivateMode) setIsPrivateMode(false);
+    setTimeout(() => textareaRef.current?.focus(), 40);
+  };
+
+  const scrollToMessage = (messageId: string) => {
+    const el = messagesScrollRef.current?.querySelector<HTMLElement>(
+      `[data-msg-id="${messageId}"]`
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMsgId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMsgId((prev) => (prev === messageId ? null : prev));
+    }, 1800);
+  };
+
+  const handleMessagesScroll = () => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBottom(distanceFromBottom > 220);
   };
 
   const handleStartNewConversation = async (e: React.FormEvent) => {
@@ -1043,7 +1217,28 @@ export default function Chat() {
       )
     : [];
 
-  const currentMessages = selectedClient ? clientMessages[selectedClient.id] || [] : [];
+  const currentMessages = React.useMemo(
+    () => (selectedClient ? clientMessages[selectedClient.id] || [] : []),
+    [selectedClient, clientMessages]
+  );
+
+  const searchMatches = React.useMemo(() => {
+    const q = messageSearchQuery.trim().toLowerCase();
+    if (!showMessageSearch || !q) return [] as Message[];
+    return currentMessages.filter(
+      (m) =>
+        !m.deletedForEveryone &&
+        (m.content.toLowerCase().includes(q) ||
+          (m.mediaName || '').toLowerCase().includes(q))
+    );
+  }, [currentMessages, showMessageSearch, messageSearchQuery]);
+
+  const jumpToSearchMatch = (nextIdx: number) => {
+    if (searchMatches.length === 0) return;
+    const wrapped = (nextIdx + searchMatches.length) % searchMatches.length;
+    setActiveSearchIndex(wrapped);
+    scrollToMessage(searchMatches[wrapped].id);
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1196,16 +1391,21 @@ export default function Chat() {
                 Nenhuma conversa encontrada.
               </div>
             ) : (
-              filteredClients.map((client) => (
+              filteredClients.map((client) => {
+                const isSelected = selectedClient?.id === client.id;
+                return (
                 <div
                   key={client.id}
                   onClick={() => handleClientSelect(client)}
-                  className={`p-3 rounded-xl cursor-pointer transition-all relative ${
-                    selectedClient?.id === client.id
-                      ? 'bg-primary/15 border border-primary/30 shadow-sm'
+                  className={`p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden ${
+                    isSelected
+                      ? 'bg-primary/12 border border-primary/35 shadow-sm'
                       : 'hover:bg-secondary/60 border border-transparent'
                   }`}
                 >
+                  {isSelected && (
+                    <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full bg-primary" />
+                  )}
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
                       <Avatar className="h-11 w-11 border-2 border-border shadow-sm">
@@ -1239,11 +1439,23 @@ export default function Chat() {
                             </Badge>
                           )}
                         </h4>
-                        <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
+                        <span
+                          className={`text-[10px] shrink-0 font-mono ${
+                            client.unreadCount > 0
+                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                              : 'text-muted-foreground'
+                          }`}
+                        >
                           {format(client.lastMessageTime, 'HH:mm')}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate leading-relaxed">
+                      <p
+                        className={`text-xs truncate leading-relaxed ${
+                          client.unreadCount > 0
+                            ? 'text-foreground font-medium'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
                         {client.lastMessage}
                       </p>
                       {client.tags && client.tags.length > 0 && (
@@ -1269,13 +1481,14 @@ export default function Chat() {
                     </div>
 
                     {client.unreadCount > 0 && (
-                      <Badge className="bg-primary text-primary-foreground border-none h-5 min-w-[20px] justify-center px-1 text-[10px]">
-                        {client.unreadCount}
+                      <Badge className="bg-emerald-600 text-white border-none h-5 min-w-[20px] justify-center px-1.5 text-[10px] font-bold shadow-sm">
+                        {client.unreadCount > 99 ? '99+' : client.unreadCount}
                       </Badge>
                     )}
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
             {!loading && clients.length >= clientLimit - 5 && (
               <div className="pt-2 pb-1 flex justify-center">
@@ -1389,6 +1602,23 @@ export default function Chat() {
                       PROTOCOLO
                     </Button>
                   )}
+                  <Button
+                    variant={showMessageSearch ? 'secondary' : 'ghost'}
+                    size="icon"
+                    onClick={() => {
+                      setShowMessageSearch((prev) => !prev);
+                      setMessageSearchQuery('');
+                      setActiveSearchIndex(0);
+                    }}
+                    className={`h-9 w-9 rounded-xl transition-colors ${
+                      showMessageSearch
+                        ? 'text-primary bg-primary/10'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title="Buscar mensagens nesta conversa"
+                  >
+                    <Search className="w-4 h-4" />
+                  </Button>
                   <a
                     href={`https://wa.me/${(selectedClient.phone || selectedClient.id).replace(/\D/g, '')}`}
                     target="_blank"
@@ -1422,69 +1652,200 @@ export default function Chat() {
                 </div>
               </div>
 
-              {/* Área de Mensagens */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 avl-chat-pattern space-y-3.5 custom-scrollbar">
-                {currentMessages.length >= messageLimit && (
-                  <div className="flex justify-center pb-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMessageLimit((prev) => prev + 50)}
-                      className="h-7 rounded-full text-[11px] gap-1.5 bg-card/90 shadow-sm"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                      Carregar mensagens anteriores
-                    </Button>
-                  </div>
-                )}
-
-                {currentMessages.map((message, index) => {
-                  const prevMsg = index > 0 ? currentMessages[index - 1] : null;
-                  const showDayDivider =
-                    !prevMsg || !isSameDay(prevMsg.timestamp, message.timestamp);
-
-                  return (
-                    <React.Fragment key={message.id || index}>
-                      {showDayDivider && (
-                        <div className="flex justify-center my-2">
-                          <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-card/90 border border-border/70 text-muted-foreground shadow-sm">
-                            {formatDaySeparator(message.timestamp)}
-                          </span>
-                        </div>
-                      )}
-
-                      <div
-                        className={`flex ${
-                          message.fromMe ? 'justify-end' : 'justify-start'
-                        } ${message.isPrivate ? 'my-2' : ''} ${
-                          message.reaction ? 'mb-4' : ''
-                        }`}
+              {/* Barra de busca interna na conversa */}
+              <AnimatePresence>
+                {showMessageSearch && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.14 }}
+                    className="overflow-hidden border-b border-border/60 bg-secondary/40 px-4 py-2 flex items-center gap-2 z-10"
+                  >
+                    <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      type="text"
+                      value={messageSearchQuery}
+                      onChange={(e) => {
+                        setMessageSearchQuery(e.target.value);
+                        setActiveSearchIndex(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && searchMatches.length > 0) {
+                          e.preventDefault();
+                          jumpToSearchMatch(activeSearchIndex);
+                        } else if (e.key === 'Escape') {
+                          setShowMessageSearch(false);
+                          setMessageSearchQuery('');
+                        }
+                      }}
+                      placeholder="Pesquisar nesta conversa..."
+                      autoFocus
+                      className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                    {messageSearchQuery.trim() && (
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                        {searchMatches.length === 0
+                          ? '0 resultados'
+                          : `${activeSearchIndex + 1}/${searchMatches.length}`}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={searchMatches.length === 0}
+                        onClick={() => jumpToSearchMatch(activeSearchIndex - 1)}
+                        className="h-6 w-6 rounded-md"
+                        title="Anterior"
                       >
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.14 }}
-                          className={`max-w-[84%] sm:max-w-[74%] rounded-2xl p-3.5 shadow-sm relative ${
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={searchMatches.length === 0}
+                        onClick={() => jumpToSearchMatch(activeSearchIndex + 1)}
+                        className="h-6 w-6 rounded-md"
+                        title="Próximo"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setShowMessageSearch(false);
+                          setMessageSearchQuery('');
+                        }}
+                        className="h-6 w-6 rounded-md"
+                        title="Fechar busca"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Área de Mensagens */}
+              <div className="flex-1 relative min-h-0 flex flex-col">
+                <div
+                  ref={messagesScrollRef}
+                  onScroll={handleMessagesScroll}
+                  className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 avl-chat-pattern custom-scrollbar"
+                >
+                  {currentMessages.length >= messageLimit && (
+                    <div className="flex justify-center pb-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setMessageLimit((prev) => prev + 40)}
+                        className="h-7 rounded-full text-[11px] gap-1.5 bg-card/90 shadow-sm"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                        Carregar mensagens anteriores
+                      </Button>
+                    </div>
+                  )}
+
+                  {currentMessages.map((message, index) => {
+                    const prevMsg = index > 0 ? currentMessages[index - 1] : null;
+                    const showDayDivider =
+                      !prevMsg || !isSameDay(prevMsg.timestamp, message.timestamp);
+                    const isGroupedWithPrev =
+                      Boolean(prevMsg) &&
+                      !showDayDivider &&
+                      !message.isPrivate &&
+                      !prevMsg!.isPrivate &&
+                      Boolean(prevMsg!.fromMe) === Boolean(message.fromMe) &&
+                      message.timestamp.getTime() - prevMsg!.timestamp.getTime() <
+                        3 * 60 * 1000;
+                    const isHighlighted = highlightedMsgId === message.id;
+
+                    return (
+                      <div key={message.id || index}>
+                        {showDayDivider && (
+                          <div className="flex justify-center my-3">
+                            <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-card/95 border border-border/70 text-muted-foreground shadow-sm">
+                              {formatDaySeparator(message.timestamp)}
+                            </span>
+                          </div>
+                        )}
+
+                        <div
+                          data-msg-id={message.id}
+                          className={`flex ${
+                            message.fromMe ? 'justify-end' : 'justify-start'
+                          } ${
                             message.isPrivate
-                              ? 'bg-amber-500/15 border-2 border-amber-500/30 text-amber-600 dark:text-amber-200 rounded-xl mx-auto w-full max-w-[90%] shadow-md'
-                              : message.fromMe
-                              ? 'bg-primary text-primary-foreground rounded-tr-none shadow-md shadow-primary/20'
-                              : 'bg-card text-card-foreground border border-border/80 rounded-tl-none'
-                          }`}
+                              ? 'my-2.5'
+                              : isGroupedWithPrev
+                              ? 'mt-1'
+                              : 'mt-3'
+                          } ${message.reaction ? 'mb-4' : ''}`}
                         >
-                          <ChatMessageContent
-                            message={message}
-                            onExpandImage={expandImage}
-                            onRetryMessage={handleRetryMessage}
-                            onReactMessage={handleReactMessage}
-                          />
-                        </motion.div>
+                          <motion.div
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.14 }}
+                            className={`max-w-[84%] sm:max-w-[74%] rounded-2xl px-3.5 py-2.5 shadow-sm relative transition-all ${
+                              isHighlighted
+                                ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-background'
+                                : ''
+                            } ${
+                              message.isPrivate
+                                ? 'bg-amber-500/15 border-2 border-amber-500/30 text-amber-600 dark:text-amber-200 rounded-xl mx-auto w-full max-w-[90%] shadow-md'
+                                : message.fromMe
+                                ? `bg-primary text-primary-foreground shadow-md shadow-primary/20 ${
+                                    isGroupedWithPrev ? 'rounded-2xl' : 'rounded-tr-none'
+                                  }`
+                                : `bg-card text-card-foreground border border-border/80 ${
+                                    isGroupedWithPrev ? 'rounded-2xl' : 'rounded-tl-none'
+                                  }`
+                            }`}
+                          >
+                            <ChatMessageContent
+                              message={message}
+                              highlightQuery={showMessageSearch ? messageSearchQuery : undefined}
+                              onExpandImage={expandImage}
+                              onRetryMessage={handleRetryMessage}
+                              onReactMessage={handleReactMessage}
+                              onReplyMessage={handleReplyMessage}
+                              onEditMessage={handleEditMessage}
+                              onDeleteForEveryone={handleDeleteForEveryone}
+                              onScrollToMessage={scrollToMessage}
+                            />
+                          </motion.div>
+                        </div>
                       </div>
-                    </React.Fragment>
-                  );
-                })}
-                <div ref={messagesEndRef} />
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Botão Flutuante "Ir para o fim" */}
+                <AnimatePresence>
+                  {showScrollBottom && (
+                    <motion.button
+                      type="button"
+                      initial={{ opacity: 0, scale: 0.85, y: 8 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.85, y: 8 }}
+                      onClick={() =>
+                        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+                      }
+                      title="Ir para as mensagens mais recentes"
+                      className="absolute bottom-3 right-4 z-20 h-9 w-9 rounded-full bg-card/95 hover:bg-card text-foreground border border-border shadow-lg flex items-center justify-center transition-colors"
+                    >
+                      <ArrowDown className="w-4 h-4" />
+                    </motion.button>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Barra de Composição (Texto + Anexos + Áudio + Emojis + IA) */}
@@ -1601,6 +1962,39 @@ export default function Chat() {
                           {emoji}
                         </button>
                       ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Barra de Resposta / Citação ativa (estilo WhatsApp) */}
+                <AnimatePresence>
+                  {replyingTo && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.14 }}
+                      className="mb-2 px-3 py-2 rounded-xl bg-secondary/75 border border-border border-l-4 border-l-primary flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-primary flex items-center gap-1.5">
+                          <Reply className="w-3 h-3 shrink-0" />
+                          Respondendo a {replyingTo.user}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {replyingTo.content}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setReplyingTo(null)}
+                        className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
+                        title="Cancelar resposta (Esc)"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1769,6 +2163,10 @@ export default function Chat() {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
                           if (canSend) handleSendMessage();
+                        } else if (e.key === 'Escape') {
+                          setReplyingTo(null);
+                          setShowAttachMenu(false);
+                          setShowEmojiPicker(false);
                         }
                       }}
                     />
