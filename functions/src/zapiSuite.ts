@@ -36,12 +36,42 @@ function createZapiClient(): AxiosInstance {
 
 export function formatZapiPhone(phone: string): string {
   const trimmed = String(phone || "").trim();
-  if (trimmed.endsWith("-group") || trimmed.includes("@g.us") || trimmed.includes("-")) {
+  if (
+    trimmed.includes("@lid") ||
+    trimmed.endsWith("-group") ||
+    trimmed.includes("@g.us") ||
+    /^\d+-\d+$/.test(trimmed)
+  ) {
     return trimmed;
   }
   const digits = trimmed.replace(/\D/g, "");
   if (!digits) return "";
-  return digits.startsWith("55") ? digits : `55${digits}`;
+  return digits.startsWith("55") || digits.length > 11 ? digits : `55${digits}`;
+}
+
+/**
+ * Gera todas as variações brasileiras (com/sem DDI 55 e com/sem 9º dígito)
+ * para localizar sempre o documento único do chat no Firestore sem duplicar conversas.
+ */
+export function buildBrPhoneVariants(rawPhone: string): string[] {
+  const digits = String(rawPhone || "").replace(/\D/g, "");
+  if (!digits) return [];
+  const list: string[] = [digits];
+
+  const local = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+  if (local.length >= 10 && local.length <= 11) {
+    const ddd = local.slice(0, 2);
+    const rest = local.slice(2);
+    list.push(local, `55${local}`);
+    if (rest.length === 9 && rest.startsWith("9")) {
+      const noNine = `${ddd}${rest.slice(1)}`;
+      list.push(noNine, `55${noNine}`);
+    } else if (rest.length === 8) {
+      const withNine = `${ddd}9${rest}`;
+      list.push(withNine, `55${withNine}`);
+    }
+  }
+  return Array.from(new Set(list.filter((v) => v.length >= 8)));
 }
 
 export function sanitizeIndexKey(rawId: string): string {
@@ -532,6 +562,30 @@ export const zapiToolActions = functions
         return { success: true };
       }
 
+      if (action === "mark_chat_read") {
+        const phone = formatZapiPhone(String(data?.phone || ""));
+        const messageId = String(data?.messageId || "").trim();
+        if (!phone) return { success: false };
+
+        const tasks: Promise<unknown>[] = [
+          client.post("/modify-chat", { phone, action: "read" }).catch(() => undefined),
+        ];
+        if (messageId) {
+          tasks.push(
+            client.post("/read-message", { phone, messageId }).catch(() => undefined)
+          );
+        }
+        await Promise.all(tasks);
+        return { success: true };
+      }
+
+      if (action === "mark_chat_unread") {
+        const phone = formatZapiPhone(String(data?.phone || ""));
+        if (!phone) return { success: false };
+        await client.post("/modify-chat", { phone, action: "unread" }).catch(() => undefined);
+        return { success: true };
+      }
+
       if (action === "send_text") {
         const phone = formatZapiPhone(String(data?.phone || ""));
         const message = String(data?.message || "");
@@ -801,6 +855,69 @@ export const zapiStatusWebhook = functions
 
       // 2. Status de entrega/leitura de mensagem (MessageStatusCallback)
       const rawStatus = String(body.status || body.ack || "").toUpperCase();
+      const rawPhoneStr = String(body.phone || body.chatId || "").trim();
+      const rawChatLid = String(
+        body.chatLid || (rawPhoneStr.includes("@lid") ? rawPhoneStr : "")
+      ).trim();
+      const rawPhone = rawPhoneStr.includes("@lid") ? "" : rawPhoneStr.replace(/\D/g, "");
+      const phoneVariants = rawPhone ? buildBrPhoneVariants(rawPhone) : [];
+
+      // Helper para resolver telefone real de um @lid via Z-API /contacts/{lid}
+      const resolvePhoneVariantsFromLid = async (lid: string): Promise<string[]> => {
+        if (!lid) return [];
+        try {
+          const client = createZapiClient();
+          const resp = await client.get(`/contacts/${encodeURIComponent(lid)}`, { timeout: 5000 });
+          const maybePhone = String(resp.data?.phone || "").trim();
+          if (maybePhone && !maybePhone.includes("@lid")) {
+            return buildBrPhoneVariants(maybePhone);
+          }
+        } catch {
+          // ignora silenciosamente se Z-API não resolver
+        }
+        return [];
+      };
+
+      // 2a. READ_BY_ME: você visualizou a conversa diretamente pelo celular -> zera não lidas no Dashboard!
+      if (rawStatus === "READ_BY_ME" && (phoneVariants.length > 0 || rawChatLid) && !body.isGroup) {
+        let targetRef: admin.firestore.DocumentReference | null = null;
+        if (rawChatLid) {
+          const lidSnap = await db
+            .collection("chat")
+            .where("chatLid", "==", rawChatLid)
+            .limit(5)
+            .get()
+            .catch(() => null);
+          if (lidSnap && !lidSnap.empty) {
+            const realDoc = lidSnap.docs.find((d) => !d.id.includes("@lid"));
+            if (realDoc) targetRef = realDoc.ref;
+          }
+        }
+        let lookupVariants = phoneVariants;
+        if (!targetRef && lookupVariants.length === 0 && rawChatLid) {
+          lookupVariants = await resolvePhoneVariantsFromLid(rawChatLid);
+        }
+        if (!targetRef && lookupVariants.length > 0) {
+          const snaps = await db.getAll(
+            ...lookupVariants.map((v) => db.collection("chat").doc(v))
+          );
+          const found = snaps.find((s) => s.exists);
+          if (found) targetRef = found.ref;
+        }
+        if (targetRef) {
+          const snap = await targetRef.get();
+          const currentUnread = Number(snap.data()?.unreadCount || 0);
+          const patch: Record<string, unknown> = { lastReadByMeAtMs: Date.now() };
+          if (currentUnread > 0) patch.unreadCount = 0;
+          if (rawChatLid && !snap.data()?.chatLid) patch.chatLid = rawChatLid;
+          if (currentUnread > 0 || (rawChatLid && !snap.data()?.chatLid)) {
+            await targetRef.set(patch, { merge: true });
+          }
+        }
+        res.status(200).json({ ok: true, status: "READ_BY_ME" });
+        return;
+      }
+
       const normalizedStatus =
         rawStatus === "PLAYED"
           ? "PLAYED"
@@ -831,17 +948,7 @@ export const zapiStatusWebhook = functions
         };
         const uniqueIds = Array.from(new Set(candidateIds));
 
-        for (const rawId of uniqueIds) {
-          const idxKey = sanitizeIndexKey(rawId);
-          if (!idxKey) continue;
-          const idxSnap = await db.collection("zapi_message_index").doc(idxKey).get();
-          if (!idxSnap.exists) continue;
-          const idx = idxSnap.data() || {};
-          const collectionPath = String(idx.collectionPath || "");
-          const docId = String(idx.docId || "");
-          if (!collectionPath || !docId) continue;
-
-          const targetRef = db.collection(collectionPath).doc(docId);
+        const updateMessageDoc = async (targetRef: admin.firestore.DocumentReference) => {
           await db.runTransaction(async (tx) => {
             const snap = await tx.get(targetRef);
             if (!snap.exists) return;
@@ -857,6 +964,68 @@ export const zapiStatusWebhook = functions
               );
             }
           });
+        };
+
+        for (const rawId of uniqueIds) {
+          let updated = false;
+          const idxKey = sanitizeIndexKey(rawId);
+          if (idxKey) {
+            const idxSnap = await db.collection("zapi_message_index").doc(idxKey).get();
+            if (idxSnap.exists) {
+              const idx = idxSnap.data() || {};
+              const collectionPath = String(idx.collectionPath || "");
+              const docId = String(idx.docId || "");
+              const indexedChatId = String(idx.chatId || "").trim();
+              if (collectionPath && docId) {
+                await updateMessageDoc(db.collection(collectionPath).doc(docId));
+                if (rawChatLid && indexedChatId && !body.isGroup) {
+                  await db
+                    .collection("chat")
+                    .doc(indexedChatId)
+                    .set({ chatLid: rawChatLid }, { merge: true })
+                    .catch(() => undefined);
+                }
+                updated = true;
+              }
+            }
+          }
+
+          // Fallback por zapiMessageId na subcoleção do chat (testa todas as variantes BR e chatLid)
+          if (!updated && !body.isGroup && (phoneVariants.length > 0 || rawChatLid)) {
+            const chatIdsToTry = [...phoneVariants];
+            if (rawChatLid) {
+              const lidSnap = await db
+                .collection("chat")
+                .where("chatLid", "==", rawChatLid)
+                .limit(5)
+                .get()
+                .catch(() => null);
+              if (lidSnap && !lidSnap.empty) {
+                const realDocs = lidSnap.docs.filter((d) => !d.id.includes("@lid"));
+                for (const d of realDocs.length > 0 ? realDocs : lidSnap.docs) {
+                  chatIdsToTry.unshift(d.id);
+                }
+              }
+              if (chatIdsToTry.length === 0) {
+                const resolved = await resolvePhoneVariantsFromLid(rawChatLid);
+                chatIdsToTry.push(...resolved);
+              }
+            }
+            for (const cid of Array.from(new Set(chatIdsToTry)).slice(0, 5)) {
+              const msgSnap = await db
+                .collection("chat")
+                .doc(cid)
+                .collection("mensagens")
+                .where("zapiMessageId", "==", rawId)
+                .limit(1)
+                .get()
+                .catch(() => null);
+              if (msgSnap && !msgSnap.empty) {
+                await updateMessageDoc(msgSnap.docs[0].ref);
+                break;
+              }
+            }
+          }
         }
       }
 

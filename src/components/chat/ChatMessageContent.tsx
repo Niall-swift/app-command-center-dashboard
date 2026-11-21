@@ -763,14 +763,16 @@ export function ChatMessageContent({
         )}
         {message.source === 'whatsapp_device' && (
           <span
-            className="text-[9px] font-semibold opacity-80 mr-1"
-            title="Enviada pelo celular WhatsApp"
+            className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-white/15 border border-white/20 mr-1"
+            title="Espelhada do celular / WhatsApp Web"
           >
-            Celular
+            📱 Celular
           </span>
         )}
         {message.source === 'josue_ai' && (
-          <span className="text-[9px] font-semibold opacity-80 mr-1">IA</span>
+          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-white/15 mr-1">
+            IA
+          </span>
         )}
         <span className="text-[10px] font-mono">
           {format(message.timestamp, 'HH:mm')}
@@ -787,20 +789,21 @@ export function ChatMessageContent({
             </span>
           ) : message.deliveryStatus === 'READ' || message.deliveryStatus === 'PLAYED' ? (
             <span
+              className="inline-flex items-center"
               title={
                 message.deliveryStatus === 'PLAYED'
-                  ? 'Áudio reproduzido'
-                  : 'Visualizado pelo cliente'
+                  ? 'Áudio reproduzido pelo cliente'
+                  : 'Visualizada pelo cliente'
               }
             >
-              <CheckCheck className="w-3.5 h-3.5 text-sky-300" />
+              <CheckCheck className="w-3.5 h-3.5 text-cyan-200 drop-shadow-[0_0_4px_rgba(34,211,238,0.65)]" />
             </span>
           ) : message.deliveryStatus === 'RECEIVED' ? (
-            <span title="Entregue no WhatsApp">
+            <span title="Entregue no WhatsApp do cliente">
               <CheckCheck className="w-3.5 h-3.5 opacity-90" />
             </span>
           ) : (
-            <span title="Enviado">
+            <span title="Enviada ao servidor WhatsApp">
               <Check className="w-3 h-3 opacity-75" />
             </span>
           )

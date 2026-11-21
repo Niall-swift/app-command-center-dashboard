@@ -240,15 +240,22 @@ export class WhatsAppService {
   }
 
   private formatPhone(phone: string): string {
-    let clean = phone.replace(/\D/g, '');
-    
-    // Se tiver 11 dígitos (com DDD) e não tiver o 55, adiciona
-    if (clean.length >= 10 && !clean.startsWith('55')) {
+    const trimmed = String(phone || '').trim();
+    if (!trimmed) return '';
+    // Preserva identificadores @lid e grupos nativos da Z-API sem alterar
+    if (
+      trimmed.includes('@lid') ||
+      trimmed.endsWith('-group') ||
+      trimmed.includes('@g.us')
+    ) {
+      return trimmed;
+    }
+
+    let clean = trimmed.replace(/\D/g, '');
+    // Se tiver 10-11 dígitos (com DDD BR) e não tiver o 55, adiciona
+    if (clean.length >= 10 && clean.length <= 11 && !clean.startsWith('55')) {
       clean = '55' + clean;
     }
-    
-    // Whapi geralmente prefere o formato sem o 9 extra para alguns DDDs, 
-    // mas o formato internacional padrão costuma funcionar.
     return clean;
   }
 

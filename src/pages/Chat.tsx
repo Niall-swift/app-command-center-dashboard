@@ -36,6 +36,7 @@ import {
   ChevronDown,
   ArrowDown,
   Reply,
+  MailWarning,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PredefinedMessages from '@/components/PredefinedMessages';
@@ -259,6 +260,8 @@ export default function Chat() {
   const fetchedAvatarsRef = useRef<Set<string>>(new Set());
   const previousClientsRef = useRef<Client[]>([]);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  const lastMarkedReadRef = useRef<Record<string, string>>({});
+  const manualUnreadRef = useRef<Set<string>>(new Set());
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -897,6 +900,7 @@ export default function Chat() {
   };
 
   const handleClientSelect = (client: Client) => {
+    manualUnreadRef.current.delete(client.id);
     setSelectedClient(client);
     setMessageLimit(30);
     setStagedMedia(null);
@@ -911,6 +915,22 @@ export default function Chat() {
         () => undefined
       );
     }
+  };
+
+  const handleMarkChatUnread = async () => {
+    if (!selectedClient) return;
+    const chatId = selectedClient.id;
+    const phone = selectedClient.phone || chatId;
+    manualUnreadRef.current.add(chatId);
+    delete lastMarkedReadRef.current[chatId];
+    await setDoc(doc(db, 'chat', chatId), { unreadCount: 1 }, { merge: true }).catch(
+      () => undefined
+    );
+    whapiService.markChatAsUnread(phone).catch(() => undefined);
+    toast({
+      title: 'Marcada como não lida',
+      description: 'Conversa sinalizada como não lida no painel e no WhatsApp.',
+    });
   };
 
   const handleRetryMessage = async (msg: Message) => {
@@ -1110,6 +1130,32 @@ export default function Chat() {
       return;
     }
     const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+    const localDigits = cleanPhone.startsWith('55') && cleanPhone.length >= 12 ? cleanPhone.slice(2) : cleanPhone;
+    const phoneKeyVariants = new Set<string>([cleanPhone, localDigits]);
+    if (localDigits.length === 11 && localDigits[2] === '9') {
+      const noNine = `${localDigits.slice(0, 2)}${localDigits.slice(3)}`;
+      phoneKeyVariants.add(noNine);
+      phoneKeyVariants.add(`55${noNine}`);
+    } else if (localDigits.length === 10) {
+      const withNine = `${localDigits.slice(0, 2)}9${localDigits.slice(2)}`;
+      phoneKeyVariants.add(withNine);
+      phoneKeyVariants.add(`55${withNine}`);
+    }
+
+    // Reutiliza conversa existente se já houver um chat com variação de 9º dígito ou DDI
+    const existingClient = clients.find((c) => {
+      const idDigits = c.id.replace(/\D/g, '');
+      const phDigits = String(c.phone || '').replace(/\D/g, '');
+      return phoneKeyVariants.has(idDigits) || phoneKeyVariants.has(phDigits);
+    });
+    if (existingClient) {
+      handleClientSelect(existingClient);
+      setShowNewChatModal(false);
+      setNewChatPhone('');
+      setNewChatName('');
+      return;
+    }
+
     const displayName = newChatName.trim() || cleanPhone;
 
     try {
@@ -1230,6 +1276,46 @@ export default function Chat() {
     () => (selectedClient ? clientMessages[selectedClient.id] || [] : []),
     [selectedClient, clientMessages]
   );
+
+  // Sincronização automática de visualização (✓✓ azul no WhatsApp do cliente + limpa não lida no celular)
+  useEffect(() => {
+    if (!selectedClient || !isPageVisible) return;
+    const chatId = selectedClient.id;
+    if (manualUnreadRef.current.has(chatId)) return;
+
+    const latestIncoming = [...currentMessages]
+      .reverse()
+      .find((m) => !m.fromMe && !m.isPrivate);
+    const hasUnread = (selectedClient.unreadCount || 0) > 0;
+    const latestKey = latestIncoming?.zapiMessageId || latestIncoming?.id || '';
+
+    // Só marca como lida no WhatsApp se havia não-lidas OU se chegou nova mensagem do cliente na conversa aberta
+    if (!hasUnread && !latestKey) return;
+    const dedupToken = latestKey || `unread_${selectedClient.lastMessageTime.getTime()}`;
+    if (!hasUnread && lastMarkedReadRef.current[chatId] === dedupToken) return;
+    if (lastMarkedReadRef.current[chatId] === dedupToken && !hasUnread) return;
+
+    const alreadyMarkedThisMsg = lastMarkedReadRef.current[chatId] === dedupToken;
+    if (!hasUnread && alreadyMarkedThisMsg) return;
+
+    // Só envia recibo de leitura se a conversa tinha unreadCount > 0 ou se a última mensagem da conversa é do cliente
+    const lastOverall = currentMessages[currentMessages.length - 1];
+    const lastIsFromClient = Boolean(lastOverall && !lastOverall.fromMe && !lastOverall.isPrivate);
+    if (!hasUnread && !lastIsFromClient) return;
+
+    lastMarkedReadRef.current[chatId] = dedupToken;
+
+    if (hasUnread) {
+      setDoc(doc(db, 'chat', chatId), { unreadCount: 0 }, { merge: true }).catch(
+        () => undefined
+      );
+    }
+
+    const phone = selectedClient.phone || chatId;
+    whapiService
+      .markChatAsRead(phone, latestIncoming?.zapiMessageId || undefined)
+      .catch(() => undefined);
+  }, [selectedClient, currentMessages, isPageVisible]);
 
   const searchMatches = React.useMemo(() => {
     const q = messageSearchQuery.trim().toLowerCase();
@@ -1646,6 +1732,15 @@ export default function Chat() {
                     title="Buscar mensagens nesta conversa"
                   >
                     <Search className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleMarkChatUnread}
+                    className="h-9 w-9 rounded-xl text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors hidden sm:inline-flex"
+                    title="Marcar conversa como não lida (Painel + Celular)"
+                  >
+                    <MailWarning className="w-4 h-4" />
                   </Button>
                   <a
                     href={`https://wa.me/${(selectedClient.phone || selectedClient.id).replace(/\D/g, '')}`}

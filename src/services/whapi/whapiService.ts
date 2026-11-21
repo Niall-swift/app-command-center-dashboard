@@ -396,6 +396,35 @@ export class WhapiService {
     }
   }
 
+  async markChatAsRead(phone: string, messageId?: string | null): Promise<boolean> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(phone);
+      if (!formattedPhone) return false;
+      await this.callZapiProxy<{ success?: boolean }>({
+        action: 'mark_chat_read',
+        phone: formattedPhone,
+        ...(messageId ? { messageId } : {}),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async markChatAsUnread(phone: string): Promise<boolean> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(phone);
+      if (!formattedPhone) return false;
+      await this.callZapiProxy<{ success?: boolean }>({
+        action: 'mark_chat_unread',
+        phone: formattedPhone,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async checkPhoneExists(phone: string): Promise<boolean> {
     try {
       const res = await this.callZapiProxy<{ exists?: boolean }>({

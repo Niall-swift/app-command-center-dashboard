@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
@@ -106,7 +106,15 @@ function parseCoord(v?: string | number | null): number {
 
 export default function ISPFYInteligencia() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { dadosRegiao } = useNetworkMonitor();
+  const initialTabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<string>(
+    initialTabParam && ['viability', 'optical', 'upgrades', 'csat'].includes(initialTabParam)
+      ? initialTabParam
+      : 'viability'
+  );
+  const autoScannedOpticalRef = useRef(false);
 
   // Tab 1: Viabilidade por CTO + Novo Cliente
   const [ctos, setCtos] = useState<ISPFYCaixaData[]>([]);
@@ -398,6 +406,16 @@ export default function ISPFYInteligencia() {
     }
   };
 
+  const scanOpticalRef = useRef(handleScanOpticalSignal);
+  scanOpticalRef.current = handleScanOpticalSignal;
+
+  useEffect(() => {
+    if (activeTab === 'optical' && !autoScannedOpticalRef.current) {
+      autoScannedOpticalRef.current = true;
+      scanOpticalRef.current();
+    }
+  }, [activeTab]);
+
   const filteredOpticalItems = useMemo(() => {
     return opticalItems.filter((item) => {
       if (opticalFilter === 'all') return true;
@@ -545,7 +563,14 @@ export default function ISPFYInteligencia() {
           </Button>
         </div>
 
-        <Tabs defaultValue="viability" className="space-y-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(val) => {
+            setActiveTab(val);
+            setSearchParams(val === 'viability' ? {} : { tab: val }, { replace: true });
+          }}
+          className="space-y-4"
+        >
           <TabsList className="grid grid-cols-2 lg:grid-cols-4 h-auto p-1 gap-1">
             <TabsTrigger value="viability" className="gap-1.5 text-xs py-2">
               <MapPin className="w-3.5 h-3.5" />

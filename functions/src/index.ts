@@ -7,7 +7,11 @@ import { AiService } from "./services/aiService";
 import { WhatsAppService } from "./services/whatsappService";
 import { WhapiService } from "./whapiService";
 import { generateRaffleTicketImage } from "./receiptGenerator";
-import { indexZapiMessageForTracking } from "./zapiSuite";
+import {
+  buildBrPhoneVariants,
+  indexZapiMessageForTracking,
+  sanitizeIndexKey,
+} from "./zapiSuite";
 import axios from "axios";
 import * as https from "https";
 import { verifyAuth } from "./config/auth";
@@ -643,11 +647,18 @@ export const onDashboardMessageSent = functions
 
     try {
       // 1. Enviar para WhatsApp e registrar messageId para confirmação de entrega/leitura (✓✓ azul)
+      let targetRecipient = chatId;
+      if (!/^(\d{10,15}|.+@lid)$/.test(chatId)) {
+        const parentSnap = await db.collection("chat").doc(chatId).get();
+        const savedPhone = String(parentSnap.data()?.phone || parentSnap.data()?.chatLid || "").trim();
+        if (savedPhone) targetRecipient = savedPhone;
+      }
+
       let zapiResp: any = null;
       const replyToZapiId = String(messageData.replyTo?.zapiMessageId || "").trim() || null;
       if (messageData.mediaUrl) {
         zapiResp = await waService.sendMediaMessage(
-          chatId,
+          targetRecipient,
           messageData.mediaUrl,
           messageData.content,
           messageData.mediaType,
@@ -658,7 +669,7 @@ export const onDashboardMessageSent = functions
           }
         );
       } else {
-        zapiResp = await waService.sendTextMessage(chatId, messageData.content, replyToZapiId);
+        zapiResp = await waService.sendTextMessage(targetRecipient, messageData.content, replyToZapiId);
       }
 
       const zapiMsgId = String(zapiResp?.messageId || zapiResp?.id || "").trim() || null;
@@ -911,6 +922,19 @@ export const whatsappWebhook = functions.runWith({
     const payload = req.body || {};
     const messageData = payload.data || (payload.messages && payload.messages[0]) || payload;
 
+    // Ignora callbacks técnicos que não são mensagens recebidas/enviadas pelo aparelho
+    const webhookEventType = String(payload.type || messageData.type || "").trim();
+    if (
+      webhookEventType === "DeliveryCallback" ||
+      webhookEventType === "PresenceChatCallback" ||
+      webhookEventType === "MessageStatusCallback" ||
+      webhookEventType === "ConnectedCallback" ||
+      webhookEventType === "DisconnectedCallback"
+    ) {
+      res.status(200).send("Ignored event");
+      return;
+    }
+
     const chatIdField = String(
       messageData.chat_id || messageData.chatId || messageData.key?.remoteJid || ""
     );
@@ -1029,6 +1053,7 @@ export const whatsappWebhook = functions.runWith({
       messageData.button_reply?.id;
 
     const incomingMsgId = String(messageData.messageId || messageData.id || "").trim();
+    const incomingZaapId = String(messageData.zaapId || "").trim();
 
     const isGroup =
       chatIdField.includes("@g.us") ||
@@ -1043,15 +1068,22 @@ export const whatsappWebhook = functions.runWith({
     const fromApi =
       messageData.fromApi === true || messageData.from_api === true;
 
+    const rawChatName = String(messageData.chatName || "").trim();
+    const contactChatName = rawChatName && !rawChatName.includes("@lid") ? rawChatName : "";
+    const rawSenderName = String(messageData.senderName || "").trim();
+    const cleanSenderName = rawSenderName && !rawSenderName.includes("@lid") ? rawSenderName : "";
     const senderName =
-      messageData.senderName ||
-      messageData.chatName ||
+      (fromMe ? contactChatName : "") ||
+      cleanSenderName ||
+      contactChatName ||
       messageData.from_name ||
       messageData.pushname ||
       payload.contacts?.[0]?.pushname ||
       "Cliente WhatsApp";
     const senderPhoto =
-      String(messageData.photo || messageData.senderPhoto || "").trim() || null;
+      !fromMe
+        ? String(messageData.photo || messageData.senderPhoto || "").trim() || null
+        : String(messageData.photo || "").trim() || null;
 
     const hasAnyContent = Boolean(
       text || selectionId || mediaUrl || mediaIdToDownload || mediaType || messageData.media
@@ -1072,21 +1104,39 @@ export const whatsappWebhook = functions.runWith({
       return;
     }
 
-    const cleanPhone = from.replace(/\D/g, "");
-    if (!cleanPhone) {
+    const incomingChatLid = String(
+      messageData.chatLid ||
+        (chatIdField.includes("@lid") ? chatIdField : "") ||
+        (senderField.includes("@lid") ? senderField : "")
+    ).trim();
+    const isLidSource =
+      from.includes("@lid") || (Boolean(incomingChatLid) && !senderField.replace(/\D/g, ""));
+    const rawDigits = isLidSource ? "" : from.replace(/\D/g, "");
+    if (!rawDigits && !incomingChatLid) {
       res.status(200).send("Ignored");
       return;
     }
-
-    console.log(
-      `📩 [WA-WEBHOOK] De ${senderName} (${cleanPhone}) | fromMe=${fromMe} | mediaType=${mediaType || "text"} | hasUrl=${Boolean(mediaUrl)}`
-    );
 
     const { host: ispfyHost, token: ispfyToken } = getIspfyConfig();
     const { apiKey: whapiApiKey, baseUrl: whapiBaseUrl } = getWhapiConfig();
     const ispfyService = new IspfyBackendService(ispfyHost, ispfyToken);
     const waService = new WhatsAppService(whapiBaseUrl, whapiApiKey);
     const geminiApiKey = process.env.GEMINI_API_KEY;
+
+    // Resolve o ID canônico do chat no Firestore (unifica 9º dígito, DDI 55, campo phone e @lid)
+    const resolvedTarget = await resolveCanonicalChatTarget({
+      rawPhoneDigits: rawDigits,
+      chatLid: incomingChatLid || null,
+      contactName: contactChatName || (!fromMe ? senderName : ""),
+      zapiBaseUrl: whapiBaseUrl,
+      zapiToken: whapiApiKey,
+    });
+    const cleanPhone = resolvedTarget.chatId;
+    const phoneToPersist = resolvedTarget.phone;
+
+    console.log(
+      `📩 [WA-WEBHOOK] De ${senderName} | raw=${from} | lid=${incomingChatLid || "-"} | resolvedChatId=${cleanPhone} | fromMe=${fromMe} | mediaType=${mediaType || "text"} | hasUrl=${Boolean(mediaUrl)}`
+    );
 
     // Modo Economia Firebase:
     // Se a Z-API já forneceu uma URL direta (hospedada grátis por 30 dias), usamos ela direto
@@ -1149,14 +1199,76 @@ export const whatsappWebhook = functions.runWith({
         : "📎 Mídia");
 
     // Se a mensagem foi enviada diretamente do celular/WhatsApp Web da empresa (fromMe=true, fromApi=false),
-    // sincroniza no histórico do Chat sem acionar o bot e sem reenviar pela API.
+    // sincroniza no histórico do Chat com deduplicação (zapi_message_index), zera não-lidas e rastreia ticks ✓✓!
     if (fromMe && !fromApi) {
+      // Deduplicação dupla: impede eco se a mensagem já foi enviada pela API/painel/bot ou reenviada pelo webhook
+      const dedupIds = [incomingMsgId, incomingZaapId].filter(Boolean);
+      for (const rawId of dedupIds) {
+        const key = sanitizeIndexKey(rawId);
+        if (!key) continue;
+        const existingIdx = await db.collection("zapi_message_index").doc(key).get();
+        if (existingIdx.exists) {
+          console.log(`⏭️ [WA-WEBHOOK] Mensagem fromMe já registrada (${rawId}), ignorando duplicata.`);
+          res.status(200).send("Already synced");
+          return;
+        }
+      }
+
+      // Também checa por zapiMessageId recente no próprio chat caso não estivesse no índice
+      if (incomingMsgId) {
+        const dupSnap = await db
+          .collection("chat")
+          .doc(cleanPhone)
+          .collection("mensagens")
+          .where("zapiMessageId", "==", incomingMsgId)
+          .limit(1)
+          .get()
+          .catch(() => null);
+        if (dupSnap && !dupSnap.empty) {
+          res.status(200).send("Already synced");
+          return;
+        }
+      }
+
+      // Preserva contexto de resposta/citação feita pelo celular quando Z-API informar referenceMessageId
+      let replyToPayload: Record<string, unknown> | null = null;
+      const quotedZapiId = String(
+        messageData.referenceMessageId || messageData.quotedMessageId || ""
+      ).trim();
+      if (quotedZapiId) {
+        const quotedSnap = await db
+          .collection("chat")
+          .doc(cleanPhone)
+          .collection("mensagens")
+          .where("zapiMessageId", "==", quotedZapiId)
+          .limit(1)
+          .get()
+          .catch(() => null);
+        if (quotedSnap && !quotedSnap.empty) {
+          const qDoc = quotedSnap.docs[0];
+          const qData = qDoc.data();
+          replyToPayload = {
+            id: qDoc.id,
+            zapiMessageId: quotedZapiId,
+            user: String(qData.user || (qData.isAdmin ? "Atendente" : contactChatName || "Cliente")),
+            content: String(qData.content || "📎 Mídia").slice(0, 140),
+            fromMe: Boolean(qData.isAdmin),
+          };
+        }
+      }
+
+      const resolvedDeviceContactName =
+        contactChatName ||
+        resolvedTarget.resolvedName ||
+        (senderName && !senderName.includes("@lid") ? senderName : "Cliente WhatsApp");
+      const resolvedDeviceAvatar = senderPhoto || resolvedTarget.resolvedAvatar || null;
+
       await logMessageToDashboard(
         cleanPhone,
         content,
         true,
         "whatsapp_device",
-        senderName.split(" ")[0],
+        resolvedDeviceContactName,
         null,
         mediaUrl,
         mediaType,
@@ -1165,8 +1277,13 @@ export const whatsappWebhook = functions.runWith({
           mimeType: mimeType || null,
           duration: mediaDuration,
           zapiMessageId: incomingMsgId || null,
-          avatarUrl: senderPhoto,
-          userLabel: "WhatsApp (Aparelho)",
+          zapiZaapId: incomingZaapId || null,
+          avatarUrl: resolvedDeviceAvatar,
+          userLabel: "WhatsApp (Celular)",
+          clearUnread: true,
+          replyTo: replyToPayload,
+          chatLid: incomingChatLid || null,
+          phoneValue: phoneToPersist,
         }
       );
       res.status(200).send("Synced from device");
@@ -1244,6 +1361,8 @@ export const whatsappWebhook = functions.runWith({
         duration: mediaDuration,
         zapiMessageId: incomingMsgId || null,
         avatarUrl: senderPhoto,
+        chatLid: incomingChatLid || null,
+        phoneValue: phoneToPersist,
       }
     );
 
@@ -1601,8 +1720,294 @@ interface DashboardMediaMeta {
   mimeType?: string | null;
   duration?: number | null;
   zapiMessageId?: string | null;
+  zapiZaapId?: string | null;
   avatarUrl?: string | null;
   userLabel?: string | null;
+  clearUnread?: boolean;
+  replyTo?: Record<string, unknown> | null;
+  chatLid?: string | null;
+  phoneValue?: string | null;
+}
+
+const GENERIC_CONTACT_NAMES = new Set([
+  "cliente",
+  "cliente whatsapp",
+  "cliente sem nome",
+  "sem nome",
+  "whatsapp",
+]);
+
+function pickBestChatDoc(
+  docs: admin.firestore.DocumentSnapshot[]
+): admin.firestore.DocumentSnapshot {
+  const existing = docs.filter((d) => d.exists);
+  existing.sort((a, b) => {
+    const da = a.data() || {};
+    const dbData = b.data() || {};
+    // 1. Prefere conversa já vinculada ao ISPFY
+    const aLinked = da.ispfy_id || da.ixc_id ? 1 : 0;
+    const bLinked = dbData.ispfy_id || dbData.ixc_id ? 1 : 0;
+    if (aLinked !== bLinked) return bLinked - aLinked;
+    // 2. Prefere ID que seja telefone real em vez de @lid
+    const aIsLid = a.id.includes("@lid") ? 0 : 1;
+    const bIsLid = b.id.includes("@lid") ? 0 : 1;
+    if (aIsLid !== bIsLid) return bIsLid - aIsLid;
+    // 3. Prefere conversa já consolidada (com foto/avatar do cliente)
+    const aHasAvatar = da.avatar ? 1 : 0;
+    const bHasAvatar = dbData.avatar ? 1 : 0;
+    if (aHasAvatar !== bHasAvatar) return bHasAvatar - aHasAvatar;
+    // 4. Mais recente
+    const aMs = da.lastMessageTime?.toMillis ? da.lastMessageTime.toMillis() : 0;
+    const bMs = dbData.lastMessageTime?.toMillis ? dbData.lastMessageTime.toMillis() : 0;
+    return bMs - aMs;
+  });
+  return existing[0];
+}
+
+/**
+ * Mescla com segurança um chat duplicado com ID `@lid` para dentro do chat canônico de telefone real
+ * e remove o documento `@lid` duplicado da lista lateral.
+ */
+async function mergeStrayLidChatIntoCanonical(
+  strayLidDocId: string,
+  targetChatId: string
+): Promise<void> {
+  if (!strayLidDocId || !targetChatId || strayLidDocId === targetChatId) return;
+  if (!strayLidDocId.includes("@lid")) return;
+
+  try {
+    const strayRef = db.collection("chat").doc(strayLidDocId);
+    const straySnap = await strayRef.get();
+    if (!straySnap.exists) return;
+
+    const targetRef = db.collection("chat").doc(targetChatId);
+    const msgsSnap = await strayRef.collection("mensagens").limit(50).get();
+
+    for (const msgDoc of msgsSnap.docs) {
+      const mData = msgDoc.data();
+      const zapiId = String(mData.zapiMessageId || "").trim();
+      let alreadyExists = false;
+      if (zapiId) {
+        const dup = await targetRef
+          .collection("mensagens")
+          .where("zapiMessageId", "==", zapiId)
+          .limit(1)
+          .get()
+          .catch(() => null);
+        if (dup && !dup.empty) alreadyExists = true;
+      }
+      if (!alreadyExists) {
+        await targetRef.collection("mensagens").add({
+          ...mData,
+          skipWhatsappSync: true,
+          mergedFromLid: strayLidDocId,
+        });
+      }
+      await msgDoc.ref.delete();
+    }
+
+    await strayRef.delete();
+    console.log(
+      `🧹 [LID-MERGE] Chat duplicado ${strayLidDocId} (${msgsSnap.size} msgs) mesclado em ${targetChatId} e removido.`
+    );
+  } catch (err: any) {
+    console.warn(
+      `⚠️ [LID-MERGE] Falha ao mesclar ${strayLidDocId} em ${targetChatId}:`,
+      err?.message || err
+    );
+  }
+}
+
+interface ResolvedChatTarget {
+  chatId: string;
+  phone: string;
+  resolvedName?: string | null;
+  resolvedAvatar?: string | null;
+}
+
+/**
+ * Resolve sempre o mesmo documento `chat/{chatId}` no Firestore, evitando chats duplicados
+ * por variação de 9º dígito, DDI 55, campo `phone` ou identificador `@lid` enviado pelo celular.
+ */
+async function resolveCanonicalChatTarget(params: {
+  rawPhoneDigits: string;
+  chatLid: string | null;
+  contactName: string;
+  zapiBaseUrl: string;
+  zapiToken: string;
+}): Promise<ResolvedChatTarget> {
+  const { chatLid, contactName, zapiBaseUrl, zapiToken } = params;
+  let phoneDigits = params.rawPhoneDigits;
+  let resolvedName: string | null = null;
+  let resolvedAvatar: string | null = null;
+  const strayLidDocIds = new Set<string>();
+
+  // 1. Busca direta por chatLid salvo anteriormente em um chat real (não-@lid)
+  if (chatLid) {
+    const [lidQuerySnap, directLidSnap] = await Promise.all([
+      db
+        .collection("chat")
+        .where("chatLid", "==", chatLid)
+        .limit(5)
+        .get()
+        .catch(() => null),
+      db
+        .collection("chat")
+        .doc(chatLid)
+        .get()
+        .catch(() => null),
+    ]);
+
+    const lidDocs: admin.firestore.DocumentSnapshot[] = [];
+    if (lidQuerySnap && !lidQuerySnap.empty) {
+      lidDocs.push(...lidQuerySnap.docs);
+    }
+    if (directLidSnap && directLidSnap.exists && !lidDocs.some((d) => d.id === directLidSnap.id)) {
+      lidDocs.push(directLidSnap);
+    }
+
+    for (const d of lidDocs) {
+      if (d.id.includes("@lid")) {
+        strayLidDocIds.add(d.id);
+      }
+    }
+
+    const realPhoneLidDocs = lidDocs.filter((d) => !d.id.includes("@lid"));
+    if (realPhoneLidDocs.length > 0) {
+      const best = pickBestChatDoc(realPhoneLidDocs);
+      const bestPhone = String(best.data()?.phone || phoneDigits || best.id);
+      for (const strayId of strayLidDocIds) {
+        await mergeStrayLidChatIntoCanonical(strayId, best.id);
+      }
+      return { chatId: best.id, phone: bestPhone };
+    }
+  }
+
+  // Helper que tenta localizar chat existente por todas as variações BR do telefone (docId + campo phone)
+  const findByPhoneDigits = async (
+    digits: string
+  ): Promise<ResolvedChatTarget | null> => {
+    const variants = buildBrPhoneVariants(digits);
+    if (variants.length === 0) return null;
+
+    // 2a. Batch getAll por docId (1 única RPC!)
+    const idSnaps = await db.getAll(...variants.map((v) => db.collection("chat").doc(v)));
+    const foundById = idSnaps.filter((s) => s.exists);
+    if (foundById.length > 0) {
+      const best = pickBestChatDoc(foundById);
+      const bestPhone = String(best.data()?.phone || best.id);
+      return { chatId: best.id, phone: bestPhone };
+    }
+
+    // 2b. Busca pelo campo `phone` (ex: chats antigos criados pelo App com docId = userId)
+    const fieldSnap = await db
+      .collection("chat")
+      .where("phone", "in", variants.slice(0, 10))
+      .limit(5)
+      .get()
+      .catch(() => null);
+    if (fieldSnap && !fieldSnap.empty) {
+      const nonLidFieldDocs = fieldSnap.docs.filter((d) => !d.id.includes("@lid"));
+      const best = pickBestChatDoc(nonLidFieldDocs.length > 0 ? nonLidFieldDocs : fieldSnap.docs);
+      const bestPhone = String(best.data()?.phone || digits);
+      return { chatId: best.id, phone: bestPhone };
+    }
+
+    return null;
+  };
+
+  // 2. Se veio apenas @lid (sem telefone real), consulta Z-API /contacts/{lid} (e fallback /chats/{lid})
+  if (!phoneDigits && chatLid && zapiBaseUrl) {
+    const base = zapiBaseUrl.replace(/\/$/, "");
+    const headers = { "Client-Token": zapiToken, Accept: "application/json" };
+    const endpoints = [
+      `${base}/contacts/${encodeURIComponent(chatLid)}`,
+      `${base}/chats/${encodeURIComponent(chatLid)}`,
+    ];
+    for (const url of endpoints) {
+      try {
+        const resp = await axios.get(url, { headers, timeout: 6000 });
+        const data = resp.data || {};
+        const maybePhone = String(data.phone || "").trim();
+        const maybeName = String(data.name || data.vname || data.short || "").trim();
+        const maybeImg = String(data.imgUrl || data.profileThumbnail || "").trim();
+        if (maybeName && !maybeName.includes("@lid") && !resolvedName) {
+          resolvedName = maybeName;
+        }
+        if (maybeImg && /^https?:\/\//i.test(maybeImg) && !resolvedAvatar) {
+          resolvedAvatar = maybeImg;
+        }
+        if (maybePhone && !maybePhone.includes("@lid")) {
+          const resolvedDigits = maybePhone.replace(/\D/g, "");
+          if (resolvedDigits.length >= 10) {
+            phoneDigits = resolvedDigits;
+            console.log(`🔗 [LID-RESOLVE] ${chatLid} -> ${resolvedDigits} via ${url.includes("/contacts/") ? "/contacts" : "/chats"}`);
+            break;
+          }
+        }
+      } catch {
+        // tenta próximo endpoint silenciosamente
+      }
+    }
+  }
+
+  // 3. Busca o chat existente pelo telefone real (seja do webhook ou resolvido via /contacts/{lid})
+  if (phoneDigits) {
+    const found = await findByPhoneDigits(phoneDigits);
+    if (found) {
+      for (const strayId of strayLidDocIds) {
+        await mergeStrayLidChatIntoCanonical(strayId, found.chatId);
+      }
+      return { ...found, resolvedName, resolvedAvatar };
+    }
+  }
+
+  // 4. Fallback seguro para @lid: tenta casar por nome exato único (chatName / contato Z-API)
+  if (!phoneDigits && chatLid) {
+    const cleanName = String(contactName || resolvedName || "").trim();
+    if (
+      cleanName.length >= 3 &&
+      !cleanName.includes("@lid") &&
+      !GENERIC_CONTACT_NAMES.has(cleanName.toLowerCase())
+    ) {
+      const byNameSnap = await db
+        .collection("chat")
+        .where("name", "==", cleanName)
+        .limit(3)
+        .get()
+        .catch(() => null);
+      const nonLidByName = byNameSnap
+        ? byNameSnap.docs.filter((d) => !d.id.includes("@lid"))
+        : [];
+      if (nonLidByName.length === 1) {
+        const docSnap = nonLidByName[0];
+        for (const strayId of strayLidDocIds) {
+          await mergeStrayLidChatIntoCanonical(strayId, docSnap.id);
+        }
+        return {
+          chatId: docSnap.id,
+          phone: String(docSnap.data()?.phone || chatLid),
+          resolvedName,
+          resolvedAvatar,
+        };
+      }
+    }
+  }
+
+  // 5. Conversa realmente nova -> cria com ID canônico (55 + DDD + número ou @lid intacto)
+  if (phoneDigits) {
+    const canonical =
+      phoneDigits.startsWith("55") || phoneDigits.length > 11
+        ? phoneDigits
+        : `55${phoneDigits}`;
+    for (const strayId of strayLidDocIds) {
+      await mergeStrayLidChatIntoCanonical(strayId, canonical);
+    }
+    return { chatId: canonical, phone: canonical, resolvedName, resolvedAvatar };
+  }
+
+  const fallbackLid = chatLid || "unknown";
+  return { chatId: fallbackLid, phone: fallbackLid, resolvedName, resolvedAvatar };
 }
 
 async function logMessageToDashboard(
@@ -1626,17 +2031,24 @@ async function logMessageToDashboard(
       lastMessageTime: serverTimestamp,
       source: source === "whatsapp_device" ? "whatsapp" : source || (isAdmin ? "system" : "whatsapp"),
       updatedAt: serverTimestamp,
-      phone: cleanPhone,
+      phone: mediaMeta?.phoneValue || cleanPhone,
     };
 
-    if (mediaMeta?.avatarUrl) {
+    if (mediaMeta?.chatLid) {
+      update.chatLid = mediaMeta.chatLid;
+    }
+
+    if (mediaMeta?.avatarUrl && !isAdmin) {
       update.avatar = mediaMeta.avatarUrl;
     }
+
+    const safeFirstName =
+      firstName && !String(firstName).includes("@lid") ? String(firstName).trim() : "";
 
     if (!isAdmin) {
       update.unreadCount = admin.firestore.FieldValue.increment(1);
       update.name =
-        firstName ||
+        safeFirstName ||
         cliente?.razao ||
         cliente?.nome_razao ||
         cliente?.nome ||
@@ -1646,11 +2058,24 @@ async function logMessageToDashboard(
         update.ixc_id = String(cliente.id);
       }
       update.isOnline = true;
+    } else if (source === "whatsapp_device") {
+      // Ao responder pelo celular, zera não-lidas no painel e só define nome se a conversa ainda for nova
+      if (mediaMeta?.clearUnread !== false) {
+        update.unreadCount = 0;
+      }
+      const existingChat = await chatRef.get();
+      const existingName = String(existingChat.data()?.name || "").trim();
+      if (!existingChat.exists || !existingName || existingName.includes("@lid")) {
+        update.name = safeFirstName || "Cliente WhatsApp";
+      }
+      if (mediaMeta?.avatarUrl && (!existingChat.exists || !existingChat.data()?.avatar)) {
+        update.avatar = mediaMeta.avatarUrl;
+      }
     }
 
     await chatRef.set(update, { merge: true });
 
-    await chatRef.collection("mensagens").add({
+    const msgRef = await chatRef.collection("mensagens").add({
       user:
         mediaMeta?.userLabel ||
         (isAdmin
@@ -1669,8 +2094,21 @@ async function logMessageToDashboard(
       mediaMimeType: mediaMeta?.mimeType || null,
       mediaDuration: mediaMeta?.duration ?? null,
       zapiMessageId: mediaMeta?.zapiMessageId || null,
+      ...(mediaMeta?.zapiZaapId ? { zapiZaapId: mediaMeta.zapiZaapId } : {}),
+      ...(mediaMeta?.replyTo ? { replyTo: mediaMeta.replyTo } : {}),
       ...(isAdmin ? { deliveryStatus: "SENT" } : {}),
     });
+
+    // Indexa mensagens enviadas pelo celular/bot para atualizar ticks (✓✓ azul) e evitar duplicação
+    if (isAdmin && (mediaMeta?.zapiMessageId || mediaMeta?.zapiZaapId)) {
+      await indexZapiMessageForTracking({
+        messageId: mediaMeta.zapiMessageId,
+        zaapId: mediaMeta.zapiZaapId,
+        collectionPath: `chat/${cleanPhone}/mensagens`,
+        docId: msgRef.id,
+        chatId: cleanPhone,
+      });
+    }
 
     console.log(`✅ [LOG-DASHBOARD] SUCESSO TOTAL para ${cleanPhone}`);
   } catch (err: any) {

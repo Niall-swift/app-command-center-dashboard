@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ispfyService as ISPFYService } from '@/services/ispfy/ispfyService';
 import { smartOltService } from '@/services/smartolt/smartOltService';
-import type { 
-  ISPFYClienteData, 
-  ISPFYContratoData, 
-  ISPFYFaturaData, 
+import type {
+  ISPFYClienteData,
+  ISPFYContratoData,
+  ISPFYFaturaData,
   ISPFYLoginData,
   ISPFYPixData,
   ISPFYUsageSeries,
@@ -63,7 +63,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
 
       const pendingCont = await ISPFYService.getPendingContracts(id);
       setPendingContracts(pendingCont);
-      
+
       const eligibility = await ISPFYService.checkUnlockEligibility(id);
       setIsEligibleForUnlock(eligibility.eligible);
 

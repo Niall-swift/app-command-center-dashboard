@@ -77,21 +77,21 @@ export const RealtimeOfflinePanel: React.FC = () => {
   };
 
   return (
-    <Card className="border-border shadow-sm bg-card flex flex-col">
-      <CardHeader className="pb-3 border-b border-border/60">
+    <Card className="h-full border-border shadow-sm bg-card flex flex-col">
+      <CardHeader className="px-5 py-4 border-b border-border/60">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-bold flex items-center gap-2">
-              <WifiOff className="w-4 h-4 text-rose-500" />
-              Sem Internet Agora &amp; Alertas ao Vivo
+            <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
+              <WifiOff className="w-4 h-4 text-rose-500 shrink-0" />
+              Sem Internet Agora &amp; Alertas
               {quedasNaoLidas > 0 && (
                 <Badge className="bg-rose-600 text-white text-[10px] animate-pulse">
                   +{quedasNaoLidas} queda(s)
                 </Badge>
               )}
             </CardTitle>
-            <CardDescription className="text-xs">
-              Monitor global a cada {intervaloVerificacaoSeg}s — alerta imediato em qualquer página do sistema
+            <CardDescription className="text-xs mt-0.5">
+              Monitor global ({intervaloVerificacaoSeg}s) — ação rápida por cliente
             </CardDescription>
           </div>
 
@@ -142,7 +142,7 @@ export const RealtimeOfflinePanel: React.FC = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="p-3 flex-1 flex flex-col">
+      <CardContent className="p-4 flex-1 flex flex-col">
         <Tabs
           defaultValue="offline_now"
           onValueChange={(abaSelecionada) => {

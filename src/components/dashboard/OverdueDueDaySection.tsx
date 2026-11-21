@@ -100,22 +100,22 @@ export const OverdueDueDaySection: React.FC<PropsSecaoInadimplencia> = ({
 
   if (carregando && !dadosInadimplencia) {
     return (
-      <Card className="border-border shadow-sm bg-card h-[410px] animate-pulse" />
+      <Card className="h-full border-border shadow-sm bg-card min-h-[410px] animate-pulse" />
     );
   }
 
   return (
     <>
-      <Card className="border-border shadow-sm bg-card">
-        <CardHeader className="pb-3 border-b border-border/60">
+      <Card className="h-full border-border shadow-sm bg-card flex flex-col">
+        <CardHeader className="px-5 py-4 border-b border-border/60">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-amber-500" />
+              <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
                 Clientes em Atraso por Vencimento
               </CardTitle>
-              <CardDescription className="text-xs">
-                Veja quantos clientes estão inadimplentes em cada dia de vencimento (ainda liberados vs. já bloqueados) — clique na barra para listar os clientes
+              <CardDescription className="text-xs mt-0.5">
+                Inadimplência por dia de vencimento (liberados vs. bloqueados) — clique na barra para listar
               </CardDescription>
             </div>
 
@@ -214,7 +214,7 @@ export const OverdueDueDaySection: React.FC<PropsSecaoInadimplencia> = ({
           )}
         </CardHeader>
 
-        <CardContent className="pt-4">
+        <CardContent className="p-5 flex-1 flex flex-col justify-between">
           {!dadosInadimplencia ? (
             <p className="text-xs text-muted-foreground text-center py-10">
               Não foi possível carregar os dados de cobrança.
