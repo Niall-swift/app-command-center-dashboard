@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ClientOntStatusCard } from '@/components/chat/ClientOntStatusCard';
+import type { SmartOltOnu } from '@/types/smartOlt';
 import {
   User,
   MapPin,
@@ -38,6 +40,7 @@ import type {
   ISPFYContratoData,
   ISPFYFaturaData,
   ISPFYLivePointStatus,
+  ISPFYLoginData,
 } from '@/types/ispfy';
 import { db } from '@/config/firebase';
 import {
@@ -61,6 +64,34 @@ interface ClientInfoCardProps {
   clientPhone?: string;
   clientName?: string;
   onSendMessage?: (message: string) => void;
+  onOntResolved?: (onu: SmartOltOnu | null) => void;
+}
+
+const GENERIC_POINT_LABELS = new Set([
+  'casa',
+  'residencia',
+  'residência',
+  'comercio',
+  'comércio',
+  'principal',
+  'loja',
+  'trabalho',
+  'escritorio',
+  'escritório',
+  'apartamento',
+  'apto',
+  'ponto 1',
+  'ponto principal',
+  'ponto',
+  'fibra',
+  'internet',
+]);
+
+function isUsefulOntQuery(value?: string | null): boolean {
+  const trimmed = String(value || '').trim();
+  if (trimmed.length < 3) return false;
+  if (GENERIC_POINT_LABELS.has(trimmed.toLowerCase())) return false;
+  return true;
 }
 
 const GENERIC_CHAT_NAMES = new Set([
@@ -128,11 +159,13 @@ export default function ClientInfoCard({
   clientPhone,
   clientName,
   onSendMessage,
+  onOntResolved,
 }: ClientInfoCardProps) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [ispfyData, setIspfyData] = useState<ISPFYClienteData | null>(null);
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
+  const [logins, setLogins] = useState<ISPFYLoginData[]>([]);
   const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
   const [livePoints, setLivePoints] = useState<ISPFYLivePointStatus[]>([]);
   const [usageByPoint, setUsageByPoint] = useState<Record<string, ISPFYBandwidthSummary30d | null>>({});
@@ -141,6 +174,7 @@ export default function ClientInfoCard({
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [savedIspfyId, setSavedIspfyId] = useState<string | null>(null);
+  const [savedOnuId, setSavedOnuId] = useState<string | null>(null);
   const [chatMetaReadyFor, setChatMetaReadyFor] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const loadedForChatRef = useRef<{ chatId: string; ispfyId: string; tick: number } | null>(null);
@@ -157,6 +191,7 @@ export default function ClientInfoCard({
     if (!clientId) return;
     loadedForChatRef.current = null;
     setSavedIspfyId(null);
+    setSavedOnuId(null);
     setChatMetaReadyFor(null);
     setShowManualSearch(false);
     setManualResults([]);
@@ -171,10 +206,12 @@ export default function ClientInfoCard({
           setAiEnabled(Boolean(data.aiEnabled));
           const linked = data.ispfy_id || data.ixc_id || null;
           setSavedIspfyId(linked ? String(linked) : null);
+          setSavedOnuId(data.smartolt_onu_id ? String(data.smartolt_onu_id) : null);
         } else {
           setActiveTags([]);
           setAiEnabled(false);
           setSavedIspfyId(null);
+          setSavedOnuId(null);
         }
         setChatMetaReadyFor(clientId);
       },
@@ -185,11 +222,39 @@ export default function ClientInfoCard({
     return () => unsub();
   }, [clientId]);
 
+  const ontPppoeLogins = useMemo(() => {
+    const list: string[] = [];
+    for (const l of logins) {
+      const user = String(l.usuario || l.login || '').trim();
+      if (isUsefulOntQuery(user)) list.push(user);
+    }
+    for (const c of contracts) {
+      const user = String(c.login || '').trim();
+      if (isUsefulOntQuery(user)) list.push(user);
+    }
+    return Array.from(new Set(list));
+  }, [logins, contracts]);
+
+  const ontFullNames = useMemo(() => {
+    const list: string[] = [];
+    if (ispfyData) {
+      const displayName = getClientDisplayName(ispfyData);
+      if (isMeaningfulClientName(displayName) && displayName.includes(' ')) {
+        list.push(displayName);
+      }
+    }
+    if (isMeaningfulClientName(clientName) && String(clientName).trim().includes(' ')) {
+      list.push(String(clientName).trim());
+    }
+    return Array.from(new Set(list));
+  }, [ispfyData, clientName]);
+
   const loadFullClientDetails = useCallback(
     async (client: ISPFYClienteData, shouldPersistLink: boolean) => {
       const clientIdStr = String(client.id || '');
-      const [clientContracts, clientInvoices, pointsStatus] = await Promise.all([
+      const [clientContracts, clientLogins, clientInvoices, pointsStatus] = await Promise.all([
         clientIdStr ? ispfyService.getContratosByCliente(clientIdStr).catch(() => []) : Promise.resolve([]),
+        clientIdStr ? ispfyService.getLoginsByCliente(clientIdStr).catch(() => []) : Promise.resolve([]),
         clientIdStr ? ispfyService.getFaturasByCliente(clientIdStr).catch(() => []) : Promise.resolve([]),
         clientIdStr ? ispfyService.getClientLivePointStatuses(clientIdStr).catch(() => []) : Promise.resolve([]),
       ]);
@@ -213,7 +278,12 @@ export default function ClientInfoCard({
         ).catch(() => undefined);
       }
 
-      return { clientContracts, openInvoices: openInvoices.slice(0, 4), pointsStatus };
+      return {
+        clientContracts,
+        clientLogins,
+        openInvoices: openInvoices.slice(0, 4),
+        pointsStatus,
+      };
     },
     [clientId]
   );
@@ -259,6 +329,7 @@ export default function ClientInfoCard({
       setUsageByPoint({});
       setIspfyData(null);
       setContracts([]);
+      setLogins([]);
       setInvoices([]);
       setLivePoints([]);
 
@@ -328,6 +399,7 @@ export default function ClientInfoCard({
           };
           setIspfyData(client);
           setContracts(details.clientContracts);
+          setLogins(details.clientLogins);
           setLivePoints(details.pointsStatus);
           setInvoices(details.openInvoices);
         }
@@ -410,6 +482,7 @@ export default function ClientInfoCard({
       };
       setIspfyData(client);
       setContracts(details.clientContracts);
+      setLogins(details.clientLogins);
       setLivePoints(details.pointsStatus);
       setInvoices(details.openInvoices);
       toast.success(`Vinculado a ${getClientDisplayName(client)}!`);
@@ -770,6 +843,16 @@ export default function ClientInfoCard({
         </CardContent>
       </Card>
 
+      {/* Status da Fibra / ONT ao vivo (SmartOLT) */}
+      <ClientOntStatusCard
+        clientId={clientId}
+        savedOnuId={savedOnuId}
+        pppoeLogins={ontPppoeLogins}
+        fullNames={ontFullNames}
+        onSendMessage={onSendMessage}
+        onOntResolved={onOntResolved}
+      />
+
       {/* Dados do Assinante ISPFY */}
       <Card className="bg-card shadow-sm border-border overflow-hidden">
         <CardHeader className="p-3 border-b border-border/60 bg-muted/30 flex flex-row items-center justify-between space-y-0 gap-1">
@@ -916,6 +999,9 @@ export default function ClientInfoCard({
                     const matchingPoint = livePoints.find(
                       (p) => String(p.idContrato) === String(c.id)
                     );
+                    const matchingLogin =
+                      logins.find((l) => String(l.id_contrato || '') === String(c.id)) ||
+                      logins[0];
                     const statusStr = String(c.status_contrato || c.status || '').toLowerCase();
                     const isAtivo =
                       statusStr === 'ativo' ||
@@ -932,7 +1018,12 @@ export default function ClientInfoCard({
                       c.contrato ||
                       matchingPoint?.planoNome ||
                       `Contrato #${c.id}`;
-                    const pppoeLogin = c.login || matchingPoint?.nomePonto || 'N/A';
+                    const pppoeLogin =
+                      matchingLogin?.usuario ||
+                      matchingLogin?.login ||
+                      c.login ||
+                      matchingPoint?.nomePonto ||
+                      'N/A';
 
                     return (
                       <div

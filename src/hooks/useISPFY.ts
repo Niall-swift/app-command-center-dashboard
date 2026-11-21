@@ -68,7 +68,6 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
       setIsEligibleForUnlock(eligibility.eligible);
 
       const primaryPointId = livePts[0]?.idPonto || loginsData[0]?.id || '';
-      const primaryLoginStr = loginsData[0]?.login;
 
       if (primaryPointId) {
         const [usage, summary, details, plans] = await Promise.all([
@@ -83,11 +82,35 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
         setTestablePlans(plans);
       }
 
-      if (primaryLoginStr) {
-        const onuData = await smartOltService.findOnu(primaryLoginStr);
-        if (onuData) {
-          setOnu(onuData);
-          const signalData = await smartOltService.getOnuSignal(onuData.id);
+      const ontPppoeLogins = Array.from(
+        new Set(
+          [
+            ...loginsData.map((l) => l.usuario || l.login),
+            ...contractsData.map((c) => c.login),
+          ]
+            .map((v) => String(v || '').trim())
+            .filter((v) => v.length >= 3)
+        )
+      );
+      const ontFullNames = Array.from(
+        new Set(
+          [clientData?.nome_razao, clientData?.razao, clientData?.nome]
+            .map((v) => String(v || '').trim())
+            .filter((v) => v.length >= 5 && v.includes(' '))
+        )
+      );
+
+      if (ontPppoeLogins.length > 0 || ontFullNames.length > 0) {
+        const match = await smartOltService.findClientOnu({
+          pppoeLogins: ontPppoeLogins,
+          fullNames: ontFullNames,
+          live: false,
+        });
+        if (match.onu) {
+          setOnu(match.onu);
+          const signalData = await smartOltService.getOnuSignal(
+            match.onu.unique_external_id || match.onu.id
+          );
           setSignal(signalData);
         }
       }

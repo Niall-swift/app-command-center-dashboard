@@ -45,6 +45,7 @@ import PageTransition from '@/components/PageTransition';
 import NotificationSettings from '@/components/NotificationSettings';
 import DebugPanel from '@/components/DebugPanel';
 import { ChatMessageContent } from '@/components/chat/ChatMessageContent';
+import { getOntStatusMeta } from '@/utils/smartOltUi';
 import {
   ChatMediaStagingBar,
   type StagedMediaFile,
@@ -52,6 +53,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useNotifications } from '@/hooks/use-notifications';
 import type { Message, Client, ChatMediaPayload, ReplyToSnapshot } from '@/types/dashboard';
+import type { SmartOltOnu } from '@/types/smartOlt';
 import { db, storage } from '@/config/firebase';
 import {
   collection,
@@ -187,6 +189,13 @@ export default function Chat() {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientLimit, setClientLimit] = useState(40);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedOnt, setSelectedOnt] = useState<SmartOltOnu | null>(null);
+  const handleOntResolved = useCallback((onu: SmartOltOnu | null) => {
+    setSelectedOnt(onu);
+  }, []);
+  useEffect(() => {
+    setSelectedOnt(null);
+  }, [selectedClient?.id]);
   const [loading, setLoading] = useState(true);
   const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({});
   const [messageLimit, setMessageLimit] = useState(30);
@@ -1586,6 +1595,25 @@ export default function Chat() {
                           </span>
                         </>
                       )}
+                      {selectedOnt && (() => {
+                        const ontMeta = getOntStatusMeta(selectedOnt.status);
+                        const rx =
+                          selectedOnt.rx_power_numeric ?? selectedOnt.olt_rx_power_numeric ?? null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setShowClientInfo(true)}
+                            title={`SmartOLT: ${selectedOnt.olt_name || 'OLT'} • PON ${selectedOnt.board}/${selectedOnt.pon_port} • SN ${selectedOnt.sn}`}
+                            className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-opacity hover:opacity-85 ${ontMeta.badgeClass}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${ontMeta.dotClass}`} />
+                            <span>ONT {ontMeta.shortLabel}</span>
+                            {rx !== null && (
+                              <span className="font-mono opacity-90">{rx.toFixed(1)} dBm</span>
+                            )}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -2254,6 +2282,7 @@ export default function Chat() {
                 clientPhone={selectedClient.phone}
                 clientName={selectedClient.name}
                 onSendMessage={handleSendMessage}
+                onOntResolved={handleOntResolved}
               />
               <AttendantCard
                 onSendMessage={(msg, media) => handleSendMessage(msg, media)}

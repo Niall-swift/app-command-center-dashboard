@@ -1950,11 +1950,25 @@ class ISPFYService {
             filter: buildFilter('id_contrato', 'EQ', contrato.id),
             limit: 50,
           });
-          logins.push(...this.getRows(pontoResponse));
+          const rows = this.getRows(pontoResponse).map((row) => ({
+            ...row,
+            login: String(row.login || row.usuario || '').trim() || undefined,
+            usuario: String(row.usuario || row.login || '').trim() || undefined,
+          }));
+          logins.push(...rows);
         } catch (err) {
           console.error(`Erro ao buscar ponto do contrato ${contrato.id}:`, err);
         }
       }
+      // Prioriza pontos ativos e online primeiro
+      logins.sort((a, b) => {
+        const aActive = String(a.ativo || '').toLowerCase() === 's' ? 1 : 0;
+        const bActive = String(b.ativo || '').toLowerCase() === 's' ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        const aOn = String(a.sessao_conexao_status || a.online || '').toLowerCase();
+        const bOn = String(b.sessao_conexao_status || b.online || '').toLowerCase();
+        return (bOn === 'online' || bOn === 's' ? 1 : 0) - (aOn === 'online' || aOn === 's' ? 1 : 0);
+      });
       return logins;
     } catch (err) {
       console.error('Erro ao buscar contratos do cliente para logins:', err);

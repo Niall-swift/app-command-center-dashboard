@@ -3,7 +3,6 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from 'vite-plugin-pwa';
-import https from 'https';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -22,24 +21,10 @@ export default defineConfig(({ mode }) => ({
         rewrite: (path) => path.replace(/^\/api\/ispfy/, ''),
       },
       '/api/smartolt': {
-        target: 'https://ncbrasil.smartolt.com',
+        target: 'https://us-central1-avl-telecom.cloudfunctions.net/smartOltProxy',
         changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/api\/smartolt/, '/api/v2'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq, req) => {
-            // Garantir SNI correto para TLS
-            proxyReq.setHeader('Host', 'ncbrasil.smartolt.com');
-          });
-          proxy.on('error', (err, req, res) => {
-            console.error('[Proxy SmartOLT] Erro:', err.message);
-          });
-        },
-        agent: new https.Agent({
-          keepAlive: true,
-          rejectUnauthorized: false,
-          servername: 'ncbrasil.smartolt.com',
-        }),
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/smartolt/, ''),
       },
       '/api/whapi': {
         target: 'https://gate.whapi.cloud',

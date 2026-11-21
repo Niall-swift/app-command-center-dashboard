@@ -11,16 +11,21 @@ import {
   Loader2,
   MapPin,
   MessageSquare,
+  PowerOff,
   Radar,
+  Radio,
   RefreshCw,
   Rocket,
   Search,
   Send,
+  Server,
   Signal,
   Sparkles,
   Star,
+  Thermometer,
   UserPlus,
   Wifi,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import PageTransition from '@/components/PageTransition';
@@ -42,7 +47,12 @@ import type {
   ISPFYClientRegionRecord,
   ISPFYGeoFiberSplitter,
 } from '@/types/ispfy';
-import type { SmartOltOnu } from '@/types/smartOlt';
+import type {
+  SmartOltOlt,
+  SmartOltOnu,
+  SmartOltOpticalRadarResponse,
+  SmartOltUnconfiguredOnu,
+} from '@/types/smartOlt';
 
 interface CtoMatchItem {
   cto: ISPFYCaixaData;
@@ -124,6 +134,13 @@ export default function ISPFYInteligencia() {
   // Tab 2: Radar Preventivo Óptico (SmartOLT x ISPFY)
   const [loadingOptical, setLoadingOptical] = useState(false);
   const [opticalItems, setOpticalItems] = useState<OpticalRadarItem[]>([]);
+  const [opticalSummary, setOpticalSummary] = useState<
+    SmartOltOpticalRadarResponse['summary'] | null
+  >(null);
+  const [opticalOlts, setOpticalOlts] = useState<SmartOltOlt[]>([]);
+  const [unconfiguredOnus, setUnconfiguredOnus] = useState<SmartOltUnconfiguredOnu[]>([]);
+  const [opticalFilter, setOpticalFilter] = useState<'all' | 'los' | 'signal' | 'power_fail'>('all');
+  const [rebootingOnuId, setRebootingOnuId] = useState<string | null>(null);
   const [opticalThreshold, setOpticalThreshold] = useState(-26);
 
   // Tab 3: Radar de Upgrade & Consumo 30d + Turbo
@@ -330,16 +347,20 @@ export default function ISPFYInteligencia() {
   const handleScanOpticalSignal = async () => {
     setLoadingOptical(true);
     try {
-      const onus = await smartOltService.getOnus({ limit: 400 });
-      if (!onus || onus.length === 0) {
-        toast.info('Nenhuma ONU retornada pelo SmartOLT. Verifique VITE_SMARTOLT_API_KEY.');
+      const radar = await smartOltService.getOpticalRadar({
+        threshold: opticalThreshold,
+        limit: 180,
+      });
+
+      setOpticalSummary(radar.summary);
+      setOpticalOlts(radar.olts || []);
+      setUnconfiguredOnus(radar.unconfigured_onus || []);
+
+      if (!radar.items || radar.items.length === 0) {
+        toast.info('Nenhuma ONU crítica encontrada no SmartOLT.');
         setOpticalItems([]);
         return;
       }
-
-      // Prioriza ONUs em LOS/Offline + amostra de ONUs online para medir RX
-      const criticalStatus = onus.filter((o) => o.status === 'los' || o.status === 'offline');
-      const onlineSample = onus.filter((o) => o.status === 'online').slice(0, 25);
 
       const recordsByName = new Map<string, ISPFYClientRegionRecord>();
       for (const r of dadosRegiao?.records || []) {
@@ -348,48 +369,56 @@ export default function ISPFYInteligencia() {
       }
 
       const matchClient = (onu: SmartOltOnu) => {
-        const key = (onu.name || '').toLowerCase();
-        if (recordsByName.has(key)) return recordsByName.get(key);
+        const rawKey = (onu.name || '').toLowerCase();
+        const prefix = rawKey.split('/')[0]?.trim() || rawKey;
+        if (recordsByName.has(prefix)) return recordsByName.get(prefix);
+        if (recordsByName.has(rawKey)) return recordsByName.get(rawKey);
         return (dadosRegiao?.records || []).find(
           (r) =>
-            key.includes(r.nome.toLowerCase().slice(0, 12)) ||
-            (r.usuarioPppoe && key.includes(r.usuarioPppoe.toLowerCase()))
+            (r.usuarioPppoe && rawKey.includes(r.usuarioPppoe.toLowerCase())) ||
+            rawKey.includes(r.nome.toLowerCase().slice(0, 14))
         );
       };
 
-      const found: OpticalRadarItem[] = criticalStatus.map((onu) => ({
+      const found: OpticalRadarItem[] = radar.items.map((onu) => ({
         onu,
-        rxDbm: null,
+        rxDbm: onu.rx_power_numeric ?? onu.olt_rx_power_numeric ?? null,
         matchedClient: matchClient(onu),
       }));
 
-      // Consulta sinal em lotes de 5
-      for (let i = 0; i < onlineSample.length; i += 5) {
-        const batch = onlineSample.slice(i, i + 5);
-        const settled = await Promise.allSettled(
-          batch.map((o) => smartOltService.getOnuSignal(o.id || o.onuid))
-        );
-        settled.forEach((res, idx) => {
-          if (res.status === 'fulfilled' && res.value) {
-            const rx = Number(res.value.rx_power_numeric);
-            if (Number.isFinite(rx) && rx <= opticalThreshold) {
-              found.push({
-                onu: batch[idx],
-                rxDbm: rx,
-                matchedClient: matchClient(batch[idx]),
-              });
-            }
-          }
-        });
-      }
-
-      found.sort((a, b) => (a.rxDbm ?? -99) - (b.rxDbm ?? -99));
       setOpticalItems(found);
-      toast.success(`Varredura óptica concluída: ${found.length} ONU(s) críticas/sinal baixo.`);
-    } catch {
-      toast.error('Erro ao consultar SmartOLT.');
+      toast.success(
+        `Radar SmartOLT atualizado: ${radar.summary.online} online, ${radar.summary.los} LOS, ${radar.summary.powerFail} sem energia, ${radar.summary.criticalSignal} sinal crítico.`
+      );
+    } catch (err) {
+      console.error('Erro no Radar SmartOLT:', err);
+      toast.error('Erro ao consultar o proxy SmartOLT.');
     } finally {
       setLoadingOptical(false);
+    }
+  };
+
+  const filteredOpticalItems = useMemo(() => {
+    return opticalItems.filter((item) => {
+      if (opticalFilter === 'all') return true;
+      if (opticalFilter === 'los') return item.onu.status === 'los';
+      if (opticalFilter === 'power_fail') return item.onu.status === 'power_fail';
+      return item.onu.status === 'online' && item.rxDbm !== null && item.rxDbm <= opticalThreshold;
+    });
+  }, [opticalItems, opticalFilter, opticalThreshold]);
+
+  const handleQuickRebootFromRadar = async (onu: SmartOltOnu) => {
+    const extId = onu.unique_external_id || onu.id;
+    setRebootingOnuId(extId);
+    try {
+      const res = await smartOltService.rebootOnu(extId);
+      if (res.success) {
+        toast.success(`Reboot enviado para ${onu.name || onu.sn}!`);
+      } else {
+        toast.error(res.message || 'Falha ao reiniciar ONU.');
+      }
+    } finally {
+      setRebootingOnuId(null);
     }
   };
 
@@ -764,7 +793,7 @@ export default function ISPFYInteligencia() {
             </Card>
           </TabsContent>
 
-          {/* TAB 2: RADAR PREVENTIVO DE SINAL ÓPTICO */}
+          {/* TAB 2: RADAR PREVENTIVO DE SINAL ÓPTICO + OLTs SMARTOLT */}
           <TabsContent value="optical" className="space-y-4">
             <Card>
               <CardHeader>
@@ -772,10 +801,10 @@ export default function ISPFYInteligencia() {
                   <div>
                     <CardTitle className="text-base flex items-center gap-2">
                       <Signal className="w-4 h-4 text-rose-500" />
-                      Radar Preventivo de Sinal Óptico Crítico (SmartOLT × ISPFY)
+                      Radar Óptico &amp; Saúde das OLTs (SmartOLT × ISPFY)
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Identifica ONUs em LOS ou com sinal RX degradado antes que o cliente fique sem internet e abra chamado.
+                      Varredura em lote (1 chamada) com saúde térmica/elétrica das OLTs, ONUs em LOS/Power Fail, sinal RX crítico e ONUs aguardando autorização.
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -792,86 +821,276 @@ export default function ISPFYInteligencia() {
                       ) : (
                         <Radar className="w-3.5 h-3.5" />
                       )}
-                      Escanear ONUs
+                      Escanear Rede SmartOLT
                     </Button>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {opticalSummary && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                    <div className="p-2.5 rounded-xl border bg-muted/30">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground">Total ONUs</p>
+                      <p className="text-lg font-black font-mono">{opticalSummary.total.toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5">
+                      <p className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">Online</p>
+                      <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
+                        {opticalSummary.online.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/5">
+                      <p className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400">LOS (Fibra)</p>
+                      <p className="text-lg font-black font-mono text-rose-600 dark:text-rose-400">
+                        {opticalSummary.los.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                      <p className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Sem Energia</p>
+                      <p className="text-lg font-black font-mono text-amber-600 dark:text-amber-400">
+                        {opticalSummary.powerFail.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5">
+                      <p className="text-[10px] uppercase font-bold text-fuchsia-600 dark:text-fuchsia-400">
+                        Sinal ≤ {opticalThreshold}
+                      </p>
+                      <p className="text-lg font-black font-mono text-fuchsia-600 dark:text-fuchsia-400">
+                        {opticalSummary.criticalSignal.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-sky-500/30 bg-sky-500/5">
+                      <p className="text-[10px] uppercase font-bold text-sky-600 dark:text-sky-400">P/ Autorizar</p>
+                      <p className="text-lg font-black font-mono text-sky-600 dark:text-sky-400">
+                        {opticalSummary.unconfigured}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Saúde Térmica e Elétrica das OLTs */}
+                {opticalOlts.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Server className="w-3.5 h-3.5 text-primary" />
+                      Saúde das OLTs ({opticalOlts.length})
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                      {opticalOlts.map((olt) => {
+                        const tempNum = Number.parseInt(String(olt.temperature || '').replace(/\D/g, ''), 10);
+                        const isWarm = Number.isFinite(tempNum) && tempNum >= 40;
+                        return (
+                          <div
+                            key={olt.id}
+                            className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+                              isWarm
+                                ? 'border-amber-500/40 bg-amber-500/5'
+                                : 'border-border bg-muted/20'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-bold text-foreground truncate">{olt.name}</p>
+                                <p className="text-[10px] font-mono text-muted-foreground">
+                                  {olt.hardware_version || 'OLT'} • {olt.ip}
+                                </p>
+                              </div>
+                              {olt.temperature && (
+                                <Badge
+                                  variant={isWarm ? 'destructive' : 'secondary'}
+                                  className="text-[10px] gap-0.5 shrink-0 font-mono"
+                                >
+                                  <Thermometer className="w-2.5 h-2.5" />
+                                  {olt.temperature}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                              <span>{olt.voltage ? `${olt.voltage.toFixed(1)}V` : 'Tensão N/D'}</span>
+                              <span className="truncate ml-2">Up: {olt.uptime || 'N/A'}</span>
+                            </div>
+                            {olt.onu_counts && olt.onu_counts.total > 0 && (
+                              <div className="flex items-center gap-2 text-[10px] pt-1 border-t border-border/50 font-mono">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                  {olt.onu_counts.online} ON
+                                </span>
+                                <span className="text-rose-500">{olt.onu_counts.los} LOS</span>
+                                <span className="text-amber-500">{olt.onu_counts.powerFail} PWR</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ONUs Não Configuradas aguardando autorização */}
+                {unconfiguredOnus.length > 0 && (
+                  <div className="p-3 rounded-xl border border-sky-500/30 bg-sky-500/5 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-sky-700 dark:text-sky-300 flex items-center gap-1.5">
+                      <Radio className="w-3.5 h-3.5" />
+                      ONUs Não Configuradas Aguardando Autorização ({unconfiguredOnus.length})
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {unconfiguredOnus.slice(0, 8).map((u, idx) => (
+                        <div
+                          key={`${u.sn || idx}-${u.board}-${u.port}`}
+                          className="p-2 rounded-lg bg-card border border-border/70 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-mono font-bold text-foreground truncate">{u.sn}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {u.olt_name} • Slot {u.board}/Porta {u.port} • {u.onu_type_name || u.pon_type}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {(u.pon_type || 'GPON').toUpperCase()}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {opticalItems.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-8">
-                    Clique em <strong>Escanear ONUs</strong> para cruzar o sinal RX do SmartOLT com sua base ISPFY.
+                    Clique em <strong>Escanear Rede SmartOLT</strong> para cruzar sinais RX, LOS, Power Fail e saúde das 7 OLTs com sua base ISPFY.
                   </p>
                 ) : (
-                  <div className="space-y-2 max-h-[460px] overflow-y-auto">
-                    {opticalItems.map((item) => (
-                      <div
-                        key={item.onu.id || item.onu.sn}
-                        className="p-3 rounded-xl border bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                      >
-                        <div className="space-y-0.5 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge
-                              variant={item.onu.status === 'los' ? 'destructive' : 'outline'}
-                              className="text-[10px]"
-                            >
-                              {item.rxDbm !== null
-                                ? `${item.rxDbm.toFixed(1)} dBm`
-                                : item.onu.status.toUpperCase()}
-                            </Badge>
-                            <span className="font-bold truncate">{item.onu.name || item.onu.sn}</span>
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              PON {item.onu.board}/{item.onu.pon_port} • SN {item.onu.sn}
-                            </span>
-                          </div>
-                          {item.matchedClient && (
-                            <p className="text-[11px] text-muted-foreground">
-                              ISPFY: {item.matchedClient.nome} — {item.matchedClient.ruaLabel},{' '}
-                              {item.matchedClient.bairroLabel}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {item.matchedClient && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-[11px] gap-1"
-                              onClick={() =>
-                                navigate(`/ispfy/nova-os?clienteId=${item.matchedClient!.clienteId}`)
-                              }
-                            >
-                              <ClipboardList className="w-3 h-3" />
-                              Abrir O.S.
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 text-[11px] gap-1"
-                            onClick={async () => {
-                              const grp = DEFAULT_AVL_WHATSAPP_GROUPS[1] || DEFAULT_AVL_WHATSAPP_GROUPS[0];
-                              await whapiService.sendGroupMessage(
-                                grp.phone,
-                                `⚠️ *ALERTA PREVENTIVO ÓPTICO (SMARTOLT)*\n\n` +
-                                  `👤 *ONU/Cliente:* ${item.onu.name || item.onu.sn}\n` +
-                                  `📡 *Status/Sinal:* ${
-                                    item.rxDbm !== null ? `${item.rxDbm} dBm` : item.onu.status.toUpperCase()
-                                  }\n` +
-                                  `🔌 *PON:* ${item.onu.board}/${item.onu.pon_port}\n` +
-                                  (item.matchedClient
-                                    ? `📍 *Endereço:* ${item.matchedClient.ruaLabel} — ${item.matchedClient.bairroLabel}`
-                                    : '')
-                              );
-                              toast.success(`Alerta preventivo enviado para ${grp.name}!`);
-                            }}
+                  <div className="space-y-3">
+                    {/* Filtros rápidos */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(
+                        [
+                          { id: 'all', label: `Todos (${opticalItems.length})` },
+                          {
+                            id: 'los',
+                            label: `LOS Fibra (${opticalItems.filter((i) => i.onu.status === 'los').length})`,
+                          },
+                          {
+                            id: 'signal',
+                            label: `Sinal Crítico (${opticalItems.filter((i) => i.onu.status === 'online' && i.rxDbm !== null && i.rxDbm <= opticalThreshold).length})`,
+                          },
+                          {
+                            id: 'power_fail',
+                            label: `Sem Energia (${opticalItems.filter((i) => i.onu.status === 'power_fail').length})`,
+                          },
+                        ] as const
+                      ).map((f) => (
+                        <Button
+                          key={f.id}
+                          size="sm"
+                          variant={opticalFilter === f.id ? 'default' : 'outline'}
+                          className="h-7 text-[11px] rounded-full"
+                          onClick={() => setOpticalFilter(f.id)}
+                        >
+                          {f.label}
+                        </Button>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2 max-h-[460px] overflow-y-auto">
+                      {filteredOpticalItems.map((item) => {
+                        const extId = item.onu.unique_external_id || item.onu.id;
+                        return (
+                          <div
+                            key={extId || item.onu.sn}
+                            className="p-3 rounded-xl border bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                           >
-                            <Send className="w-3 h-3" />
-                            Avisar Equipe
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                            <div className="space-y-0.5 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge
+                                  variant={
+                                    item.onu.status === 'los'
+                                      ? 'destructive'
+                                      : item.onu.status === 'power_fail'
+                                      ? 'secondary'
+                                      : 'outline'
+                                  }
+                                  className="text-[10px] gap-1"
+                                >
+                                  {item.onu.status === 'power_fail' && (
+                                    <PowerOff className="w-2.5 h-2.5 text-amber-500" />
+                                  )}
+                                  {item.onu.status === 'online' && item.rxDbm !== null
+                                    ? `${item.rxDbm.toFixed(1)} dBm`
+                                    : item.onu.status === 'power_fail'
+                                    ? 'SEM ENERGIA'
+                                    : item.onu.status.toUpperCase()}
+                                </Badge>
+                                <span className="font-bold truncate">{item.onu.name || item.onu.sn}</span>
+                                <span className="text-[10px] font-mono text-muted-foreground">
+                                  {item.onu.olt_name || `OLT #${item.onu.olt_id}`} • PON {item.onu.board}/{item.onu.pon_port} • SN {item.onu.sn}
+                                </span>
+                              </div>
+                              {item.matchedClient && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  ISPFY: {item.matchedClient.nome} — {item.matchedClient.ruaLabel},{' '}
+                                  {item.matchedClient.bairroLabel}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[11px] gap-1"
+                                disabled={rebootingOnuId === extId}
+                                onClick={() => handleQuickRebootFromRadar(item.onu)}
+                                title="Reiniciar ONT remotamente via SmartOLT"
+                              >
+                                {rebootingOnuId === extId ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Zap className="w-3 h-3" />
+                                )}
+                                Reboot
+                              </Button>
+                              {item.matchedClient && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-[11px] gap-1"
+                                  onClick={() =>
+                                    navigate(`/ispfy/nova-os?clienteId=${item.matchedClient!.clienteId}`)
+                                  }
+                                >
+                                  <ClipboardList className="w-3 h-3" />
+                                  Abrir O.S.
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 text-[11px] gap-1"
+                                onClick={async () => {
+                                  const grp = DEFAULT_AVL_WHATSAPP_GROUPS[1] || DEFAULT_AVL_WHATSAPP_GROUPS[0];
+                                  await whapiService.sendGroupMessage(
+                                    grp.phone,
+                                    `⚠️ *ALERTA PREVENTIVO ÓPTICO (SMARTOLT)*\n\n` +
+                                      `👤 *ONU/Cliente:* ${item.onu.name || item.onu.sn}\n` +
+                                      `📡 *Status/Sinal:* ${
+                                        item.onu.status === 'online' && item.rxDbm !== null
+                                          ? `${item.rxDbm.toFixed(1)} dBm`
+                                          : item.onu.raw_status || item.onu.status.toUpperCase()
+                                      }\n` +
+                                      `🔌 *OLT / PON:* ${item.onu.olt_name || item.onu.olt_id} (${item.onu.board}/${item.onu.pon_port})\n` +
+                                      (item.matchedClient
+                                        ? `📍 *Endereço:* ${item.matchedClient.ruaLabel} — ${item.matchedClient.bairroLabel}`
+                                        : '')
+                                  );
+                                  toast.success(`Alerta preventivo enviado para ${grp.name}!`);
+                                }}
+                              >
+                                <Send className="w-3 h-3" />
+                                Avisar Equipe
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </CardContent>
