@@ -10,7 +10,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ActiveChatClientProvider } from "./contexts/ActiveChatClientContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { NetworkMonitorProvider } from "./contexts/NetworkMonitorContext";
-import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { ProtectedRoute, RoutePermissionGuard } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import QuickOSFab from "./components/ispfy/QuickOSFab";
@@ -132,7 +132,9 @@ function AppContent() {
           <DashboardLayout>
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
-                <AppContentWithRouterFix />
+                <RoutePermissionGuard>
+                  <AppContentWithRouterFix />
+                </RoutePermissionGuard>
               </Suspense>
             </ErrorBoundary>
           </DashboardLayout>

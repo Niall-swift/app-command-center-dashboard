@@ -1,20 +1,42 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { Mail, Lock, Chrome } from 'lucide-react';
+import { Mail, Lock, Chrome, Eye, EyeOff, ShieldCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+
+function translateFirebaseAuthError(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'E-mail ou senha incorretos. Verifique suas credenciais.';
+    case 'auth/user-disabled':
+      return 'Esta conta foi desativada pelo administrador.';
+    case 'auth/invalid-email':
+      return 'Formato de e-mail inválido.';
+    case 'auth/too-many-requests':
+      return 'Muitas tentativas de login. Aguarde alguns instantes e tente novamente.';
+    case 'auth/popup-closed-by-user':
+      return 'Login com Google cancelado.';
+    default:
+      return error instanceof Error ? error.message : 'Ocorreu um erro. Tente novamente.';
+  }
+}
 
 export const LoginForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+
+  const { signInWithEmail, signInWithGoogle } = useAuth();
   const { toast } = useToast();
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -22,25 +44,16 @@ export const LoginForm = () => {
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        await signUpWithEmail(email, password);
-        toast({
-          title: "Conta criada com sucesso!",
-          description: "Bem-vindo ao sistema.",
-        });
-      } else {
-        await signInWithEmail(email, password);
-        toast({
-          title: "Login realizado com sucesso!",
-          description: "Bem-vindo de volta.",
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Ocorreu um erro. Tente novamente.";
+      await signInWithEmail(email, password);
       toast({
-        title: "Erro na autenticação",
-        description: message,
-        variant: "destructive",
+        title: 'Login realizado com sucesso!',
+        description: 'Carregando suas permissões de acesso...',
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro na autenticação',
+        description: translateFirebaseAuthError(error),
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -52,15 +65,14 @@ export const LoginForm = () => {
     try {
       await signInWithGoogle();
       toast({
-        title: "Login realizado com sucesso!",
-        description: "Bem-vindo ao sistema.",
+        title: 'Login realizado com sucesso!',
+        description: 'Carregando suas permissões de acesso...',
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ocorreu um erro. Tente novamente.";
       toast({
-        title: "Erro no login com Google",
-        description: message,
-        variant: "destructive",
+        title: 'Erro no login com Google',
+        description: translateFirebaseAuthError(error),
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -68,59 +80,66 @@ export const LoginForm = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
-      <Card className="w-full max-w-md bg-card border-border shadow-xl text-card-foreground">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">
-            {isSignUp ? 'Criar Conta' : 'Entrar'}
+    <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4 avl-canvas-bg">
+      <Card className="w-full max-w-md bg-card/95 backdrop-blur-xl border-border shadow-2xl text-card-foreground rounded-2xl">
+        <CardHeader className="space-y-2 text-center pb-2">
+          <div className="w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 text-primary flex items-center justify-center mx-auto shadow-sm">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <CardTitle className="text-2xl font-bold tracking-tight">
+            AVL Telecom · Painel NOC
           </CardTitle>
-          <CardDescription className="text-center">
-            {isSignUp 
-              ? 'Crie sua conta para acessar o sistema' 
-              : 'Entre com seu email e senha ou use o Google'
-            }
+          <CardDescription>
+            Entre com seu login de Administrador ou Operador autorizado
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-2">
           <form onSubmit={handleEmailAuth} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">E-mail de acesso</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="email"
                   type="email"
-                  placeholder="seu@email.com"
+                  placeholder="operador@avltelecom.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
+                  autoComplete="email"
                   required
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder="Sua senha"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
+                  className="pl-10 pr-10"
+                  autoComplete="current-password"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full" 
-              disabled={loading}
-            >
-              {loading ? 'Carregando...' : (isSignUp ? 'Criar Conta' : 'Entrar')}
+            <Button type="submit" className="w-full gap-2" disabled={loading}>
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Entrando...' : 'Entrar no Painel'}
             </Button>
           </form>
 
@@ -144,18 +163,9 @@ export const LoginForm = () => {
             Entrar com Google
           </Button>
 
-          {/* <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              {isSignUp 
-                ? 'Já tem uma conta? Entrar' 
-                : 'Não tem uma conta? Criar conta'
-              }
-            </button>
-          </div> */}
+          <p className="text-[11px] text-center text-muted-foreground pt-1">
+            Novos logins de operadores são criados pelo Administrador em Configurações.
+          </p>
         </CardContent>
       </Card>
     </div>

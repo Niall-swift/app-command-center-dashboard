@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Settings2, Plus, Trash2, MessageSquare, UserPlus, Bot, Power } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageTransition from '@/components/PageTransition';
+import { OperatorAccessManager } from '@/components/settings/OperatorAccessManager';
 import { db } from '@/config/firebase';
 import { doc, onSnapshot, setDoc, collection, query, orderBy, limit, addDoc, deleteDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -1144,6 +1145,9 @@ export default function Settings() {
             Sincronizar ISPFY
           </Button>
         </div>
+
+        {/* Controle de Logins, Administradores e Operadores por Tela */}
+        <OperatorAccessManager />
 
         {/* Controle da Live Pre-Mix */}
         <motion.div

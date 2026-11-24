@@ -52,6 +52,7 @@ import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useChatNotifications } from '@/contexts/ChatNotificationContext';
 import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { getRoleDisplayLabel } from '@/config/permissions';
 
 interface SidebarNavItem {
   title: string;
@@ -179,7 +180,7 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
   const { dadosRegiao, rompimentosEmMassa } = useNetworkMonitor();
   const { totalUnreadCount } = useChatNotifications();
   const { activeIspfyClient } = useActiveChatClient();
-  const { user } = useAuth();
+  const { user, panelProfile, canAccessRoute } = useAuth();
   const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar();
   const isDark = resolvedTheme !== 'light';
 
@@ -358,8 +359,11 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
       {/* Content */}
       <SidebarContent className="relative z-10 px-2.5 py-1 space-y-1">
         {NAV_GROUPS.map((group) => {
+          const visibleItems = group.items.filter((item) => canAccessRoute(item.url));
+          if (visibleItems.length === 0) return null;
+
           const isOpen = openGroups[group.id] !== false;
-          const groupHasActive = group.items.some((i) => i.url === location.pathname);
+          const groupHasActive = visibleItems.some((i) => i.url === location.pathname);
 
           return (
             <SidebarGroup key={group.id} className="py-1">
@@ -394,7 +398,7 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
               {isOpen && (
                 <SidebarGroupContent className="mt-1">
                   <SidebarMenu className="space-y-0.5">
-                    {group.items.map((item) => {
+                    {visibleItems.map((item) => {
                       const isActive =
                         location.pathname === item.url ||
                         Boolean(
@@ -506,9 +510,23 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
             {userInitial}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-              {user?.displayName || 'Operador NOC'}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                {panelProfile?.name || user?.displayName || 'Operador NOC'}
+              </p>
+              <Badge
+                variant="outline"
+                className={`h-4 px-1 text-[9px] font-bold shrink-0 ${
+                  panelProfile?.role === 'creator'
+                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30'
+                    : panelProfile?.role === 'admin'
+                    ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/30'
+                    : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30'
+                }`}
+              >
+                {getRoleDisplayLabel(panelProfile?.role)}
+              </Badge>
+            </div>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
               {user?.email || 'AVL Telecom'}
             </p>

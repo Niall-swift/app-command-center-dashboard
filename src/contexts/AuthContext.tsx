@@ -1,21 +1,54 @@
-
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User, 
-  signInWithEmailAndPassword, 
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import {
+  User,
+  signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
 } from 'firebase/auth';
-import { auth, googleProvider } from '../config/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, db, googleProvider } from '../config/firebase';
 import { SessionExpiredModal } from '../components/auth/SessionExpiredModal';
 import { pointsService } from '../services/pointsService';
+import { panelUsersService } from '../services/panelUsersService';
+import {
+  ALL_ROUTE_PATHS,
+  CREATOR_EMAIL,
+  canProfileAccessRoute,
+  getFirstAllowedRoute,
+  isAdminRole,
+  isCreatorEmail,
+  type PanelUserProfile,
+} from '../config/permissions';
+
+interface UserDataWithPoints {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  name?: string | null;
+  points: number;
+  referrals?: unknown[];
+}
 
 interface AuthContextType {
   user: User | null;
-  userData: any | null;
+  userData: UserDataWithPoints | null;
+  panelProfile: PanelUserProfile | null;
   loading: boolean;
+  profileLoading: boolean;
+  isCreator: boolean;
+  isAdmin: boolean;
+  canAccessRoute: (pathname: string) => boolean;
+  firstAllowedRoute: string;
+  refreshPanelProfile: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -24,6 +57,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -32,72 +66,186 @@ export const useAuth = () => {
   return context;
 };
 
+function buildCreatorFallbackProfile(user: User): PanelUserProfile {
+  return {
+    uid: user.uid,
+    name: user.displayName || 'Niall (Criador)',
+    email: CREATOR_EMAIL,
+    role: 'creator',
+    active: true,
+    allowedRoutes: ALL_ROUTE_PATHS,
+    jobTitle: 'Criador & Administrador Master',
+  };
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<any | null>(null);
+  const [userData, setUserData] = useState<UserDataWithPoints | null>(null);
+  const [panelProfile, setPanelProfile] = useState<PanelUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [showSessionExpired, setShowSessionExpired] = useState(false);
 
-  useEffect(() => {
-    // Verificar se há usuário armazenado no localStorage
-    const storedUser = localStorage.getItem('firebase_user');
-    const storedExpiry = localStorage.getItem('firebase_user_expiry');
-    
-    if (storedUser && storedExpiry) {
-      const now = new Date().getTime();
-      const expiryTime = parseInt(storedExpiry);
-      
-      if (now < expiryTime) {
-        // Token ainda válido
-        setUser(JSON.parse(storedUser));
+  const syncCurrentUserProfile = useCallback(async (firebaseUser: User) => {
+    try {
+      const result = await panelUsersService.syncSelf();
+      if (result?.authorized && result.profile) {
+        setPanelProfile(result.profile);
+      } else if (isCreatorEmail(firebaseUser.email)) {
+        setPanelProfile(buildCreatorFallbackProfile(firebaseUser));
       } else {
-        // Token expirado, remover do localStorage e mostrar popup
+        setPanelProfile(null);
+      }
+    } catch (error) {
+      console.error('Erro ao sincronizar perfil de permissões:', error);
+      if (isCreatorEmail(firebaseUser.email)) {
+        setPanelProfile(buildCreatorFallbackProfile(firebaseUser));
+      }
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedExpiry = localStorage.getItem('firebase_user_expiry');
+    if (storedExpiry) {
+      const expiryTime = parseInt(storedExpiry, 10);
+      if (Number.isFinite(expiryTime) && Date.now() >= expiryTime) {
         localStorage.removeItem('firebase_user');
         localStorage.removeItem('firebase_user_expiry');
         setShowSessionExpired(true);
       }
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      if (user) {
-        // Armazenar usuário no localStorage com expiração de 7 dias
-        const expiryTime = new Date().getTime() + (7 * 24 * 60 * 60 * 1000); // 7 dias
-        localStorage.setItem('firebase_user', JSON.stringify(user));
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+
+      if (firebaseUser) {
+        const expiryTime = Date.now() + 7 * 24 * 60 * 60 * 1000;
         localStorage.setItem('firebase_user_expiry', expiryTime.toString());
 
-        // Processar bônus de login e buscar dados do usuário
-        try {
-          // Dar bônus de primeiro login
-          await pointsService.giveFirstLoginBonus(user.uid);
-          
-          // Buscar dados atualizados do Firestore (incluindo pontos)
-          const points = await pointsService.getPointsBalance(user.uid);
-          setUserData({ ...user, points });
-        } catch (error) {
-          console.error("Erro ao processar dados do usuário:", error);
+        if (isCreatorEmail(firebaseUser.email)) {
+          setPanelProfile(buildCreatorFallbackProfile(firebaseUser));
         }
+        setProfileLoading(true);
 
+        try {
+          await pointsService.giveFirstLoginBonus(firebaseUser.uid);
+          const points = await pointsService.getPointsBalance(firebaseUser.uid);
+          setUserData({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            name: firebaseUser.displayName,
+            points,
+            referrals: [],
+          });
+        } catch (error) {
+          console.error('Erro ao processar dados do usuário:', error);
+          setUserData({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            name: firebaseUser.displayName,
+            points: 0,
+            referrals: [],
+          });
+        }
       } else {
         localStorage.removeItem('firebase_user');
         localStorage.removeItem('firebase_user_expiry');
         setUserData(null);
+        setPanelProfile(null);
+        setProfileLoading(false);
       }
-      
+
       setLoading(false);
     });
 
     return unsubscribe;
   }, []);
 
+  // Escuta em tempo real as permissões do usuário em panel_users/{uid} + sincroniza via Cloud Function
+  useEffect(() => {
+    if (!user) return;
+
+    let unsubscribed = false;
+    setProfileLoading(true);
+
+    const userDocRef = doc(db, 'panel_users', user.uid);
+    const unsubDoc = onSnapshot(
+      userDocRef,
+      (snap) => {
+        if (unsubscribed) return;
+        if (snap.exists()) {
+          const data = snap.data() as PanelUserProfile;
+          const normalized: PanelUserProfile = {
+            ...data,
+            uid: user.uid,
+            email: data.email || user.email || '',
+            allowedRoutes: Array.isArray(data.allowedRoutes) ? data.allowedRoutes : [],
+          };
+          if (isCreatorEmail(user.email)) {
+            setPanelProfile({
+              ...normalized,
+              role: 'creator',
+              active: true,
+              allowedRoutes: ALL_ROUTE_PATHS,
+            });
+          } else {
+            setPanelProfile(normalized);
+          }
+          setProfileLoading(false);
+        } else {
+          void syncCurrentUserProfile(user);
+        }
+      },
+      (err) => {
+        console.error('Erro ao escutar permissões do operador:', err);
+        if (!unsubscribed) {
+          void syncCurrentUserProfile(user);
+        }
+      }
+    );
+
+    // Garante registro de lastLoginAt e bootstrap de custom claims do Criador
+    void panelUsersService
+      .syncSelf()
+      .then((res) => {
+        if (unsubscribed) return;
+        if (res?.authorized && res.profile) {
+          setPanelProfile(res.profile);
+          setProfileLoading(false);
+        } else if (isCreatorEmail(user.email)) {
+          setPanelProfile(buildCreatorFallbackProfile(user));
+          setProfileLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!unsubscribed && isCreatorEmail(user.email)) {
+          setPanelProfile(buildCreatorFallbackProfile(user));
+          setProfileLoading(false);
+        }
+      });
+
+    return () => {
+      unsubscribed = true;
+      unsubDoc();
+    };
+  }, [user, syncCurrentUserProfile]);
+
+  const refreshPanelProfile = useCallback(async () => {
+    if (!user) return;
+    setProfileLoading(true);
+    await syncCurrentUserProfile(user);
+  }, [user, syncCurrentUserProfile]);
+
   const signInWithEmail = async (email: string, password: string) => {
-    console.log(email)
-    await signInWithEmailAndPassword(auth, email, password);
+    await signInWithEmailAndPassword(auth, email.trim(), password);
   };
 
   const signUpWithEmail = async (email: string, password: string) => {
-    await createUserWithEmailAndPassword(auth, email, password);
+    await createUserWithEmailAndPassword(auth, email.trim(), password);
   };
 
   const signInWithGoogle = async () => {
@@ -109,29 +257,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('firebase_user');
     localStorage.removeItem('firebase_user_expiry');
     setUserData(null);
+    setPanelProfile(null);
   };
 
   const handleSessionExpiredClose = () => {
     setShowSessionExpired(false);
   };
 
-  const value = {
-    user,
-    userData,
-    loading,
-    signInWithEmail,
-    signUpWithEmail,
-    signInWithGoogle,
-    logout
-  };
+  const effectiveProfile = useMemo<PanelUserProfile | null>(() => {
+    if (panelProfile) return panelProfile;
+    if (user && isCreatorEmail(user.email)) {
+      return buildCreatorFallbackProfile(user);
+    }
+    return null;
+  }, [panelProfile, user]);
+
+  const isCreator = Boolean(
+    effectiveProfile?.role === 'creator' || (user && isCreatorEmail(user.email))
+  );
+  const isAdmin = Boolean(effectiveProfile?.active && isAdminRole(effectiveProfile.role));
+
+  const canAccessRoute = useCallback(
+    (pathname: string) => canProfileAccessRoute(effectiveProfile, pathname),
+    [effectiveProfile]
+  );
+
+  const firstAllowedRoute = useMemo(
+    () => getFirstAllowedRoute(effectiveProfile),
+    [effectiveProfile]
+  );
+
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      userData,
+      panelProfile: effectiveProfile,
+      loading,
+      profileLoading,
+      isCreator,
+      isAdmin,
+      canAccessRoute,
+      firstAllowedRoute,
+      refreshPanelProfile,
+      signInWithEmail,
+      signUpWithEmail,
+      signInWithGoogle,
+      logout,
+    }),
+    [
+      user,
+      userData,
+      effectiveProfile,
+      loading,
+      profileLoading,
+      isCreator,
+      isAdmin,
+      canAccessRoute,
+      firstAllowedRoute,
+      refreshPanelProfile,
+    ]
+  );
 
   return (
     <AuthContext.Provider value={value}>
       {children}
-      <SessionExpiredModal 
-        isOpen={showSessionExpired}
-        onClose={handleSessionExpiredClose}
-      />
+      <SessionExpiredModal isOpen={showSessionExpired} onClose={handleSessionExpiredClose} />
     </AuthContext.Provider>
   );
 };

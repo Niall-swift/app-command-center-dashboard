@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Ticket } from 'lucide-react';
 import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
 import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 
 /**
@@ -14,6 +15,11 @@ const QuickOSFab: React.FC = () => {
   const [hovered, setHovered] = useState(false);
   const location = useLocation();
   const { activeIspfyClient } = useActiveChatClient();
+  const { canAccessRoute } = useAuth();
+
+  if (!canAccessRoute('/ispfy/nova-os') && !canAccessRoute('/ispfy/tickets')) {
+    return null;
+  }
 
   const isChatRoute = location.pathname === '/chat';
   const preselectedClient = isChatRoute && activeIspfyClient ? activeIspfyClient : undefined;

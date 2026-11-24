@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/command';
 import { Badge } from '@/components/ui/badge';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import type { ISPFYClienteData } from '@/types/ispfy';
 
@@ -94,9 +95,16 @@ interface GlobalCommandPaletteProps {
 export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPaletteProps) {
   const navigate = useNavigate();
   const { dadosRegiao, tocarSireneRompimento } = useNetworkMonitor();
+  const { canAccessRoute } = useAuth();
   const [query, setQuery] = useState('');
   const [remoteClients, setRemoteClients] = useState<ISPFYClienteData[]>([]);
   const [searchingRemote, setSearchingRemote] = useState(false);
+
+  const canViewClientProfile = canAccessRoute('/ispfy/consulta');
+  const allowedPages = useMemo(
+    () => ALL_PAGES.filter((page) => canAccessRoute(page.url)),
+    [canAccessRoute]
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -188,7 +196,7 @@ export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPalett
           )}
         </CommandEmpty>
 
-        {localMatches.length > 0 && (
+        {canViewClientProfile && localMatches.length > 0 && (
           <CommandGroup heading="Clientes ISPFY (Busca Instantânea)">
             {localMatches.map((cli) => (
               <CommandItem
@@ -233,7 +241,7 @@ export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPalett
           </CommandGroup>
         )}
 
-        {remoteClients.length > 0 && (
+        {canViewClientProfile && remoteClients.length > 0 && (
           <CommandGroup heading="Resultados Diretos ISPFY">
             {remoteClients.map((cli) => (
               <CommandItem
@@ -259,29 +267,35 @@ export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPalett
         )}
 
         <CommandGroup heading="Ações Rápidas">
-          <CommandItem onSelect={() => goTo('/ispfy/nova-os')}>
-            <ClipboardList className="mr-2 h-4 w-4 text-emerald-500" />
-            <span>Abrir Nova Ordem de Serviço (O.S.)</span>
-          </CommandItem>
-          <CommandItem onSelect={() => goTo('/ispfy/inteligencia')}>
-            <Sparkles className="mr-2 h-4 w-4 text-violet-500" />
-            <span>Consultar Viabilidade por CTO / Cadastrar Novo Cliente</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => {
-              onOpenChange(false);
-              tocarSireneRompimento(2);
-            }}
-          >
-            <Bell className="mr-2 h-4 w-4 text-amber-500" />
-            <span>Testar Sirene Sonora de Rompimento NOC</span>
-          </CommandItem>
+          {canAccessRoute('/ispfy/nova-os') && (
+            <CommandItem onSelect={() => goTo('/ispfy/nova-os')}>
+              <ClipboardList className="mr-2 h-4 w-4 text-emerald-500" />
+              <span>Abrir Nova Ordem de Serviço (O.S.)</span>
+            </CommandItem>
+          )}
+          {canAccessRoute('/ispfy/inteligencia') && (
+            <CommandItem onSelect={() => goTo('/ispfy/inteligencia')}>
+              <Sparkles className="mr-2 h-4 w-4 text-violet-500" />
+              <span>Consultar Viabilidade por CTO / Cadastrar Novo Cliente</span>
+            </CommandItem>
+          )}
+          {canAccessRoute('/ispfy/regiao') && (
+            <CommandItem
+              onSelect={() => {
+                onOpenChange(false);
+                tocarSireneRompimento(2);
+              }}
+            >
+              <Bell className="mr-2 h-4 w-4 text-amber-500" />
+              <span>Testar Sirene Sonora de Rompimento NOC</span>
+            </CommandItem>
+          )}
         </CommandGroup>
 
         <CommandSeparator />
 
         <CommandGroup heading="Módulos do Sistema">
-          {ALL_PAGES.map((page) => {
+          {allowedPages.map((page) => {
             const Icon = page.icon;
             return (
               <CommandItem

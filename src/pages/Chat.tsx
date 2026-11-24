@@ -78,6 +78,7 @@ import { aiService } from '@/services/ai/aiService';
 import { whapiService } from '@/services/whapi/whapiService';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 import { compressImage } from '@/utils/compressImage';
 
@@ -194,6 +195,7 @@ function isAvatarImageUrl(avatar?: string): boolean {
 
 export default function Chat() {
   const navigate = useNavigate();
+  const { canAccessRoute } = useAuth();
   const {
     activeIspfyClient,
     resolvingIspfy,
@@ -1837,26 +1839,28 @@ export default function Chat() {
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenSelectedClientOS}
-                    className="h-8 text-[10px] font-bold border-emerald-500/35 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 gap-1.5 mr-0.5"
-                    title={
-                      activeIspfyClient
-                        ? `Abrir Nova O.S. para ${obterNomeClienteISPFY(activeIspfyClient)}`
-                        : resolvingIspfy
-                        ? 'Localizando cliente no ISPFY para abrir O.S...'
-                        : 'Abrir Nova O.S. para este contato'
-                    }
-                  >
-                    {resolvingIspfy && !activeIspfyClient ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <ClipboardList className="w-3 h-3" />
-                    )}
-                    O.S.
-                  </Button>
+                  {canAccessRoute('/ispfy/nova-os') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenSelectedClientOS}
+                      className="h-8 text-[10px] font-bold border-emerald-500/35 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 gap-1.5 mr-0.5"
+                      title={
+                        activeIspfyClient
+                          ? `Abrir Nova O.S. para ${obterNomeClienteISPFY(activeIspfyClient)}`
+                          : resolvingIspfy
+                          ? 'Localizando cliente no ISPFY para abrir O.S...'
+                          : 'Abrir Nova O.S. para este contato'
+                      }
+                    >
+                      {resolvingIspfy && !activeIspfyClient ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <ClipboardList className="w-3 h-3" />
+                      )}
+                      O.S.
+                    </Button>
+                  )}
                   {!selectedClient.protocol && (
                     <Button
                       variant="outline"

@@ -1,0 +1,543 @@
+import * as functions from "firebase-functions/v1";
+import * as admin from "firebase-admin";
+import { verifyAuth } from "./config/auth";
+
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
+
+export type PanelUserRole = "creator" | "admin" | "operador";
+
+export interface PanelUserDoc {
+  uid: string;
+  name: string;
+  email: string;
+  role: PanelUserRole;
+  active: boolean;
+  allowedRoutes: string[];
+  jobTitle?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  lastLoginAt?: string;
+}
+
+const CREATOR_EMAIL = "niallswift@gmail.com";
+const COLLECTION = "panel_users";
+
+const ALL_PANEL_ROUTES = [
+  "/",
+  "/ispfy/regiao",
+  "/ispfy/inteligencia",
+  "/ispfy/nova-os",
+  "/ispfy/tickets",
+  "/network-map",
+  "/technical-support",
+  "/chat",
+  "/whatsapp/bulk",
+  "/bots",
+  "/notifications",
+  "/requests",
+  "/ispfy/consulta",
+  "/ispfy/financeiro",
+  "/ispfy/auditoria",
+  "/ispfy/vencimentos",
+  "/ispfy/carencia",
+  "/ispfy/dici",
+  "/ispfy/exportar-ativos",
+  "/raffle",
+  "/paid-raffles",
+  "/movies",
+  "/series",
+  "/avlplay-analytics",
+  "/rewards-management",
+  "/redemption-orders",
+  "/analytics",
+  "/settings",
+];
+
+const VALID_ROUTE_SET = new Set(ALL_PANEL_ROUTES);
+
+function normalizeEmail(raw: unknown): string {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function sanitizeRoutes(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const unique = new Set<string>();
+  for (const item of raw) {
+    const str = String(item || "").trim();
+    if (VALID_ROUTE_SET.has(str)) {
+      unique.add(str);
+    }
+  }
+  return Array.from(unique);
+}
+
+function isCreator(email?: string | null): boolean {
+  return normalizeEmail(email) === CREATOR_EMAIL;
+}
+
+async function ensureCreatorProfile(
+  uid: string,
+  displayName?: string | null
+): Promise<PanelUserDoc> {
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTION).doc(uid);
+  const snap = await ref.get();
+  const now = new Date().toISOString();
+
+  const existing = snap.exists ? (snap.data() as Partial<PanelUserDoc>) : null;
+  const profile: PanelUserDoc = {
+    uid,
+    name: existing?.name || displayName || "Niall (Criador)",
+    email: CREATOR_EMAIL,
+    role: "creator",
+    active: true,
+    allowedRoutes: ALL_PANEL_ROUTES,
+    jobTitle: existing?.jobTitle || "Criador & Administrador Master",
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    createdBy: existing?.createdBy || "system",
+    lastLoginAt: now,
+  };
+
+  await ref.set(profile, { merge: true });
+  await admin
+    .auth()
+    .setCustomUserClaims(uid, { role: "creator", admin: true })
+    .catch(() => undefined);
+
+  return profile;
+}
+
+async function assertCallerIsAdmin(
+  context: functions.https.CallableContext
+): Promise<PanelUserDoc> {
+  verifyAuth(context);
+  const uid = context.auth!.uid;
+  const callerEmail = normalizeEmail(context.auth!.token.email);
+
+  if (isCreator(callerEmail)) {
+    return ensureCreatorProfile(uid, String(context.auth!.token.name || ""));
+  }
+
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTION).doc(uid).get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Apenas administradores podem gerenciar logins de operadores."
+    );
+  }
+
+  const profile = snap.data() as PanelUserDoc;
+  if (!profile.active || (profile.role !== "admin" && profile.role !== "creator")) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Permissão insuficiente. Apenas administradores ativos podem executar esta ação."
+    );
+  }
+
+  return profile;
+}
+
+function sortUsers(list: PanelUserDoc[]): PanelUserDoc[] {
+  const weight: Record<PanelUserRole, number> = {
+    creator: 0,
+    admin: 1,
+    operador: 2,
+  };
+  return [...list].sort((a, b) => {
+    const diff = (weight[a.role] ?? 9) - (weight[b.role] ?? 9);
+    if (diff !== 0) return diff;
+    return String(a.name || a.email).localeCompare(String(b.name || b.email), "pt-BR");
+  });
+}
+
+/**
+ * Gestão segura de logins de Administradores e Operadores do painel AVL.
+ * Ações: syncSelf | list | create | update | delete
+ */
+export const managePanelUsers = functions
+  .runWith({ memory: "256MB", timeoutSeconds: 60 })
+  .https.onCall(async (data, context) => {
+    verifyAuth(context);
+
+    const action = String(data?.action || "").trim();
+    const db = admin.firestore();
+
+    // ─── 1. syncSelf: bootstrap do Criador ou validação do próprio usuário logado ───
+    if (action === "syncSelf") {
+      const uid = context.auth!.uid;
+      const email = normalizeEmail(context.auth!.token.email);
+      const tokenName = String(context.auth!.token.name || "").trim();
+
+      if (isCreator(email)) {
+        const profile = await ensureCreatorProfile(uid, tokenName);
+        return { success: true, authorized: true, profile };
+      }
+
+      const docRef = db.collection(COLLECTION).doc(uid);
+      const snap = await docRef.get();
+      if (snap.exists) {
+        const current = snap.data() as PanelUserDoc;
+        const now = new Date().toISOString();
+        await docRef.set({ lastLoginAt: now }, { merge: true });
+        return {
+          success: true,
+          authorized: true,
+          profile: { ...current, uid, lastLoginAt: now },
+        };
+      }
+
+      // Fallback: verificar se existe documento cadastrado pelo mesmo e-mail
+      if (email) {
+        const byEmail = await db
+          .collection(COLLECTION)
+          .where("email", "==", email)
+          .limit(1)
+          .get();
+
+        if (!byEmail.empty) {
+          const oldDoc = byEmail.docs[0];
+          const oldData = oldDoc.data() as PanelUserDoc;
+          const now = new Date().toISOString();
+          const migrated: PanelUserDoc = {
+            ...oldData,
+            uid,
+            email,
+            lastLoginAt: now,
+            updatedAt: now,
+          };
+          await docRef.set(migrated, { merge: true });
+          if (oldDoc.id !== uid) {
+            await oldDoc.ref.delete().catch(() => undefined);
+          }
+          await admin
+            .auth()
+            .setCustomUserClaims(uid, {
+              role: migrated.role,
+              admin: migrated.role === "admin" || migrated.role === "creator",
+            })
+            .catch(() => undefined);
+          return { success: true, authorized: true, profile: migrated };
+        }
+      }
+
+      return { success: true, authorized: false, profile: null };
+    }
+
+    // Todas as ações administrativas exigem Criador ou Admin ativo
+    const caller = await assertCallerIsAdmin(context);
+
+    // ─── 2. list: listar todos os usuários do painel ───
+    if (action === "list") {
+      const snap = await db.collection(COLLECTION).get();
+      const users = snap.docs.map((d) => ({
+        ...(d.data() as PanelUserDoc),
+        uid: d.id,
+      }));
+      return { success: true, users: sortUsers(users) };
+    }
+
+    // ─── 3. create: criar novo Administrador ou Operador ───
+    if (action === "create") {
+      const name = String(data?.name || "").trim();
+      const email = normalizeEmail(data?.email);
+      const password = String(data?.password || "");
+      const role: PanelUserRole = data?.role === "admin" ? "admin" : "operador";
+      const active = data?.active !== false;
+      const jobTitle = String(data?.jobTitle || "").trim();
+      const syncToAttendants = Boolean(data?.syncToAttendants);
+      const allowedRoutes =
+        role === "admin" ? ALL_PANEL_ROUTES : sanitizeRoutes(data?.allowedRoutes);
+
+      if (name.length < 2) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Informe o nome completo do operador (mínimo 2 caracteres)."
+        );
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Informe um e-mail válido."
+        );
+      }
+      if (isCreator(email)) {
+        throw new functions.https.HttpsError(
+          "already-exists",
+          "Este e-mail é reservado à conta do Criador (Administrador Master)."
+        );
+      }
+      if (password.length > 0 && password.length < 6) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "A senha deve ter no mínimo 6 caracteres."
+        );
+      }
+      if (role === "operador" && allowedRoutes.length === 0) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Selecione pelo menos uma tela liberada para o operador."
+        );
+      }
+
+      let authUser: admin.auth.UserRecord;
+      try {
+        const existingAuth = await admin
+          .auth()
+          .getUserByEmail(email)
+          .catch(() => null);
+
+        if (existingAuth) {
+          const existingPanelDoc = await db
+            .collection(COLLECTION)
+            .doc(existingAuth.uid)
+            .get();
+          if (existingPanelDoc.exists) {
+            throw new functions.https.HttpsError(
+              "already-exists",
+              "Já existe um operador/administrador cadastrado com este e-mail."
+            );
+          }
+
+          const updatePayload: admin.auth.UpdateRequest = {
+            displayName: name,
+            disabled: !active,
+          };
+          if (password.length >= 6) {
+            updatePayload.password = password;
+          }
+          authUser = await admin.auth().updateUser(existingAuth.uid, updatePayload);
+        } else {
+          if (password.length < 6) {
+            throw new functions.https.HttpsError(
+              "invalid-argument",
+              "Defina uma senha inicial com pelo menos 6 caracteres."
+            );
+          }
+          authUser = await admin.auth().createUser({
+            email,
+            password,
+            displayName: name,
+            disabled: !active,
+          });
+        }
+      } catch (err: unknown) {
+        if (err instanceof functions.https.HttpsError) throw err;
+        const msg = err instanceof Error ? err.message : "Erro ao criar conta no Firebase Auth.";
+        throw new functions.https.HttpsError("internal", msg);
+      }
+
+      await admin.auth().setCustomUserClaims(authUser.uid, {
+        role,
+        admin: role === "admin",
+      });
+
+      const now = new Date().toISOString();
+      const newProfile: PanelUserDoc = {
+        uid: authUser.uid,
+        name,
+        email,
+        role,
+        active,
+        allowedRoutes,
+        jobTitle: jobTitle || (role === "admin" ? "Administrador" : "Operador"),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: caller.email,
+      };
+
+      await db.collection(COLLECTION).doc(authUser.uid).set(newProfile);
+
+      if (syncToAttendants) {
+        const attSnap = await db
+          .collection("attendants")
+          .where("email", "==", email)
+          .limit(1)
+          .get();
+        if (attSnap.empty) {
+          await db.collection("attendants").add({
+            name,
+            email,
+            avatar: "",
+            role: role === "admin" ? "tecnico" : "atendente",
+            status: active ? "ativo" : "inativo",
+            createdAt: now,
+            panelUid: authUser.uid,
+          });
+        }
+      }
+
+      return { success: true, user: newProfile };
+    }
+
+    // ─── 4. update: atualizar permissões, cargo, status ou senha ───
+    if (action === "update") {
+      const targetUid = String(data?.uid || "").trim();
+      if (!targetUid) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "UID do usuário é obrigatório."
+        );
+      }
+
+      const targetRef = db.collection(COLLECTION).doc(targetUid);
+      const targetSnap = await targetRef.get();
+      if (!targetSnap.exists) {
+        throw new functions.https.HttpsError(
+          "not-found",
+          "Operador não encontrado."
+        );
+      }
+
+      const current = targetSnap.data() as PanelUserDoc;
+      const targetIsCreator =
+        current.role === "creator" || isCreator(current.email);
+
+      if (targetIsCreator && caller.uid !== targetUid) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Apenas o próprio Criador pode alterar dados da conta master."
+        );
+      }
+
+      const nextName =
+        typeof data?.name === "string" && data.name.trim().length >= 2
+          ? data.name.trim()
+          : current.name;
+      const nextJobTitle =
+        typeof data?.jobTitle === "string" ? data.jobTitle.trim() : current.jobTitle || "";
+      const nextRole: PanelUserRole = targetIsCreator
+        ? "creator"
+        : data?.role === "admin"
+        ? "admin"
+        : "operador";
+      const nextActive = targetIsCreator
+        ? true
+        : typeof data?.active === "boolean"
+        ? data.active
+        : current.active;
+
+      if (caller.uid === targetUid && (!nextActive || nextRole === "operador")) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Você não pode desativar ou remover o acesso administrativo da sua própria conta."
+        );
+      }
+
+      const nextRoutes =
+        nextRole === "creator" || nextRole === "admin"
+          ? ALL_PANEL_ROUTES
+          : Array.isArray(data?.allowedRoutes)
+          ? sanitizeRoutes(data.allowedRoutes)
+          : current.allowedRoutes;
+
+      if (nextRole === "operador" && nextRoutes.length === 0) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Selecione pelo menos uma tela liberada para o operador."
+        );
+      }
+
+      const newPassword = typeof data?.password === "string" ? data.password : "";
+      if (newPassword.length > 0 && newPassword.length < 6) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "A nova senha deve ter no mínimo 6 caracteres."
+        );
+      }
+
+      const authUpdate: admin.auth.UpdateRequest = {
+        displayName: nextName,
+        disabled: !nextActive,
+      };
+      if (newPassword.length >= 6) {
+        authUpdate.password = newPassword;
+      }
+
+      await admin
+        .auth()
+        .updateUser(targetUid, authUpdate)
+        .catch((err) => {
+          throw new functions.https.HttpsError(
+            "internal",
+            err instanceof Error ? err.message : "Falha ao atualizar usuário no Firebase Auth."
+          );
+        });
+
+      await admin.auth().setCustomUserClaims(targetUid, {
+        role: nextRole,
+        admin: nextRole === "admin" || nextRole === "creator",
+      });
+
+      if (!nextActive) {
+        await admin.auth().revokeRefreshTokens(targetUid).catch(() => undefined);
+      }
+
+      const updated: PanelUserDoc = {
+        ...current,
+        uid: targetUid,
+        name: nextName,
+        jobTitle: nextJobTitle,
+        role: nextRole,
+        active: nextActive,
+        allowedRoutes: nextRoutes,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await targetRef.set(updated, { merge: true });
+      return { success: true, user: updated };
+    }
+
+    // ─── 5. delete: remover operador/admin ───
+    if (action === "delete") {
+      const targetUid = String(data?.uid || "").trim();
+      if (!targetUid) {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "UID do usuário é obrigatório."
+        );
+      }
+      if (targetUid === caller.uid) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Você não pode excluir sua própria conta."
+        );
+      }
+
+      const targetRef = db.collection(COLLECTION).doc(targetUid);
+      const targetSnap = await targetRef.get();
+      if (targetSnap.exists) {
+        const current = targetSnap.data() as PanelUserDoc;
+        if (current.role === "creator" || isCreator(current.email)) {
+          throw new functions.https.HttpsError(
+            "permission-denied",
+            "A conta do Criador não pode ser excluída."
+          );
+        }
+      }
+
+      await admin
+        .auth()
+        .deleteUser(targetUid)
+        .catch((err: { code?: string }) => {
+          if (err?.code !== "auth/user-not-found") {
+            throw new functions.https.HttpsError(
+              "internal",
+              "Erro ao remover usuário no Firebase Auth."
+            );
+          }
+        });
+
+      await targetRef.delete();
+      return { success: true, deletedUid: targetUid };
+    }
+
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      `Ação inválida: ${action}`
+    );
+  });

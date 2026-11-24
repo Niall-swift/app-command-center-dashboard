@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, MapPin, MessageSquare, Radar, Search } from 'lucide-react';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useChatNotifications } from '@/contexts/ChatNotificationContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface MobileBottomDockProps {
   onOpenSearch: () => void;
@@ -13,6 +14,7 @@ export function MobileBottomDock({ onOpenSearch }: MobileBottomDockProps) {
   const location = useLocation();
   const { rompimentosEmMassa, dadosRegiao } = useNetworkMonitor();
   const { totalUnreadCount } = useChatNotifications();
+  const { canAccessRoute } = useAuth();
 
   const hasMassOutage = rompimentosEmMassa.length > 0;
   const totalOffline = dadosRegiao?.totals.desconectados ?? 0;
@@ -46,14 +48,17 @@ export function MobileBottomDock({ onOpenSearch }: MobileBottomDockProps) {
       isActive: location.pathname === '/ispfy/inteligencia',
       badgeType: null as null | 'noc' | 'chat',
     },
-  ];
+  ].filter((item) => canAccessRoute(item.to));
 
   return (
     <nav
       aria-label="Navegação rápida mobile"
       className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-border/80 bg-card/90 backdrop-blur-xl shadow-[0_12px_36px_-8px_rgba(15,23,42,0.35)] dark:shadow-[0_14px_40px_-8px_rgba(0,0,0,0.8)] px-1.5 py-1.5"
     >
-      <div className="grid grid-cols-5 gap-1">
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${navItems.length + 1}, minmax(0, 1fr))` }}
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           return (

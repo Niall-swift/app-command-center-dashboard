@@ -58,6 +58,7 @@ import {
   limit,
 } from 'firebase/firestore';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ClientInfoCardProps {
   clientId: string;
@@ -168,6 +169,7 @@ export default function ClientInfoCard({
   onIspfyClientResolved,
 }: ClientInfoCardProps) {
   const navigate = useNavigate();
+  const { canAccessRoute } = useAuth();
   const [loading, setLoading] = useState(true);
   const [ispfyData, setIspfyData] = useState<ISPFYClienteData | null>(null);
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
@@ -876,30 +878,34 @@ export default function ClientInfoCard({
           <div className="flex items-center gap-0.5 shrink-0">
             {ispfyData?.id && (
               <>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-1.5 text-[10px] text-primary hover:bg-primary/10 gap-1"
-                  onClick={() => navigate(`/ispfy/cliente/${ispfyData.id}`)}
-                  title="Abrir Ficha Completa"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  Ficha
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 gap-1"
-                  onClick={() =>
-                    navigate(`/ispfy/nova-os?clienteId=${ispfyData.id}`, {
-                      state: { preselectedClient: ispfyData },
-                    })
-                  }
-                  title="Abrir Nova O.S. para este cliente"
-                >
-                  <ClipboardList className="w-3 h-3" />
-                  O.S.
-                </Button>
+                {canAccessRoute('/ispfy/consulta') && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1.5 text-[10px] text-primary hover:bg-primary/10 gap-1"
+                    onClick={() => navigate(`/ispfy/cliente/${ispfyData.id}`)}
+                    title="Abrir Ficha Completa"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Ficha
+                  </Button>
+                )}
+                {canAccessRoute('/ispfy/nova-os') && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 gap-1"
+                    onClick={() =>
+                      navigate(`/ispfy/nova-os?clienteId=${ispfyData.id}`, {
+                        state: { preselectedClient: ispfyData },
+                      })
+                    }
+                    title="Abrir Nova O.S. para este cliente"
+                  >
+                    <ClipboardList className="w-3 h-3" />
+                    O.S.
+                  </Button>
+                )}
               </>
             )}
             <Button
