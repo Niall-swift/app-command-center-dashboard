@@ -65,6 +65,11 @@ interface ClientInfoCardProps {
   clientName?: string;
   onSendMessage?: (message: string) => void;
   onOntResolved?: (onu: SmartOltOnu | null) => void;
+  onIspfyClientResolved?: (
+    chatId: string,
+    client: ISPFYClienteData | null,
+    resolving: boolean
+  ) => void;
 }
 
 const GENERIC_POINT_LABELS = new Set([
@@ -160,6 +165,7 @@ export default function ClientInfoCard({
   clientName,
   onSendMessage,
   onOntResolved,
+  onIspfyClientResolved,
 }: ClientInfoCardProps) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -326,6 +332,7 @@ export default function ClientInfoCard({
     let cancelled = false;
     const fetchIspfyData = async () => {
       setLoading(true);
+      onIspfyClientResolved?.(clientId, null, true);
       setUsageByPoint({});
       setIspfyData(null);
       setContracts([]);
@@ -398,13 +405,17 @@ export default function ClientInfoCard({
             tick: refreshTick,
           };
           setIspfyData(client);
+          onIspfyClientResolved?.(clientId, client, false);
           setContracts(details.clientContracts);
           setLogins(details.clientLogins);
           setLivePoints(details.pointsStatus);
           setInvoices(details.openInvoices);
+        } else {
+          onIspfyClientResolved?.(clientId, null, false);
         }
       } catch (error) {
         console.error('Erro ao carregar dados do ISPFY:', error);
+        if (!cancelled) onIspfyClientResolved?.(clientId, null, false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -422,6 +433,7 @@ export default function ClientInfoCard({
     clientName,
     refreshTick,
     loadFullClientDetails,
+    onIspfyClientResolved,
   ]);
 
   const handleManualSearchSubmit = async (e: React.FormEvent) => {
@@ -481,6 +493,7 @@ export default function ClientInfoCard({
         tick: refreshTick,
       };
       setIspfyData(client);
+      onIspfyClientResolved?.(clientId, client, false);
       setContracts(details.clientContracts);
       setLogins(details.clientLogins);
       setLivePoints(details.pointsStatus);
@@ -877,7 +890,11 @@ export default function ClientInfoCard({
                   size="sm"
                   variant="ghost"
                   className="h-6 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 gap-1"
-                  onClick={() => navigate(`/ispfy/nova-os?clienteId=${ispfyData.id}`)}
+                  onClick={() =>
+                    navigate(`/ispfy/nova-os?clienteId=${ispfyData.id}`, {
+                      state: { preselectedClient: ispfyData },
+                    })
+                  }
                   title="Abrir Nova O.S. para este cliente"
                 >
                   <ClipboardList className="w-3 h-3" />

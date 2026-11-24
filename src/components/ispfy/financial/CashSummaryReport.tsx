@@ -1,15 +1,10 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowUpCircle, ArrowDownCircle, Search, Plus, RefreshCcw } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import React, { useMemo, useState } from 'react';
+import { ArrowDownCircle, ArrowUpCircle, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ispfyService } from '@/services/ispfy/ispfyService';
-import { toast } from 'sonner';
-import { ISPFYCashMovementData } from '@/types/ispfy';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SpotlightCard } from '@/components/ui/aceternity';
+import type { ISPFYCashMovementData } from '@/types/ispfy';
 
 interface CashSummaryReportProps {
   movements: ISPFYCashMovementData[];
@@ -18,199 +13,139 @@ interface CashSummaryReportProps {
   onRefresh: () => void;
 }
 
-export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({ 
-  movements, 
-  loading, 
-  selectedCaixaId,
-  onRefresh 
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function formatMovementDate(raw?: string): string {
+  if (!raw) return '—';
+  const [datePart, timePart] = String(raw).trim().split(' ');
+  const parts = datePart.split('-');
+  if (parts.length !== 3) return raw;
+  const brDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return timePart && timePart !== '00:00:00' ? `${brDate} ${timePart.slice(0, 5)}` : brDate;
+}
+
+export const CashSummaryReport: React.FC<CashSummaryReportProps> = ({
+  movements,
+  loading,
 }) => {
-  const [searchTerm, setSearchTerm] = React.useState('');
-  const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [newMovement, setNewMovement] = React.useState({
-      tipo: 'E' as 'E' | 'S',
-      valor: '',
-      historico: '',
-      documento: ''
-  });
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const handleCreateMovement = async () => {
-      if (!newMovement.valor || !newMovement.historico) {
-          toast.error("Por favor, preencha valor e histórico.");
-          return;
-      }
-      
-      setIsSubmitting(true);
-      try {
-          const res = await ispfyService.createCashMovement({
-              ...newMovement,
-              id_caixa: selectedCaixaId
-          });
-          
-          if (res.success) {
-              toast.success("Lançamento realizado!");
-              setIsModalOpen(false);
-              setNewMovement({ tipo: 'E', valor: '', historico: '', documento: '' });
-              onRefresh();
-          } else {
-              toast.error(res.message);
-          }
-      } catch (error) {
-          toast.error("Erro ao realizar lançamento.");
-      } finally {
-          setIsSubmitting(false);
-      }
-  };
+  const filteredMovements = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return movements;
+    return movements.filter(
+      (m) =>
+        String(m.historico || '').toLowerCase().includes(q) ||
+        String(m.documento || '').toLowerCase().includes(q) ||
+        String(m.data || '').toLowerCase().includes(q) ||
+        String(m.valor || '').includes(q)
+    );
+  }, [movements, searchTerm]);
 
-  const filteredMovements = movements.filter(m => 
-    m.historico?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    m.documento?.toLowerCase().includes(searchTerm.toLowerCase())
+  const totalVisible = useMemo(
+    () =>
+      filteredMovements.reduce(
+        (sum, m) => sum + (parseFloat(String(m.valor || '0')) || 0),
+        0
+      ),
+    [filteredMovements]
   );
 
   if (loading) {
     return (
-      <Card className="bg-card border-border shadow-sm overflow-hidden text-card-foreground">
-        <CardHeader><Skeleton className="h-6 w-1/3" /></CardHeader>
-        <CardContent><Skeleton className="h-[400px] w-full" /></CardContent>
-      </Card>
+      <SpotlightCard tone="emerald" className="p-5 space-y-4">
+        <Skeleton className="h-6 w-1/3" />
+        <Skeleton className="h-[360px] w-full rounded-xl" />
+      </SpotlightCard>
     );
   }
 
   return (
-    <Card className="bg-card border-border shadow-sm overflow-hidden text-card-foreground">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle className="text-xl font-bold text-foreground">Resumo do Caixa</CardTitle>
-        <div className="flex items-center gap-4">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Buscar lançamentos..." 
-              className="pl-10 h-9 text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <Button 
-            className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 gap-2"
-            onClick={() => setIsModalOpen(true)}
-            disabled={!selectedCaixaId}
-          >
-            <Plus className="w-4 h-4" /> Novo Lançamento
-          </Button>
+    <SpotlightCard tone="emerald" showTopBeam className="p-5 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-bold text-foreground">
+            Extrato de Recebimentos do Caixa (Últimos 30 dias)
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {filteredMovements.length} lançamento(s) listado(s) • Subtotal visível:{' '}
+            <strong className="text-emerald-600 dark:text-emerald-400">
+              {BRL.format(totalVisible)}
+            </strong>
+          </p>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-border/60 text-muted-foreground uppercase font-semibold">
-                <th className="px-4 py-3">Data</th>
-                <th className="px-4 py-3">Histórico</th>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {filteredMovements.length > 0 ? filteredMovements.map((m) => (
-                <tr key={m.id} className="hover:bg-secondary/40 transition-colors">
-                  <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
-                    {m.data?.split(' ')[0].split('-').reverse().join('/')}
+
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar fatura, operador, doc..."
+            className="pl-9 h-9 text-xs rounded-xl"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto max-h-[460px] overflow-y-auto rounded-xl border border-border/70">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 z-10 bg-muted/85 backdrop-blur-md border-b border-border/70 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3.5 py-2.5">Data / Hora</th>
+              <th className="px-3.5 py-2.5">Histórico / Operador</th>
+              <th className="px-3.5 py-2.5">Tipo</th>
+              <th className="px-3.5 py-2.5 text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {filteredMovements.length > 0 ? (
+              filteredMovements.slice(0, 100).map((m) => (
+                <tr key={m.id} className="hover:bg-muted/40 transition-colors">
+                  <td className="px-3.5 py-3 text-muted-foreground font-mono whitespace-nowrap">
+                    {formatMovementDate(m.data)}
                   </td>
-                  <td className="px-4 py-4">
-                    <div className="flex flex-col">
-                      <span className="font-medium text-foreground">{m.historico}</span>
-                      <span className="text-xs text-muted-foreground">Doc: {m.documento || '---'}</span>
+                  <td className="px-3.5 py-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-foreground line-clamp-2">
+                        {m.historico}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground font-mono">
+                        Doc / Carteira: {m.documento || '—'}
+                      </span>
                     </div>
                   </td>
-                  <td className="px-4 py-4">
+                  <td className="px-3.5 py-3">
                     {m.tipo === 'E' ? (
-                      <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-none hover:bg-emerald-500/20 gap-1">
+                      <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 gap-1 text-[10px]">
                         <ArrowUpCircle className="w-3 h-3" /> Entrada
                       </Badge>
                     ) : (
-                      <Badge className="bg-rose-500/10 text-rose-700 dark:text-rose-300 border-none hover:bg-rose-500/20 gap-1">
+                      <Badge className="bg-rose-500/12 text-rose-700 dark:text-rose-300 border border-rose-500/25 gap-1 text-[10px]">
                         <ArrowDownCircle className="w-3 h-3" /> Saída
                       </Badge>
                     )}
                   </td>
-                  <td className={`px-4 py-4 text-right font-bold ${m.tipo === 'E' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                    {m.tipo === 'E' ? '+' : '-'} R$ {parseFloat(m.valor || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground italic">
-                    Nenhum lançamento encontrado para o período.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="max-w-md bg-card border-border text-foreground">
-              <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-foreground">Novo Lançamento Manual</DialogTitle>
-              </DialogHeader>
-              
-              <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Tipo</label>
-                      <Select 
-                        value={newMovement.tipo} 
-                        onValueChange={(val: 'E' | 'S') => setNewMovement({...newMovement, tipo: val})}
-                      >
-                          <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecione o tipo" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-popover border-border text-popover-foreground">
-                              <SelectItem value="E" className="text-emerald-600 dark:text-emerald-400 font-bold">Entrada (+)</SelectItem>
-                              <SelectItem value="S" className="text-rose-600 dark:text-rose-400 font-bold">Saída (-)</SelectItem>
-                          </SelectContent>
-                      </Select>
-                  </div>
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Valor (R$)</label>
-                      <Input 
-                        type="number" 
-                        placeholder="0,00" 
-                        value={newMovement.valor}
-                        onChange={(e) => setNewMovement({...newMovement, valor: e.target.value})}
-                      />
-                  </div>
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Histórico</label>
-                      <Input 
-                        placeholder="Ex: Pagamento extra ou Recebimento manual" 
-                        value={newMovement.historico}
-                        onChange={(e) => setNewMovement({...newMovement, historico: e.target.value})}
-                      />
-                  </div>
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Documento (Opcional)</label>
-                      <Input 
-                        placeholder="Ex: REC-123" 
-                        value={newMovement.documento}
-                        onChange={(e) => setNewMovement({...newMovement, documento: e.target.value})}
-                      />
-                  </div>
-              </div>
-
-              <DialogFooter>
-                  <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-                  <Button 
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-                    onClick={handleCreateMovement}
-                    disabled={isSubmitting}
+                  <td
+                    className={`px-3.5 py-3 text-right font-black tabular-nums whitespace-nowrap ${
+                      m.tipo === 'E'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }`}
                   >
-                      {isSubmitting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                      Confirmar Lançamento
-                  </Button>
-              </DialogFooter>
-          </DialogContent>
-      </Dialog>
-    </Card>
+                    {m.tipo === 'E' ? '+' : '-'}{' '}
+                    {BRL.format(parseFloat(String(m.valor || '0')) || 0)}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground italic">
+                  Nenhum recebimento encontrado para o filtro selecionado.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </SpotlightCard>
   );
 };

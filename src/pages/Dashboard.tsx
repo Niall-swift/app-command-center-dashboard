@@ -9,7 +9,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AnimatedTabs,
+  HoverEffectGrid,
+  SpotlightCard,
+  type SpotlightTone,
+} from '@/components/ui/aceternity';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import {
@@ -110,7 +115,7 @@ const GRUPOS_ATALHOS_SETOR = [
       { rotulo: 'Clientes Bairro/Rua', url: '/ispfy/regiao', icone: MapPin, cor: 'text-blue-500' },
       { rotulo: 'Inteligência & CTO', url: '/ispfy/inteligencia', icone: Radar, cor: 'text-violet-500' },
       { rotulo: 'Nova O.S.', url: '/ispfy/nova-os', icone: ClipboardList, cor: 'text-emerald-500' },
-      { rotulo: 'Consulta Clientes', url: '/ispfy/consulta', icone: Users, cor: 'text-indigo-500' },
+      { rotulo: 'ISPFY Explorer 360°', url: '/ispfy/consulta', icone: Users, cor: 'text-indigo-500' },
       { rotulo: 'Auditoria Base', url: '/ispfy/auditoria', icone: ShieldCheck, cor: 'text-cyan-500' },
       { rotulo: 'Tickets / O.S.', url: '/ispfy/tickets', icone: Ticket, cor: 'text-amber-500' },
       { rotulo: 'Mapa da Rede', url: '/network-map', icone: Map, cor: 'text-sky-500' },
@@ -225,6 +230,7 @@ export default function Dashboard() {
   const [espectadoresAtivos, setEspectadoresAtivos] = useState<
     EspectadorAtivoPlay[]
   >([]);
+  const [abaCentral, setAbaCentral] = useState<'shortcuts' | 'premix'>('shortcuts');
 
   useEffect(() => {
     const cancelarWatchers = onSnapshot(
@@ -491,6 +497,15 @@ export default function Dashboard() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => navegar('/ispfy/consulta')}
+                className="bg-blue-500/20 hover:bg-blue-500/30 border-blue-400/35 text-white text-xs h-9 rounded-xl backdrop-blur-sm font-semibold"
+              >
+                <Users className="w-3.5 h-3.5 mr-1.5 text-blue-300" />
+                Explorer 360°
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => navegar('/chat')}
                 className="bg-white/10 hover:bg-white/20 border-white/15 text-white text-xs h-9 rounded-xl backdrop-blur-sm"
               >
@@ -664,15 +679,24 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        {/* 4 KPIs Executivos (alturas idênticas, Sem Internet em 1º lugar) */}
+        {/* 4 KPIs Executivos com Aceternity SpotlightCard (alturas idênticas, Sem Internet em 1º lugar) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
           {cardsIndicadoresRede.map((indicador) => {
             const IconeCard = indicador.Icone;
+            const spotlightTone: SpotlightTone =
+              indicador.statusFiltro === 'DESCONECTADO'
+                ? 'rose'
+                : indicador.statusFiltro === 'OK'
+                ? 'emerald'
+                : indicador.statusFiltro === 'BLOQUEADO'
+                ? 'amber'
+                : 'blue';
             return (
-              <Card
+              <SpotlightCard
                 key={indicador.statusFiltro}
+                tone={spotlightTone}
                 onClick={() => aoNavegarRegiao(indicador.statusFiltro)}
-                className={`kpi-card h-full group cursor-pointer bg-card border-border/80 relative overflow-hidden flex flex-col ${indicador.bordaHover}`}
+                className={`kpi-card h-full group cursor-pointer flex flex-col ${indicador.bordaHover}`}
               >
                 <div
                   aria-hidden="true"
@@ -681,7 +705,7 @@ export default function Dashboard() {
                 <div
                   className={`absolute top-0 left-0 w-1.5 h-full ${indicador.corBarra}`}
                 />
-                <CardContent className="p-5 relative z-10 flex-1 flex flex-col justify-between">
+                <div className="p-5 relative z-10 flex-1 flex flex-col justify-between h-full">
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -710,8 +734,8 @@ export default function Dashboard() {
                     <span>{indicador.ctaLabel}</span>
                     <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </SpotlightCard>
             );
           })}
         </div>
@@ -805,68 +829,71 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <Card className="border-border shadow-sm bg-card">
-          <CardContent className="p-5">
-          <Tabs defaultValue="shortcuts" className="w-full">
-            <TabsList className="grid grid-cols-2 w-full sm:w-[440px] mb-5">
-              <TabsTrigger value="shortcuts" className="text-xs font-semibold">
-                Atalhos por Setor
-              </TabsTrigger>
-              <TabsTrigger
-                value="premix"
-                className="text-xs font-semibold gap-1.5"
-              >
-                App PreMix &amp; AVL Play
-                {qtdResgatesPendentes > 0 && (
-                  <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">
-                    {qtdResgatesPendentes}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+        <SpotlightCard tone="emerald" className="p-5">
+          <div className="space-y-5">
+            <AnimatedTabs
+              layoutId="dashboard-central-tabs"
+              activeTab={abaCentral}
+              onChange={setAbaCentral}
+              tabs={[
+                { id: 'shortcuts', label: 'Atalhos por Setor', icon: <LayoutGrid className="w-4 h-4" /> },
+                {
+                  id: 'premix',
+                  label: 'App PreMix & AVL Play',
+                  icon: <Sparkles className="w-4 h-4" />,
+                  badge: qtdResgatesPendentes,
+                  badgeTone: 'warning',
+                },
+              ]}
+            />
 
-            {/* Aba 1: Todos os atalhos bem organizados por departamento */}
-            <TabsContent value="shortcuts" className="mt-0">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {GRUPOS_ATALHOS_SETOR.map((grupo) => (
-                  <div
-                    key={grupo.titulo}
-                    className={`rounded-xl border ${grupo.bordaGrupo} bg-secondary/20 p-3.5 space-y-2.5`}
-                  >
-                    <h4
-                      className={`text-xs font-extrabold uppercase tracking-wider ${grupo.corTitulo}`}
+            {/* Aba 1: Todos os atalhos bem organizados por departamento com Aceternity HoverEffect */}
+            {abaCentral === 'shortcuts' && (
+              <HoverEffectGrid
+                layoutId="dashboard-shortcuts-hover"
+                className="grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2"
+                items={GRUPOS_ATALHOS_SETOR.map((grupo) => ({
+                  id: grupo.titulo,
+                  content: (
+                    <div
+                      className={`h-full rounded-xl border ${grupo.bordaGrupo} bg-card/85 p-3.5 space-y-2.5`}
                     >
-                      {grupo.titulo}
-                    </h4>
-                    <div className="space-y-1.5">
-                      {grupo.itens.map((item) => {
-                        const IconeItem = item.icone;
-                        return (
-                          <Link
-                            key={item.url}
-                            to={item.url}
-                            className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-card border border-border/60 hover:border-primary/40 hover:bg-secondary/50 transition-all group"
-                          >
-                            <span className="flex items-center gap-2 min-w-0">
-                              <IconeItem
-                                className={`w-4 h-4 shrink-0 ${item.cor}`}
-                              />
-                              <span className="text-xs font-semibold text-foreground truncate">
-                                {item.rotulo}
+                      <h4
+                        className={`text-xs font-extrabold uppercase tracking-wider ${grupo.corTitulo}`}
+                      >
+                        {grupo.titulo}
+                      </h4>
+                      <div className="space-y-1.5">
+                        {grupo.itens.map((item) => {
+                          const IconeItem = item.icone;
+                          return (
+                            <Link
+                              key={item.url}
+                              to={item.url}
+                              className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-background/80 border border-border/60 hover:border-primary/40 hover:bg-secondary/60 transition-all group"
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <IconeItem
+                                  className={`w-4 h-4 shrink-0 ${item.cor}`}
+                                />
+                                <span className="text-xs font-semibold text-foreground truncate">
+                                  {item.rotulo}
+                                </span>
                               </span>
-                            </span>
-                            <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                          </Link>
-                        );
-                      })}
+                              <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </Link>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </TabsContent>
+                  ),
+                }))}
+              />
+            )}
 
             {/* Aba 2: PreMix App & AVL Play (preserva integralmente os dados em tempo real) */}
-            <TabsContent value="premix" className="mt-0 space-y-6">
+            {abaCentral === 'premix' && (
+              <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="rounded-xl border border-border bg-secondary/20 p-4 flex items-center justify-between">
                   <div>
@@ -1084,10 +1111,10 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+              </div>
+            )}
+          </div>
+        </SpotlightCard>
       </section>
     </div>
   );

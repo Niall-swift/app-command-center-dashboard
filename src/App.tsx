@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ActiveChatClientProvider } from "./contexts/ActiveChatClientContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { NetworkMonitorProvider } from "./contexts/NetworkMonitorContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
@@ -87,6 +88,7 @@ function AnimatedRoutes() {
       <Route path="/technical-support" element={<TechnicalSupport />} />
       <Route path="/network-map" element={<NetworkMap />} />
       <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
+      <Route path="/ispfy/explorer" element={<ISPFYConsulta />} />
       <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
       <Route path="/ispfy/regiao" element={<ISPFYClientesRegiao />} />
       <Route path="/ispfy/inteligencia" element={<ISPFYInteligencia />} />
@@ -126,15 +128,17 @@ function AppContent() {
   return (
     <ProtectedRoute>
       <NetworkMonitorProvider>
-        <DashboardLayout>
-          <ErrorBoundary>
-            <Suspense fallback={<PageLoader />}>
-              <AppContentWithRouterFix />
-            </Suspense>
-          </ErrorBoundary>
-        </DashboardLayout>
-        <QuickOSFab />
-        <PwaAppBridge />
+        <ActiveChatClientProvider>
+          <DashboardLayout>
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
+                <AppContentWithRouterFix />
+              </Suspense>
+            </ErrorBoundary>
+          </DashboardLayout>
+          <QuickOSFab />
+          <PwaAppBridge />
+        </ActiveChatClientProvider>
       </NetworkMonitorProvider>
     </ProtectedRoute>
   );

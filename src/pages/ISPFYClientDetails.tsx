@@ -13,17 +13,28 @@ const ISPFYClientDetails: React.FC = () => {
 
   return (
     <PageTransition>
-      <div className="space-y-6 text-foreground">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Database className="w-4 h-4" />
+      <div className="space-y-5 text-foreground">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+            <Database className="w-4 h-4 text-primary" />
             <span>Sistema ISPFY</span>
             <span>/</span>
-            <span className="cursor-pointer hover:text-primary transition-colors" onClick={() => navigate('/ispfy/consulta')}>Consulta</span>
+            <button
+              type="button"
+              className="hover:text-primary transition-colors font-medium"
+              onClick={() => navigate('/ispfy/consulta')}
+            >
+              Explorer 360°
+            </button>
             <span>/</span>
-            <span className="text-foreground font-medium">Detalhes do Cliente</span>
+            <span className="text-foreground font-semibold">Cliente #{id}</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(-1)}
+            className="gap-1.5 rounded-xl h-8 text-xs"
+          >
             <ChevronLeft className="w-4 h-4" /> Voltar
           </Button>
         </div>

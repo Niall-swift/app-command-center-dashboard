@@ -3,14 +3,18 @@ import { ispfyService as ISPFYService } from '@/services/ispfy/ispfyService';
 import { smartOltService } from '@/services/smartolt/smartOltService';
 import type {
   ISPFYClienteData,
+  ISPFYClienteContato,
   ISPFYContratoData,
   ISPFYFaturaData,
   ISPFYLoginData,
   ISPFYPixData,
+  ISPFYTicketData,
+  ISPFYCarteira,
+  ISPFYPlanoData,
   ISPFYUsageSeries,
   ISPFYLivePointStatus,
   ISPFYBandwidthSummary30d,
-  ISPFYPlanoTeste
+  ISPFYPlanoTeste,
 } from '@/types/ispfy';
 import type { SmartOltOnu, SmartOltSignal } from '@/types/smartOlt';
 import { useToast } from '@/hooks/use-toast';
@@ -24,9 +28,15 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [client, setClient] = useState<ISPFYClienteData | null>(null);
+  const [cityName, setCityName] = useState<string>('');
+  const [contacts, setContacts] = useState<ISPFYClienteContato[]>([]);
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
   const [invoices, setInvoices] = useState<ISPFYFaturaData[]>([]);
   const [logins, setLogins] = useState<ISPFYLoginData[]>([]);
+  const [tickets, setTickets] = useState<ISPFYTicketData[]>([]);
+  const [carteiras, setCarteiras] = useState<ISPFYCarteira[]>([]);
+  const [planos, setPlanos] = useState<ISPFYPlanoData[]>([]);
+  const [pontoPlanos, setPontoPlanos] = useState<Record<string, unknown>[]>([]);
   const [livePoints, setLivePoints] = useState<ISPFYLivePointStatus[]>([]);
   const [stationDetails, setStationDetails] = useState<{
     station: Record<string, unknown> | null;
@@ -43,109 +53,157 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
   const [isEligibleForUnlock, setIsEligibleForUnlock] = useState<boolean>(false);
   const { toast } = useToast();
 
-  const loadClientData = useCallback(async (id: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [clientData, contractsData, invoicesData, loginsData, livePts] = await Promise.all([
-        ISPFYService.getClienteById(id),
-        ISPFYService.getContratosByCliente(id),
-        ISPFYService.getFaturasByCliente(id),
-        ISPFYService.getLoginsByCliente(id),
-        ISPFYService.getClientLivePointStatuses(id).catch(() => []),
-      ]);
+  const loadClientData = useCallback(
+    async (id: string) => {
+      setLoading(true);
+      setError(null);
+      setOnu(null);
+      setSignal(null);
 
-      setClient(clientData);
-      setContracts(contractsData);
-      setInvoices(invoicesData);
-      setLogins(loginsData);
-      setLivePoints(livePts);
-
-      const pendingCont = await ISPFYService.getPendingContracts(id);
-      setPendingContracts(pendingCont);
-
-      const eligibility = await ISPFYService.checkUnlockEligibility(id);
-      setIsEligibleForUnlock(eligibility.eligible);
-
-      const primaryPointId = livePts[0]?.idPonto || loginsData[0]?.id || '';
-
-      if (primaryPointId) {
-        const [usage, summary, details, plans] = await Promise.all([
-          ISPFYService.getBandwidthUsage(primaryPointId).catch(() => []),
-          ISPFYService.getBandwidthSummary30Days(primaryPointId).catch(() => null),
-          ISPFYService.getDetalhesConexao(primaryPointId).catch(() => null),
-          ISPFYService.getTestablePlans(primaryPointId).catch(() => []),
+      try {
+        const [
+          clientData,
+          contactsData,
+          contractsData,
+          invoicesData,
+          loginsData,
+          ticketsData,
+          livePts,
+          carteirasData,
+          planosData,
+        ] = await Promise.all([
+          ISPFYService.getClienteById(id),
+          ISPFYService.getClienteContatos(id).catch(() => []),
+          ISPFYService.getContratosByCliente(id).catch(() => []),
+          ISPFYService.getFaturasByCliente(id).catch(() => []),
+          ISPFYService.getLoginsByCliente(id).catch(() => []),
+          ISPFYService.getTicketsByCliente(id).catch(() => []),
+          ISPFYService.getClientLivePointStatuses(id).catch(() => []),
+          ISPFYService.getCarteiras().catch(() => []),
+          ISPFYService.getPlanosAtivos().catch(() => []),
         ]);
-        setBandwidthUsage(usage);
-        setBandwidthSummary(summary);
-        setStationDetails(details);
-        setTestablePlans(plans);
-      }
 
-      const ontPppoeLogins = Array.from(
-        new Set(
-          [
-            ...loginsData.map((l) => l.usuario || l.login),
-            ...contractsData.map((c) => c.login),
-          ]
-            .map((v) => String(v || '').trim())
-            .filter((v) => v.length >= 3)
-        )
-      );
-      const ontFullNames = Array.from(
-        new Set(
-          [clientData?.nome_razao, clientData?.razao, clientData?.nome]
-            .map((v) => String(v || '').trim())
-            .filter((v) => v.length >= 5 && v.includes(' '))
-        )
-      );
+        setClient(clientData);
+        setContacts(contactsData as ISPFYClienteContato[]);
+        setContracts(contractsData);
+        setInvoices(invoicesData);
+        setLogins(loginsData);
+        setTickets(ticketsData);
+        setLivePoints(livePts);
+        setCarteiras(carteirasData);
+        setPlanos(planosData);
 
-      if (ontPppoeLogins.length > 0 || ontFullNames.length > 0) {
-        const match = await smartOltService.findClientOnu({
-          pppoeLogins: ontPppoeLogins,
-          fullNames: ontFullNames,
-          live: false,
-        });
-        if (match.onu) {
-          setOnu(match.onu);
-          const signalData = await smartOltService.getOnuSignal(
-            match.onu.unique_external_id || match.onu.id
-          );
-          setSignal(signalData);
+        if (clientData?.cidade) {
+          setCityName(String(clientData.cidade));
+        } else if (clientData?.endereco_cobranca_id_cidade) {
+          ISPFYService.resolveCidadeNome(clientData.endereco_cobranca_id_cidade)
+            .then((resolved) => setCityName(resolved))
+            .catch(() => setCityName(''));
+        } else {
+          setCityName('');
         }
+
+        const pendingCont = contractsData.filter(
+          (c) => c.assinatura_digital === 'S' && c.contrato_assinado === 'N'
+        );
+        setPendingContracts(pendingCont);
+
+        const hasBlockedContract = contractsData.some((c) => {
+          const st = String(c.status_contrato || c.status_internet || '').toLowerCase();
+          return (
+            st.includes('bloq') ||
+            st.includes('susp') ||
+            st === 'fa' ||
+            st === 'ca' ||
+            st === 'cm' ||
+            st === 'ba'
+          );
+        });
+        setIsEligibleForUnlock(hasBlockedContract || contractsData.length > 0);
+
+        const primaryPointId = livePts[0]?.idPonto || loginsData[0]?.id || '';
+
+        if (primaryPointId) {
+          const [usage, summary, details, plans, ptPlans] = await Promise.all([
+            ISPFYService.getBandwidthUsage(primaryPointId).catch(() => []),
+            ISPFYService.getBandwidthSummary30Days(primaryPointId).catch(() => null),
+            ISPFYService.getDetalhesConexao(primaryPointId).catch(() => null),
+            ISPFYService.getTestablePlans(primaryPointId).catch(() => []),
+            ISPFYService.getPontoPlanos(primaryPointId).catch(() => []),
+          ]);
+          setBandwidthUsage(usage);
+          setBandwidthSummary(summary);
+          setStationDetails(details);
+          setTestablePlans(plans);
+          setPontoPlanos(ptPlans);
+        } else {
+          setBandwidthUsage([]);
+          setBandwidthSummary(null);
+          setStationDetails(null);
+          setTestablePlans([]);
+          setPontoPlanos([]);
+        }
+
+        const ontPppoeLogins = Array.from(
+          new Set(
+            [
+              ...loginsData.map((l) => l.usuario || l.login),
+              ...contractsData.map((c) => c.login),
+            ]
+              .map((v) => String(v || '').trim())
+              .filter((v) => v.length >= 3)
+          )
+        );
+        const ontFullNames = Array.from(
+          new Set(
+            [clientData?.nome_razao, clientData?.razao, clientData?.nome]
+              .map((v) => String(v || '').trim())
+              .filter((v) => v.length >= 5 && v.includes(' '))
+          )
+        );
+
+        if (ontPppoeLogins.length > 0 || ontFullNames.length > 0) {
+          const match = await smartOltService
+            .findClientOnu({
+              pppoeLogins: ontPppoeLogins,
+              fullNames: ontFullNames,
+              live: false,
+            })
+            .catch(() => ({ onu: null, candidates: [] }));
+          if (match.onu) {
+            setOnu(match.onu);
+            const signalData = await smartOltService
+              .getOnuSignal(match.onu.unique_external_id || match.onu.id)
+              .catch(() => null);
+            setSignal(signalData);
+          }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Erro ao carregar dados do ISPFY';
+        setError(msg);
+        toast({
+          title: 'Erro no ISPFY',
+          description: msg,
+          variant: 'destructive',
+        });
+      } finally {
+        setLoading(false);
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao carregar dados do ISPFY';
-      setError(msg);
-      toast({
-        title: 'Erro no ISPFY',
-        description: msg,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+    },
+    [toast]
+  );
 
   const updateWifi = async (loginId: string, ssid: string, pass: string) => {
     try {
       const result = await ISPFYService.updateWifi(loginId, ssid, pass);
       if (result.success) {
-        toast({
-          title: 'Sucesso',
-          description: result.message,
-        });
-        // Refresh logins
+        toast({ title: 'Sucesso', description: result.message });
         if (clientId) {
           const freshLogins = await ISPFYService.getLoginsByCliente(clientId);
           setLogins(freshLogins);
         }
       } else {
-        toast({
-          title: 'Erro',
-          description: result.message,
-          variant: 'destructive',
-        });
+        toast({ title: 'Erro', description: result.message, variant: 'destructive' });
       }
       return result;
     } catch {
@@ -158,18 +216,25 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     }
   };
 
-  const getPix = async (invoiceId: string): Promise<ISPFYPixData | null> => {
+  const getPix = async (
+    invoiceId: string,
+    invoiceHint?: ISPFYFaturaData | null
+  ): Promise<ISPFYPixData | null> => {
     try {
-      const pix = await ISPFYService.getPixQrCode(invoiceId, client?.cpf_cnpj);
+      const pix = await ISPFYService.getPixQrCode(
+        invoiceId,
+        client?.cpf_cnpj || client?.cnpj_cpf,
+        invoiceHint
+      );
       if (!pix) {
         toast({
-          title: 'Erro',
-          description: 'Não foi possível gerar o PIX para esta fatura.',
+          title: 'PIX indisponível',
+          description: 'Não foi possível localizar o PIX ou boleto para esta fatura.',
           variant: 'destructive',
         });
       }
       return pix;
-    } catch (err) {
+    } catch {
       return null;
     }
   };
@@ -178,19 +243,17 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     try {
       const result = await ISPFYService.unlockContract(contractId);
       if (result.success) {
-        toast({
-          title: 'Desbloqueio efetuado',
-          description: result.message,
-        });
+        toast({ title: 'Liberação efetuada', description: result.message });
+        if (clientId) await loadClientData(clientId);
       } else {
         toast({
-          title: 'Erro no desbloqueio',
+          title: 'Liberação indisponível',
           description: result.message,
           variant: 'destructive',
         });
       }
       return result;
-    } catch (err) {
+    } catch {
       return { success: false, message: 'Erro ao processar desbloqueio.' };
     }
   };
@@ -199,24 +262,16 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     try {
       const result = await ISPFYService.desconectarCliente(loginId);
       if (result.success) {
-        toast({
-          title: 'Conexão encerrada',
-          description: result.message,
-        });
-        // Refresh logins to show offline status
+        toast({ title: 'Conexão encerrada', description: result.message });
         if (clientId) {
           const freshLogins = await ISPFYService.getLoginsByCliente(clientId);
           setLogins(freshLogins);
         }
       } else {
-        toast({
-          title: 'Erro ao desconectar',
-          description: result.message,
-          variant: 'destructive',
-        });
+        toast({ title: 'Erro ao desconectar', description: result.message, variant: 'destructive' });
       }
       return result;
-    } catch (err) {
+    } catch {
       return { success: false, message: 'Erro ao processar desconexão.' };
     }
   };
@@ -225,7 +280,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     if (!onu) return;
     setLoadingSignal(true);
     try {
-      const data = await smartOltService.getOnuSignal(onu.id);
+      const data = await smartOltService.getOnuSignal(onu.unique_external_id || onu.id);
       setSignal(data);
     } finally {
       setLoadingSignal(false);
@@ -234,7 +289,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
 
   const rebootOnu = async () => {
     if (!onu) return;
-    const result = await smartOltService.rebootOnu(onu.id);
+    const result = await smartOltService.rebootOnu(onu.unique_external_id || onu.id);
     if (result.success) {
       toast({ title: 'Comando enviado', description: 'ONU reiniciando...' });
     } else {
@@ -269,10 +324,20 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     const result = await ISPFYService.closeTicket(idTicket);
     if (result.success) {
       toast({ title: 'Chamado encerrado', description: result.message });
+      if (clientId) {
+        const fresh = await ISPFYService.getTicketsByCliente(clientId).catch(() => tickets);
+        setTickets(fresh);
+      }
     } else {
       toast({ title: 'Erro ao encerrar O.S.', description: result.message, variant: 'destructive' });
     }
     return result;
+  };
+
+  const refreshTickets = async () => {
+    if (!clientId) return;
+    const fresh = await ISPFYService.getTicketsByCliente(clientId).catch(() => tickets);
+    setTickets(fresh);
   };
 
   useEffect(() => {
@@ -285,9 +350,15 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     loading,
     error,
     client,
+    cityName,
+    contacts,
     contracts,
     invoices,
     logins,
+    tickets,
+    carteiras,
+    planos,
+    pontoPlanos,
     livePoints,
     stationDetails,
     bandwidthSummary,
@@ -299,6 +370,7 @@ export function useISPFY({ clientId, autoLoad = true }: UseISPFYOptions = {}) {
     pendingContracts,
     isEligibleForUnlock,
     refresh: () => clientId && loadClientData(clientId),
+    refreshTickets,
     updateWifi,
     getPix,
     unlock,

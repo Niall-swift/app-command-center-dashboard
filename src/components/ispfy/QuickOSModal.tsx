@@ -56,6 +56,8 @@ import {
 interface QuickOSModalProps {
   /** Se fornecido, pula direto para o passo 2 (dados da O.S.) */
   preselectedClient?: ISPFYClienteData;
+  /** Permite voltar ao passo 1 para trocar o cliente mesmo quando pré-selecionado */
+  allowChangeClient?: boolean;
   /** Trigger personalizado — se omitido, usa o botão padrão */
   trigger?: React.ReactNode;
   /** Callback chamado após criação bem-sucedida */
@@ -67,6 +69,7 @@ const obterRegiaoCliente = (cliente: ISPFYClienteData): string =>
 
 export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   preselectedClient,
+  allowChangeClient = false,
   trigger,
   onSuccess,
 }) => {
@@ -122,9 +125,9 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       .then((grupos) => {
         if (!grupos || grupos.length === 0) return;
         setGruposWhatsApp(grupos);
-        if (!grupoSelecionadoPhone) {
-          const padrao = selecionarGrupoWhatsAppPadrao(grupos);
-          if (padrao) setGrupoSelecionadoPhone(padrao.phone);
+        const padrao = selecionarGrupoWhatsAppPadrao(grupos);
+        if (padrao) {
+          setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
         }
       })
       .catch(console.error)
@@ -140,23 +143,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   // ─── Reset quando abre/fecha ───────────────────────────────────────────────
   useEffect(() => {
     if (!aberto) return;
-
-    if (preselectedClient) {
-      setClienteSelecionado(preselectedClient);
-      setEtapa(2);
-      if (preselectedClient.id) {
-        ispfyService
-          .getClientPlanDetails(preselectedClient.id)
-          .then((detalhes) => setPlanoCliente(detalhes.planName))
-          .catch(console.error);
-      }
-    } else {
-      setEtapa(1);
-      setClienteSelecionado(null);
-      setTermoBusca('');
-      setResultadosBusca([]);
-      setPlanoCliente('');
-    }
+    let cancelado = false;
 
     setAssuntoSelecionado('');
     setNomeAssunto('');
@@ -167,6 +154,51 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     setChamadoCriadoId('');
     setNumeroDiarioCriado(null);
     setGrupoEnviadoComSucesso(null);
+
+    if (preselectedClient) {
+      setClienteSelecionado(preselectedClient);
+      setPlanoCliente('');
+      setEtapa(2);
+      if (preselectedClient.id) {
+        ispfyService
+          .getClientPlanDetails(preselectedClient.id)
+          .then((detalhes) => {
+            if (!cancelado) setPlanoCliente(detalhes.planName);
+          })
+          .catch(console.error);
+
+        if (!obterTelefoneClienteISPFY(preselectedClient)) {
+          ispfyService
+            .getClienteContatos(preselectedClient.id)
+            .then((contatos) => {
+              if (cancelado || !contatos || contatos.length === 0) return;
+              const foneCelular =
+                contatos.find((ct) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
+              const foneWhatsapp = contatos.find((ct) => ct.pode_enviar_mensagem === 's')?.contato;
+              setClienteSelecionado((atual) =>
+                atual && atual.id === preselectedClient.id
+                  ? {
+                      ...atual,
+                      fone_celular: atual.fone_celular || foneCelular,
+                      fone_whatsapp: atual.fone_whatsapp || foneWhatsapp,
+                    }
+                  : atual
+              );
+            })
+            .catch(console.error);
+        }
+      }
+    } else {
+      setEtapa(1);
+      setClienteSelecionado(null);
+      setTermoBusca('');
+      setResultadosBusca([]);
+      setPlanoCliente('');
+    }
+
+    return () => {
+      cancelado = true;
+    };
   }, [aberto, preselectedClient]);
 
   // ─── Carregar assuntos ao entrar na etapa 2 ────────────────────────────────
@@ -576,9 +608,11 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                         {obterTelefoneClienteISPFY(clienteSelecionado, 'Sem telefone')} · ID {clienteSelecionado.id}
                       </p>
                     </div>
-                    {!preselectedClient && (
+                    {(!preselectedClient || allowChangeClient) && (
                       <button
+                        type="button"
                         onClick={() => setEtapa(1)}
+                        title="Trocar cliente"
                         className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                       >
                         <X className="w-4 h-4" />
@@ -927,14 +961,14 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
           )}
           {etapa === 2 && (
             <>
-              {!preselectedClient ? (
+              {!preselectedClient || allowChangeClient ? (
                 <Button
                   variant="ghost"
                   onClick={() => setEtapa(1)}
                   className="text-muted-foreground hover:text-foreground hover:bg-secondary gap-1"
                 >
                   <ChevronLeft className="w-4 h-4" />
-                  Voltar
+                  {preselectedClient ? 'Trocar cliente' : 'Voltar'}
                 </Button>
               ) : (
                 <Button

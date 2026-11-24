@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Loader2, User, Phone, MapPin, Ticket, CheckCircle2,
@@ -114,11 +115,19 @@ const VARIAVEIS_TEMPLATE_OS = [
 ];
 
 const ISPFYNovaOS: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const clienteIdParam = searchParams.get('clienteId')?.trim() || '';
+  const buscaParam = searchParams.get('busca')?.trim() || '';
+  const statePreselectedClient =
+    (location.state as { preselectedClient?: ISPFYClienteData } | null)?.preselectedClient ?? null;
+
   // Busca de clientes e vínculo de plano/logins
   const [termoBusca, setTermoBusca] = useState('');
   const [todosClientes, setTodosClientes] = useState<ISPFYClienteData[]>([]);
   const [resultadosBusca, setResultadosBusca] = useState<ISPFYClienteData[]>([]);
   const [carregandoBusca, setCarregandoBusca] = useState(false);
+  const [carregandoClientePreselecionado, setCarregandoClientePreselecionado] = useState(false);
   const [clienteSelecionado, setClienteSelecionado] = useState<ISPFYClienteData | null>(null);
   const [loginsCliente, setLoginsCliente] = useState<ISPFYLoginData[]>([]);
   const [contratosCliente, setContratosCliente] = useState<ISPFYContratoData[]>([]);
@@ -127,6 +136,16 @@ const ISPFYNovaOS: React.FC = () => {
   const [carregandoPlano, setCarregandoPlano] = useState(false);
   const [editandoPlano, setEditandoPlano] = useState(false);
   const timerBuscaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clienteSelecionadoRef = useRef<ISPFYClienteData | null>(null);
+  const temPreselecaoInicialRef = useRef<boolean>(
+    Boolean(clienteIdParam || statePreselectedClient?.id || buscaParam)
+  );
+  const preloadedKeyRef = useRef<string | null>(null);
+  const preloadedBuscaRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    clienteSelecionadoRef.current = clienteSelecionado;
+  }, [clienteSelecionado]);
 
   // Formulário da O.S.
   const [assuntos, setAssuntos] = useState<{ id: string; assunto: string }[]>([]);
@@ -223,10 +242,14 @@ const ISPFYNovaOS: React.FC = () => {
     try {
       const resposta = await ispfyService.getClientesAtivos();
       setTodosClientes(resposta);
-      setResultadosBusca(resposta);
+      if (!clienteSelecionadoRef.current && !temPreselecaoInicialRef.current) {
+        setResultadosBusca(resposta);
+      }
     } catch {
       setTodosClientes([]);
-      setResultadosBusca([]);
+      if (!clienteSelecionadoRef.current && !temPreselecaoInicialRef.current) {
+        setResultadosBusca([]);
+      }
     } finally {
       setCarregandoBusca(false);
     }
@@ -269,16 +292,16 @@ const ISPFYNovaOS: React.FC = () => {
   );
 
   // ─── Seleção de Cliente e Detecção do Plano ────────────────────────────────
-  const aoSelecionarCliente = async (cliente: ISPFYClienteData) => {
-    setClienteSelecionado(cliente);
+  const aoSelecionarCliente = useCallback(async (cliente: ISPFYClienteData) => {
+    const clienteBase: ISPFYClienteData = { ...cliente };
+    clienteSelecionadoRef.current = clienteBase;
+    setClienteSelecionado(clienteBase);
     setResultadosBusca([]);
-    setTermoBusca(obterNomeClienteISPFY(cliente));
-    if (cliente.endereco_cobranca_complemento) {
-      setPontoReferencia(cliente.endereco_cobranca_complemento);
-    }
+    setTermoBusca(obterNomeClienteISPFY(clienteBase));
+    setPontoReferencia(clienteBase.endereco_cobranca_complemento || '');
     setTextoManualOS(null);
 
-    if (!cliente.id) {
+    if (!clienteBase.id) {
       setLoginsCliente([]);
       setContratosCliente([]);
       setPlanoCliente('');
@@ -288,18 +311,29 @@ const ISPFYNovaOS: React.FC = () => {
 
     setCarregandoPlano(true);
     try {
-      const contatos = await ispfyService.getClienteContatos(cliente.id);
+      const contatos = await ispfyService.getClienteContatos(clienteBase.id);
       if (contatos && contatos.length > 0) {
-        cliente.fone_celular =
+        const foneCelular =
           contatos.find((ct) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
-        cliente.fone_whatsapp = contatos.find((ct) => ct.pode_enviar_mensagem === 's')?.contato;
+        const foneWhatsapp = contatos.find((ct) => ct.pode_enviar_mensagem === 's')?.contato;
+        const clienteEnriquecido: ISPFYClienteData = {
+          ...clienteBase,
+          fone_celular: foneCelular || clienteBase.fone_celular,
+          fone_whatsapp: foneWhatsapp || clienteBase.fone_whatsapp,
+        };
+        setClienteSelecionado((atual) =>
+          atual && String(atual.id) === String(clienteBase.id) ? clienteEnriquecido : atual
+        );
       }
     } catch (erro) {
       console.error('Erro ao buscar contatos:', erro);
     }
 
     try {
-      const detalhes = await ispfyService.getClientPlanDetails(cliente.id);
+      const detalhes = await ispfyService.getClientPlanDetails(clienteBase.id);
+      if (String(clienteSelecionadoRef.current?.id || '') !== String(clienteBase.id)) {
+        return;
+      }
       setContratosCliente(detalhes.contratos);
       setLoginsCliente(detalhes.logins);
       setPlanoCliente(detalhes.planName);
@@ -308,13 +342,67 @@ const ISPFYNovaOS: React.FC = () => {
       }
     } catch (erro) {
       console.error('Erro ao resolver plano e detalhes do cliente:', erro);
-      setContratosCliente([]);
-      setLoginsCliente([]);
-      setPlanoCliente('');
+      if (String(clienteSelecionadoRef.current?.id || '') === String(clienteBase.id)) {
+        setContratosCliente([]);
+        setLoginsCliente([]);
+        setPlanoCliente('');
+      }
     } finally {
-      setCarregandoPlano(false);
+      if (String(clienteSelecionadoRef.current?.id || '') === String(clienteBase.id)) {
+        setCarregandoPlano(false);
+      }
     }
-  };
+  }, []);
+
+  // ─── Pré-seleção automática via ?clienteId= ou state vindo do Chat / Inteligência ───
+  useEffect(() => {
+    const targetId = clienteIdParam || (statePreselectedClient?.id ? String(statePreselectedClient.id) : '');
+    if (!targetId) return;
+    if (preloadedKeyRef.current === targetId) return;
+
+    preloadedKeyRef.current = targetId;
+    temPreselecaoInicialRef.current = true;
+
+    if (statePreselectedClient?.id && String(statePreselectedClient.id) === targetId) {
+      void aoSelecionarCliente(statePreselectedClient);
+      return;
+    }
+
+    let cancelado = false;
+    setCarregandoClientePreselecionado(true);
+    ispfyService
+      .getClienteById(targetId)
+      .then((clienteEncontrado) => {
+        if (cancelado) return;
+        if (clienteEncontrado) {
+          void aoSelecionarCliente(clienteEncontrado);
+        } else {
+          temPreselecaoInicialRef.current = false;
+          toast.warning(`Cliente #${targetId} não encontrado no ISPFY.`);
+        }
+      })
+      .catch(() => {
+        if (!cancelado) {
+          temPreselecaoInicialRef.current = false;
+          toast.error('Não foi possível carregar o cliente pré-selecionado.');
+        }
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoClientePreselecionado(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [clienteIdParam, statePreselectedClient, aoSelecionarCliente]);
+
+  // ─── Pré-preenchimento de busca via ?busca= (quando chat ainda não tem vínculo ISPFY) ───
+  useEffect(() => {
+    if (clienteIdParam || statePreselectedClient?.id || !buscaParam) return;
+    if (preloadedBuscaRef.current === buscaParam) return;
+    preloadedBuscaRef.current = buscaParam;
+    aoAlterarBusca(buscaParam);
+  }, [buscaParam, clienteIdParam, statePreselectedClient, aoAlterarBusca]);
 
   const alternarProblema = (idProblema: string) => {
     setProblemasSelecionados((anterior) =>
@@ -593,7 +681,21 @@ const ISPFYNovaOS: React.FC = () => {
     }
   };
 
+  const limparParamsPreselecao = useCallback(() => {
+    temPreselecaoInicialRef.current = false;
+    preloadedKeyRef.current = null;
+    preloadedBuscaRef.current = null;
+    if (searchParams.has('clienteId') || searchParams.has('busca') || statePreselectedClient) {
+      const proximos = new URLSearchParams(searchParams);
+      proximos.delete('clienteId');
+      proximos.delete('busca');
+      setSearchParams(proximos, { replace: true, state: null });
+    }
+  }, [searchParams, setSearchParams, statePreselectedClient]);
+
   const aoLimparFormulario = () => {
+    limparParamsPreselecao();
+    clienteSelecionadoRef.current = null;
     setClienteSelecionado(null);
     setTermoBusca('');
     setResultadosBusca([]);
@@ -891,24 +993,38 @@ const ISPFYNovaOS: React.FC = () => {
                       placeholder="Buscar por nome, telefone ou CPF..."
                       className="pl-10 pr-10 bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 h-11 text-sm rounded-xl"
                     />
-                    {carregandoBusca && (
+                    {(carregandoBusca || carregandoClientePreselecionado) && (
                       <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-spin" />
                     )}
-                    {clienteSelecionado && !carregandoBusca && (
+                    {clienteSelecionado && !carregandoBusca && !carregandoClientePreselecionado && (
                       <button
+                        type="button"
                         onClick={() => {
+                          limparParamsPreselecao();
+                          clienteSelecionadoRef.current = null;
                           setClienteSelecionado(null);
                           setTermoBusca('');
-                          setResultadosBusca([]);
+                          setResultadosBusca(todosClientes);
                           setPlanoCliente('');
+                          setLoginsCliente([]);
                           setContratosCliente([]);
+                          setPontoReferencia('');
+                          setTextoManualOS(null);
                         }}
+                        title="Trocar cliente"
                         className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     )}
                   </div>
+
+                  {carregandoClientePreselecionado && !clienteSelecionado && (
+                    <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-700 dark:text-emerald-300 font-medium">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-emerald-500" />
+                      <span>Carregando dados do cliente selecionado...</span>
+                    </div>
+                  )}
 
                   {/* Resultados da busca */}
                   <AnimatePresence>

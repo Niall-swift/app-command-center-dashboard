@@ -119,6 +119,7 @@ class ISPFYService {
   private client: AxiosInstance;
   private token: string;
   private cachedPlanos: ISPFYPlanoData[] | null = null;
+  private cachedCarteiras: ISPFYCarteira[] | null = null;
   private cachedCidadesMap = new Map<string, string>();
   private auditBaseCache: {
     fetchedAt: number;
@@ -856,13 +857,42 @@ class ISPFYService {
 
   async unlockContract(idContrato: string): Promise<{ success: boolean; message: string }> {
     try {
-      console.log(`🔓 Tentando desbloquear contrato ID: ${idContrato}...`);
-      await this.writeRequest('post', `/cliente/contrato_desbloqueio`, { id: idContrato });
-      return { success: true, message: 'Contrato desbloqueado em confiança com sucesso!' };
-    } catch (error: any) {
-      console.error('Erro ao desbloquear contrato:', error);
-      const errorMsg = error.response?.data?.message || 'Erro ao processar desbloqueio.';
-      return { success: false, message: errorMsg };
+      console.log(`🔓 Solicitando liberação em confiança (3 dias) para contrato ID: ${idContrato}...`);
+      const resp = await this.callToolRequest<Record<string, unknown>>(
+        'post',
+        '/api/tool/assinante/liberar',
+        { data: { id_contrato: idContrato } }
+      );
+      const text =
+        typeof resp === 'string'
+          ? resp
+          : String(resp?.message || resp?.msg || '');
+      if (
+        resp?.type === 'error' ||
+        text.toLowerCase().includes('não está ativa') ||
+        text.toLowerCase().includes('nao esta ativa')
+      ) {
+        return {
+          success: false,
+          message: text || 'Liberação em confiança indisponível para este contrato.',
+        };
+      }
+      return {
+        success: true,
+        message: text || 'Contrato liberado em confiança por 3 dias no ISPFY!',
+      };
+    } catch (error: unknown) {
+      console.error('Erro ao desbloquear contrato via /api/tool/assinante/liberar:', error);
+      const axiosMsg = axios.isAxiosError(error)
+        ? String(
+            (error.response?.data as { message?: string } | undefined)?.message ||
+              (typeof error.response?.data === 'string' ? error.response.data : '') ||
+              error.message
+          )
+        : error instanceof Error
+        ? error.message
+        : 'Erro ao processar desbloqueio em confiança.';
+      return { success: false, message: axiosMsg };
     }
   }
 
@@ -1039,24 +1069,36 @@ class ISPFYService {
   // =====================================================================
 
   async getFaturasByCliente(idCliente: string): Promise<ISPFYFaturaData[]> {
-    // Cobrança não tem id_cliente: busca em todos os contratos recentes do cliente (não apenas o 1º)
+    // Cobrança não tem id_cliente: busca em todos os contratos do cliente e remove duplicatas
     const contratos = await this.getContratosByCliente(idCliente);
     if (contratos.length === 0) return [];
 
-    const contratosAlvo = contratos.slice(0, 5).filter((c) => Boolean(c.id));
+    const contratosAlvo = contratos.slice(0, 10).filter((c) => Boolean(c.id));
     const listas = await Promise.all(
       contratosAlvo.map((c) =>
         this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
           filter: buildFilter('id_contrato', 'EQ', String(c.id)),
-          limit: 200,
-          sort: 'data_vencimento:ASC',
+          limit: 300,
+          sort: 'data_vencimento:DESC',
         })
           .then((resp) => this.getRows(resp))
           .catch(() => [] as ISPFYFaturaData[])
       )
     );
 
-    return listas.flat();
+    const seen = new Set<string>();
+    const merged: ISPFYFaturaData[] = [];
+    for (const inv of listas.flat()) {
+      const key = String(inv.id || `${inv.id_contrato}_${inv.data_vencimento}_${inv.valor}`);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(inv);
+      }
+    }
+
+    return merged.sort((a, b) =>
+      String(b.data_vencimento || '').localeCompare(String(a.data_vencimento || ''))
+    );
   }
 
   async getFaturasAbertas(idCliente?: string): Promise<ISPFYFaturaData[]> {
@@ -1102,7 +1144,7 @@ class ISPFYService {
       },
       onProgress
     );
-    return faturas.filter((f) => !f.pagamento_data);
+    return faturas.filter((f) => !f.data_pagamento && !f.pagamento_data && !f.data_exclusao);
   }
 
   async fetchRecentFaturasPagas(
@@ -1111,16 +1153,16 @@ class ISPFYService {
   ): Promise<ISPFYFaturaData[]> {
     const date = new Date();
     date.setDate(date.getDate() - days);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = obterDataLocalIso(date);
 
     return this.fetchAllRecords<ISPFYFaturaData>(
       '/cliente/contrato/cobranca',
       {
         filter: andFilters(
-          buildFilter('pagamento_data', 'GTE', dateStr),
-          buildFilter('status', 'EQ', 'pago')
+          buildFilter('status', 'EQ', 'pago'),
+          buildFilter('data_pagamento', 'GTE', dateStr)
         ),
-        sort: 'pagamento_data:DESC',
+        sort: 'data_pagamento:DESC',
       },
       onProgress
     );
@@ -1138,87 +1180,115 @@ class ISPFYService {
   }
 
   // =====================================================================
-  // FINANCEIRO — resumos e relatórios
+  // FINANCEIRO — resumos e relatórios (Campos reais ISPFY: data_pagamento, valor_pago, id_carteira)
   // =====================================================================
 
-  async getFinancialSummary(idCaixa?: string): Promise<{
+  private extractPaymentDateIso(inv: ISPFYFaturaData): string {
+    const raw = String(inv.data_pagamento || inv.pagamento_data || '').trim();
+    return raw.split(' ')[0] || '';
+  }
+
+  private extractPaidAmount(inv: ISPFYFaturaData): number {
+    const raw = inv.valor_pago ?? inv.pagamento_valor ?? inv.valor ?? '0';
+    const num = parseFloat(String(raw).replace(',', '.'));
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  private extractNominalAmount(inv: ISPFYFaturaData): number {
+    const raw = inv.valor ?? '0';
+    const num = parseFloat(String(raw).replace(',', '.'));
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  async getFinancialSummary(idCarteira?: string): Promise<{
     todayRevenue: number;
+    todayCount: number;
     monthRevenue: number;
+    monthCount: number;
     totalOpen: number;
+    countOpen: number;
     totalOverdue: number;
     countOverdue: number;
   }> {
-    const today = new Date().toISOString().split('T')[0];
-    const firstDayOfMonth = new Date(
-      new Date().getFullYear(),
-      new Date().getMonth(),
-      1
-    ).toISOString().split('T')[0];
+    const today = obterDataLocalIso();
+    const firstDayOfMonth = `${today.slice(0, 7)}-01`;
+    const filterWallet = Boolean(idCarteira && idCarteira !== 'ALL');
 
-    // 1. Receita do dia (pago hoje)
-    const todayPayments = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('pagamento_data', 'EQ', today),
-      sort: 'pagamento_data:DESC',
+    const [monthPaymentsRaw, openInvoicesRaw] = await Promise.all([
+      this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: andFilters(
+          buildFilter('status', 'EQ', 'pago'),
+          buildFilter('data_pagamento', 'GTE', firstDayOfMonth)
+        ),
+        sort: 'data_pagamento:DESC',
+      }),
+      this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: buildFilter('status', 'EQ', 'aberto'),
+      }),
+    ]);
+
+    const monthFiltered = filterWallet
+      ? monthPaymentsRaw.filter((p) => String(p.id_carteira || '') === String(idCarteira))
+      : monthPaymentsRaw;
+
+    const todayFiltered = monthFiltered.filter((p) => this.extractPaymentDateIso(p) === today);
+    const todayRevenue = todayFiltered.reduce((acc, curr) => acc + this.extractPaidAmount(curr), 0);
+    const monthRevenue = monthFiltered.reduce((acc, curr) => acc + this.extractPaidAmount(curr), 0);
+
+    const openWalletFiltered = filterWallet
+      ? openInvoicesRaw.filter((f) => String(f.id_carteira || '') === String(idCarteira))
+      : openInvoicesRaw;
+    const trulyOpen = openWalletFiltered.filter((f) => isFaturaEmAberto(f));
+    const totalOpen = trulyOpen.reduce((acc, curr) => acc + this.extractNominalAmount(curr), 0);
+
+    const overdue = trulyOpen.filter((f) => {
+      const due = String(f.data_vencimento || '').split(' ')[0];
+      return Boolean(due && due < today);
     });
-    const todayFiltered = idCaixa
-      ? todayPayments.filter((p) => p.id_caixa_receb === idCaixa)
-      : todayPayments;
-    const todayRevenue = todayFiltered.reduce(
-      (acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'),
-      0
-    );
+    const totalOverdue = overdue.reduce((acc, curr) => acc + this.extractNominalAmount(curr), 0);
 
-    // 2. Receita do mês
-    const monthPayments = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('pagamento_data', 'GTE', firstDayOfMonth),
-    });
-    const monthFiltered = idCaixa
-      ? monthPayments.filter((p) => p.id_caixa_receb === idCaixa)
-      : monthPayments;
-    const monthRevenue = monthFiltered.reduce(
-      (acc, curr) => acc + parseFloat(curr.pagamento_valor || '0'),
-      0
-    );
-
-    // 3. A Receber (aberto)
-    const openInvoices = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('status', 'EQ', 'aberto'),
-    });
-    const trulyOpen = openInvoices.filter((f) => !f.pagamento_data);
-    const totalOpen = trulyOpen.reduce((acc, curr) => acc + parseFloat(curr.valor || '0'), 0);
-
-    // 4. Vencido
-    const overdue = trulyOpen.filter((f) => f.data_vencimento && f.data_vencimento < today);
-    const totalOverdue = overdue.reduce((acc, curr) => acc + parseFloat(curr.valor || '0'), 0);
-
-    return { todayRevenue, monthRevenue, totalOpen, totalOverdue, countOverdue: overdue.length };
+    return {
+      todayRevenue,
+      todayCount: todayFiltered.length,
+      monthRevenue,
+      monthCount: monthFiltered.length,
+      totalOpen,
+      countOpen: trulyOpen.length,
+      totalOverdue,
+      countOverdue: overdue.length,
+    };
   }
 
   async getDailyRevenue(days: number = 30): Promise<{ date: string; value: number }[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = obterDataLocalIso(startDate);
 
     const payments = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('pagamento_data', 'GTE', startDateStr),
+      filter: andFilters(
+        buildFilter('status', 'EQ', 'pago'),
+        buildFilter('data_pagamento', 'GTE', startDateStr)
+      ),
     });
 
     const dailyMap = new Map<string, number>();
     for (let i = 0; i <= days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = obterDataLocalIso(d);
       const displayDate = `${dateStr.split('-')[2]}/${dateStr.split('-')[1]}`;
       dailyMap.set(displayDate, 0);
     }
 
     payments.forEach((p) => {
-      if (p.pagamento_data) {
-        const parts = (p.pagamento_data as string).split('-');
+      const payDate = this.extractPaymentDateIso(p);
+      if (payDate) {
+        const parts = payDate.split('-');
         if (parts.length === 3) {
           const displayDate = `${parts[2]}/${parts[1]}`;
-          const current = dailyMap.get(displayDate) || 0;
-          dailyMap.set(displayDate, current + parseFloat((p.pagamento_valor as string) || '0'));
+          if (dailyMap.has(displayDate)) {
+            dailyMap.set(displayDate, (dailyMap.get(displayDate) || 0) + this.extractPaidAmount(p));
+          }
         }
       }
     });
@@ -1228,32 +1298,47 @@ class ISPFYService {
 
   async getTopDebtors(
     limit: number = 10
-  ): Promise<{ nome: string; valor: number; id_cliente: string }[]> {
-    const today = new Date().toISOString().split('T')[0];
+  ): Promise<{ nome: string; valor: number; id_cliente: string; qtdFaturas?: number }[]> {
+    const today = obterDataLocalIso();
 
-    const response = await this.makeRequest<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: andFilters(
-        buildFilter('data_vencimento', 'LT', today),
-        buildFilter('status', 'EQ', 'A')
-      ),
-      limit: 2000,
-      sort: 'valor:DESC',
+    const [openFaturasRaw, contratos] = await Promise.all([
+      this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: andFilters(
+          buildFilter('status', 'EQ', 'aberto'),
+          buildFilter('data_vencimento', 'LT', today)
+        ),
+        sort: 'data_vencimento:ASC',
+      }),
+      this.fetchAllContratos().catch(() => [] as ISPFYContratoData[]),
+    ]);
+
+    const contratoMap = new Map<string, ISPFYContratoData>();
+    contratos.forEach((c) => {
+      if (c.id) contratoMap.set(String(c.id), c);
     });
 
-    const faturas = this.getRows(response);
-    const openFaturas = faturas.filter((fatura) => isFaturaEmAberto(fatura));
+    const openFaturas = openFaturasRaw.filter((f) => isFaturaEmAberto(f));
+    const clientDebt = new Map<
+      string,
+      { nome: string; valor: number; id_cliente: string; qtdFaturas: number }
+    >();
 
-    const clientDebt = new Map<string, { nome: string; valor: number; id_cliente: string }>();
     for (const fat of openFaturas) {
-      if (!fat.id_cliente) continue;
-      const current = clientDebt.get(fat.id_cliente) || {
-        nome: 'Cliente ' + fat.id_cliente,
+      const contrato = fat.id_contrato ? contratoMap.get(String(fat.id_contrato)) : undefined;
+      if (contrato && String(contrato.contrato_ativo ?? 's').toLowerCase() === 'n') continue;
+      const clientId = String(contrato?.id_cliente || fat.id_cliente || '').trim();
+      if (!clientId) continue;
+
+      const current = clientDebt.get(clientId) || {
+        nome: `Cliente #${clientId}`,
         valor: 0,
-        id_cliente: fat.id_cliente,
+        id_cliente: clientId,
+        qtdFaturas: 0,
       };
-      clientDebt.set(fat.id_cliente, {
+      clientDebt.set(clientId, {
         ...current,
-        valor: current.valor + parseFloat(fat.valor || '0'),
+        valor: current.valor + this.extractNominalAmount(fat),
+        qtdFaturas: current.qtdFaturas + 1,
       });
     }
 
@@ -1263,18 +1348,18 @@ class ISPFYService {
 
     return Promise.all(
       sorted.map(async (d) => {
-        if (d.nome.startsWith('Cliente ')) {
-          const cliente = await this.getClienteById(d.id_cliente);
-          return { ...d, nome: cliente ? cliente.razao || cliente.nome || 'Desconhecido' : d.nome };
-        }
-        return d;
+        const cliente = await this.getClienteById(d.id_cliente).catch(() => null);
+        return {
+          ...d,
+          nome: cliente ? obterNomeClienteISPFY(cliente, d.nome) : d.nome,
+        };
       })
     );
   }
 
   async getFullFinancialSummary(
     days: number = 30,
-    idCaixa?: string
+    idCarteira?: string
   ): Promise<{
     inflow: number;
     outflow: number;
@@ -1283,64 +1368,298 @@ class ISPFYService {
   }> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = obterDataLocalIso(startDate);
+    const filterWallet = Boolean(idCarteira && idCarteira !== 'ALL');
 
     const incomes = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
-      filter: buildFilter('pagamento_data', 'GTE', startDateStr),
+      filter: andFilters(
+        buildFilter('status', 'EQ', 'pago'),
+        buildFilter('data_pagamento', 'GTE', startDateStr)
+      ),
+      sort: 'data_pagamento:DESC',
     });
-    const incomesFiltered = idCaixa
-      ? incomes.filter((p) => p.id_caixa_receb === idCaixa)
-      : incomes;
 
-    const expenses = await this.fetchAllRecords<ISPFYPayableData>('/fn_apagar', {
-      filter: buildFilter('pagamento_data', 'GTE', startDateStr),
-    });
-    const expensesFiltered = idCaixa
-      ? expenses.filter((p) => p.id_caixa_pagam === idCaixa)
-      : expenses;
+    const incomesFiltered = filterWallet
+      ? incomes.filter((p) => String(p.id_carteira || '') === String(idCarteira))
+      : incomes;
 
     const dailyMap = new Map<string, { inflow: number; outflow: number }>();
     for (let i = 0; i <= days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = obterDataLocalIso(d);
       const displayDate = `${dateStr.split('-')[2]}/${dateStr.split('-')[1]}`;
       dailyMap.set(displayDate, { inflow: 0, outflow: 0 });
     }
 
     let totalInflow = 0;
     incomesFiltered.forEach((p) => {
-      if (p.pagamento_data) {
-        const parts = (p.pagamento_data as string).split('-');
-        const displayDate = `${parts[2]}/${parts[1]}`;
-        const current = dailyMap.get(displayDate) || { inflow: 0, outflow: 0 };
-        const value = parseFloat((p.pagamento_valor as string) || '0');
-        dailyMap.set(displayDate, { ...current, inflow: current.inflow + value });
-        totalInflow += value;
-      }
-    });
-
-    let totalOutflow = 0;
-    expensesFiltered.forEach((p) => {
-      if (p.data_pagamento) {
-        const parts = (p.data_pagamento as string).split('-');
-        const displayDate = `${parts[2]}/${parts[1]}`;
-        const current = dailyMap.get(displayDate) || { inflow: 0, outflow: 0 };
-        const value = parseFloat((p.valor_pago as string) || '0');
-        dailyMap.set(displayDate, { ...current, outflow: current.outflow + value });
-        totalOutflow += value;
+      const payDate = this.extractPaymentDateIso(p);
+      if (payDate) {
+        const parts = payDate.split('-');
+        if (parts.length === 3) {
+          const displayDate = `${parts[2]}/${parts[1]}`;
+          const value = this.extractPaidAmount(p);
+          if (dailyMap.has(displayDate)) {
+            const current = dailyMap.get(displayDate)!;
+            dailyMap.set(displayDate, { ...current, inflow: current.inflow + value });
+          }
+          totalInflow += value;
+        }
       }
     });
 
     return {
       inflow: totalInflow,
-      outflow: totalOutflow,
-      balance: totalInflow - totalOutflow,
+      outflow: 0,
+      balance: totalInflow,
       dailyData: Array.from(dailyMap.entries()).map(([date, data]) => ({
         date,
-        inflow: data.inflow,
-        outflow: data.outflow,
+        inflow: Number(data.inflow.toFixed(2)),
+        outflow: Number(data.outflow.toFixed(2)),
       })),
+    };
+  }
+
+  /**
+   * Carrega em uma única passada otimizada todos os dados reais do Financeiro & Caixa ISPFY:
+   * - Carteiras bancárias reais (/carteira) com saldo recebido no período e hoje
+   * - Receita do dia, do mês e dos últimos 30 dias (usando data_pagamento e valor_pago reais)
+   * - A receber e vencidos (status=aberto)
+   * - Movimentações/recebimentos do caixa com operador e carteira
+   * - Top 10 inadimplentes reais mapeando id_contrato -> id_cliente
+   */
+  async getFinancialDashboardBundle(
+    days: number = 30,
+    selectedCarteiraId: string = 'ALL'
+  ): Promise<{
+    summary: {
+      todayRevenue: number;
+      todayCount: number;
+      monthRevenue: number;
+      monthCount: number;
+      totalOpen: number;
+      countOpen: number;
+      totalOverdue: number;
+      countOverdue: number;
+    };
+    fullSummary: {
+      inflow: number;
+      outflow: number;
+      balance: number;
+      dailyData: { date: string; inflow: number; outflow: number }[];
+    };
+    accounts: (ISPFYFinancialCaixaData & {
+      recebidoHoje?: number;
+      recebidoMes?: number;
+      qtdPagamentos?: number;
+      carteiraStatus?: string;
+    })[];
+    movements: ISPFYCashMovementData[];
+    topDebtors: { nome: string; valor: number; id_cliente: string; qtdFaturas?: number }[];
+  }> {
+    const today = obterDataLocalIso();
+    const firstDayOfMonth = `${today.slice(0, 7)}-01`;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDate30d = obterDataLocalIso(startDate);
+    const earliestFetchDate = startDate30d < firstDayOfMonth ? startDate30d : firstDayOfMonth;
+
+    const [carteirasRaw, paidRaw, openRaw, contratosRaw] = await Promise.all([
+      this.getCarteiras().catch(() => [] as ISPFYCarteira[]),
+      this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: andFilters(
+          buildFilter('status', 'EQ', 'pago'),
+          buildFilter('data_pagamento', 'GTE', earliestFetchDate)
+        ),
+        sort: 'data_pagamento:DESC',
+      }),
+      this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+        filter: buildFilter('status', 'EQ', 'aberto'),
+      }),
+      this.fetchAllContratos().catch(() => [] as ISPFYContratoData[]),
+    ]);
+
+    const carteiraNomeMap = new Map<string, string>();
+    const walletStats = new Map<
+      string,
+      { total30d: number; today: number; month: number; count: number }
+    >();
+
+    for (const c of carteirasRaw) {
+      const cid = String(c.id || '');
+      if (!cid) continue;
+      const nome = String(c.carteira_nome || c.descricao || c.nome || `Carteira #${cid}`).trim();
+      carteiraNomeMap.set(cid, nome);
+      walletStats.set(cid, { total30d: 0, today: 0, month: 0, count: 0 });
+    }
+
+    // Agrega totais reais por carteira
+    for (const p of paidRaw) {
+      const payDate = this.extractPaymentDateIso(p);
+      const val = this.extractPaidAmount(p);
+      const wid = String(p.id_carteira || '0');
+      const ws = walletStats.get(wid) || { total30d: 0, today: 0, month: 0, count: 0 };
+      if (payDate >= startDate30d) {
+        ws.total30d += val;
+        ws.count += 1;
+      }
+      if (payDate >= firstDayOfMonth) ws.month += val;
+      if (payDate === today) ws.today += val;
+      walletStats.set(wid, ws);
+    }
+
+    const accounts = carteirasRaw.map((c) => {
+      const cid = String(c.id || '');
+      const ws = walletStats.get(cid) || { total30d: 0, today: 0, month: 0, count: 0 };
+      const active = String(c.carteira_status ?? '1') !== '0';
+      return {
+        ...c,
+        id: cid,
+        descricao: String(c.carteira_nome || c.descricao || c.nome || `Carteira #${cid}`).trim(),
+        saldo: ws.total30d.toFixed(2),
+        ativo: (active ? 'S' : 'N') as 'S' | 'N',
+        recebidoHoje: ws.today,
+        recebidoMes: ws.month,
+        qtdPagamentos: ws.count,
+        carteiraStatus: String(c.carteira_status ?? '1'),
+      };
+    });
+
+    const filterWallet = Boolean(selectedCarteiraId && selectedCarteiraId !== 'ALL');
+    const paidFiltered = filterWallet
+      ? paidRaw.filter((p) => String(p.id_carteira || '') === String(selectedCarteiraId))
+      : paidRaw;
+
+    const todayPaid = paidFiltered.filter((p) => this.extractPaymentDateIso(p) === today);
+    const monthPaid = paidFiltered.filter((p) => this.extractPaymentDateIso(p) >= firstDayOfMonth);
+    const periodPaid = paidFiltered.filter((p) => this.extractPaymentDateIso(p) >= startDate30d);
+
+    const todayRevenue = todayPaid.reduce((acc, p) => acc + this.extractPaidAmount(p), 0);
+    const monthRevenue = monthPaid.reduce((acc, p) => acc + this.extractPaidAmount(p), 0);
+    const periodInflow = periodPaid.reduce((acc, p) => acc + this.extractPaidAmount(p), 0);
+
+    // Série diária de entradas (30 dias)
+    const dailyMap = new Map<string, { inflow: number; outflow: number }>();
+    for (let i = 0; i <= days; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const dateStr = obterDataLocalIso(d);
+      const displayDate = `${dateStr.split('-')[2]}/${dateStr.split('-')[1]}`;
+      dailyMap.set(displayDate, { inflow: 0, outflow: 0 });
+    }
+    periodPaid.forEach((p) => {
+      const payDate = this.extractPaymentDateIso(p);
+      const parts = payDate.split('-');
+      if (parts.length === 3) {
+        const key = `${parts[2]}/${parts[1]}`;
+        const cur = dailyMap.get(key);
+        if (cur) {
+          cur.inflow += this.extractPaidAmount(p);
+        }
+      }
+    });
+
+    // Faturas em aberto & inadimplentes
+    const openWalletFiltered = filterWallet
+      ? openRaw.filter((f) => String(f.id_carteira || '') === String(selectedCarteiraId))
+      : openRaw;
+    const trulyOpen = openWalletFiltered.filter((f) => isFaturaEmAberto(f));
+    const totalOpen = trulyOpen.reduce((acc, f) => acc + this.extractNominalAmount(f), 0);
+
+    const contratoMap = new Map<string, ISPFYContratoData>();
+    contratosRaw.forEach((c) => {
+      if (c.id) contratoMap.set(String(c.id), c);
+    });
+
+    const overdueActive = trulyOpen.filter((f) => {
+      const due = String(f.data_vencimento || '').split(' ')[0];
+      if (!due || due >= today) return false;
+      const ct = f.id_contrato ? contratoMap.get(String(f.id_contrato)) : undefined;
+      if (ct && String(ct.contrato_ativo ?? 's').toLowerCase() === 'n') return false;
+      return true;
+    });
+    const totalOverdue = overdueActive.reduce((acc, f) => acc + this.extractNominalAmount(f), 0);
+
+    // Top 10 Inadimplentes reais
+    const debtByClient = new Map<
+      string,
+      { nome: string; valor: number; id_cliente: string; qtdFaturas: number }
+    >();
+    for (const fat of overdueActive) {
+      const ct = fat.id_contrato ? contratoMap.get(String(fat.id_contrato)) : undefined;
+      const cid = String(ct?.id_cliente || fat.id_cliente || '').trim();
+      if (!cid) continue;
+      const cur = debtByClient.get(cid) || {
+        nome: `Cliente #${cid}`,
+        valor: 0,
+        id_cliente: cid,
+        qtdFaturas: 0,
+      };
+      cur.valor += this.extractNominalAmount(fat);
+      cur.qtdFaturas += 1;
+      debtByClient.set(cid, cur);
+    }
+
+    const topDebtorsRaw = Array.from(debtByClient.values())
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 10);
+
+    const topDebtors = await Promise.all(
+      topDebtorsRaw.map(async (d) => {
+        const cli = await this.getClienteById(d.id_cliente).catch(() => null);
+        return { ...d, nome: cli ? obterNomeClienteISPFY(cli, d.nome) : d.nome };
+      })
+    );
+
+    // Movimentações de Caixa reais (recebimentos ordenados do mais recente)
+    const movements: ISPFYCashMovementData[] = periodPaid
+      .sort((a, b) =>
+        String(b.data_pagamento || '').localeCompare(String(a.data_pagamento || ''))
+      )
+      .slice(0, 150)
+      .map((p) => {
+        const carteiraLabel = carteiraNomeMap.get(String(p.id_carteira || '')) || `Carteira #${p.id_carteira || '?'}`;
+        const operador = p.usuario_recebeu ? ` • Recebido por: ${p.usuario_recebeu}` : '';
+        const obs = p.observacoes ? String(p.observacoes).slice(0, 80) : 'Recebimento de fatura';
+        return {
+          id: String(p.id || ''),
+          id_caixa: String(p.id_carteira || ''),
+          data: String(p.data_pagamento || ''),
+          valor: this.extractPaidAmount(p).toFixed(2),
+          tipo: 'E' as const,
+          historico: `Fatura #${p.id} (Contrato #${p.id_contrato || '-'}) — ${obs}${operador}`,
+          documento: String(p.bank_code || carteiraLabel),
+          carteira_nome: carteiraLabel,
+          usuario_recebeu: p.usuario_recebeu || '',
+          id_contrato: p.id_contrato || '',
+        };
+      });
+
+    return {
+      summary: {
+        todayRevenue,
+        todayCount: todayPaid.length,
+        monthRevenue,
+        monthCount: monthPaid.length,
+        totalOpen,
+        countOpen: trulyOpen.length,
+        totalOverdue,
+        countOverdue: overdueActive.length,
+      },
+      fullSummary: {
+        inflow: periodInflow,
+        outflow: 0,
+        balance: periodInflow,
+        dailyData: Array.from(dailyMap.entries()).map(([date, data]) => ({
+          date,
+          inflow: Number(data.inflow.toFixed(2)),
+          outflow: Number(data.outflow.toFixed(2)),
+        })),
+      },
+      accounts,
+      movements,
+      topDebtors,
     };
   }
 
@@ -1704,14 +2023,14 @@ class ISPFYService {
     const headers: Record<string, string> = {};
     if (this.token) headers['Token'] = this.token;
 
-    // ── Tentativa 1: rota Tool (path relativo ao baseURL /api/ispfy) ──────────
-    // baseURL = /api/ispfy  →  /tool/assinante/ticket  →  /api/ispfy/tool/assinante/ticket ✅
+    // ── Tentativa 1: rota oficial Tool /api/tool/assinante/ticket ──────────
     try {
-      const response = await this.client.post<any>('/tool/assinante/ticket', payload, { headers });
-      const data = response.data;
+      const data = await this.callToolRequest<any>('post', '/api/tool/assinante/ticket', {
+        data: payload,
+      });
       if (data && data.type !== 'error') {
         const id = data.id ?? data.dados?.id ?? data.ticket?.id ?? '';
-        console.log('✅ Ticket criado via /tool/assinante/ticket. ID:', id);
+        console.log('✅ Ticket criado via /api/tool/assinante/ticket. ID:', id);
         return { success: true, message: 'Chamado aberto com sucesso!', id: String(id) };
       }
       console.warn('⚠️ Resposta inesperada da rota tool:', data);
@@ -2169,7 +2488,13 @@ class ISPFYService {
   // =====================================================================
 
   async getCashAccounts(): Promise<ISPFYFinancialCaixaData[]> {
-    return this.fetchAllRecords<ISPFYFinancialCaixaData>('/carteira', { sort: 'id:ASC' });
+    const carteiras = await this.getCarteiras();
+    return carteiras.map((c) => ({
+      ...c,
+      id: String(c.id || ''),
+      descricao: String(c.carteira_nome || c.descricao || c.nome || `Carteira #${c.id}`).trim(),
+      ativo: (String(c.carteira_status ?? '1') !== '0' ? 'S' : 'N') as 'S' | 'N',
+    }));
   }
 
   async createCashAccount(name: string): Promise<{ success: boolean; message: string }> {
@@ -2181,22 +2506,33 @@ class ISPFYService {
     }
   }
 
-  async getCashMovements(days: number = 30, idCaixa?: string): Promise<ISPFYCashMovementData[]> {
+  async getCashMovements(days: number = 30, idCarteira?: string): Promise<ISPFYCashMovementData[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = obterDataLocalIso(startDate);
+    const filterWallet = Boolean(idCarteira && idCarteira !== 'ALL');
 
-    const filter = idCaixa
-      ? andFilters(
-          buildFilter('id_caixa', 'EQ', idCaixa),
-          buildFilter('data', 'GTE', startDateStr)
-        )
-      : buildFilter('data', 'GTE', startDateStr);
-
-    return this.fetchAllRecords<ISPFYCashMovementData>('/cliente/contrato/cobranca', {
-      filter,
-      sort: 'data:DESC',
+    const paid = await this.fetchAllRecords<ISPFYFaturaData>('/cliente/contrato/cobranca', {
+      filter: andFilters(
+        buildFilter('status', 'EQ', 'pago'),
+        buildFilter('data_pagamento', 'GTE', startDateStr)
+      ),
+      sort: 'data_pagamento:DESC',
     });
+
+    const filtered = filterWallet
+      ? paid.filter((p) => String(p.id_carteira || '') === String(idCarteira))
+      : paid;
+
+    return filtered.slice(0, 150).map((p) => ({
+      id: String(p.id || ''),
+      id_caixa: String(p.id_carteira || ''),
+      data: String(p.data_pagamento || ''),
+      valor: this.extractPaidAmount(p).toFixed(2),
+      tipo: 'E' as const,
+      historico: `Fatura #${p.id} (Contrato #${p.id_contrato || '-'}) — ${String(p.observacoes || 'Mensalidade').slice(0, 80)}${p.usuario_recebeu ? ` • ${p.usuario_recebeu}` : ''}`,
+      documento: String(p.bank_code || `FAT-${p.id}`),
+    }));
   }
 
   async createCashMovement(data: {
@@ -3766,31 +4102,139 @@ class ISPFYService {
   // =====================================================================
 
   async getPopDevices(): Promise<ISPFYPopDevice[]> {
-    return this.fetchAllRecords<ISPFYPopDevice>('/provedor/pop/dispositivos', { sort: 'id:ASC' });
+    return this.fetchAllRecords<ISPFYPopDevice>('/pop/device', { sort: 'id:ASC' });
   }
 
   async getPopDeviceInterfaces(): Promise<ISPFYPopDeviceInterface[]> {
-    return this.fetchAllRecords<ISPFYPopDeviceInterface>('/provedor/pop/dispositivos/interfaces', {
+    return this.fetchAllRecords<ISPFYPopDeviceInterface>('/pop/device/interface', {
       sort: 'id:ASC',
     });
   }
 
   async getGeoFiberSplitters(): Promise<ISPFYGeoFiberSplitter[]> {
-    return this.fetchAllRecords<ISPFYGeoFiberSplitter>('/geofiber/splitter', { sort: 'id:ASC' });
+    return this.fetchAllRecords<ISPFYGeoFiberSplitter>('/geofiber/spliter', { sort: 'id:ASC' });
   }
 
   async getGeoFiberSplitterVias(): Promise<ISPFYGeoFiberSplitterVia[]> {
-    return this.fetchAllRecords<ISPFYGeoFiberSplitterVia>('/geofiber/splitter/vias', {
+    return this.fetchAllRecords<ISPFYGeoFiberSplitterVia>('/geofiber/spliter/via', {
       sort: 'id:ASC',
     });
   }
 
   async getCarteiras(): Promise<ISPFYCarteira[]> {
-    const res = await this.makeRequest<ISPFYCarteira>('/financeiro/carteiras', {
+    if (this.cachedCarteiras && this.cachedCarteiras.length > 0) {
+      return this.cachedCarteiras;
+    }
+    const res = await this.makeRequest<ISPFYCarteira>('/carteira', {
       limit: 200,
       sort: 'id:ASC',
     });
+    const rows = this.getRows(res);
+    if (rows.length > 0) {
+      this.cachedCarteiras = rows;
+    }
+    return rows;
+  }
+
+  async getPontoPlanos(idPonto: string): Promise<Record<string, unknown>[]> {
+    if (!idPonto) return [];
+    const res = await this.makeRequest<Record<string, unknown>>('/cliente/contrato/ponto/planos', {
+      filter: buildFilter('id_ponto', 'EQ', idPonto),
+      limit: 50,
+    });
     return this.getRows(res);
+  }
+
+  async resolveCidadeNome(idCidade?: string | number | null): Promise<string> {
+    const idStr = String(idCidade || '').trim();
+    if (!idStr) return '';
+    if (this.cachedCidadesMap.has(idStr)) {
+      return this.cachedCidadesMap.get(idStr) || '';
+    }
+    try {
+      const res = await this.makeRequest<Record<string, unknown>>('/cidade', {
+        filter: buildFilter('id', 'EQ', idStr),
+        limit: 1,
+      });
+      const row = this.getRows(res)[0];
+      const name = String(row?.nome || row?.cidade || row?.descricao || '').trim();
+      const uf = String(row?.uf || row?.estado || '').trim();
+      const label = name ? (uf ? `${name} - ${uf}` : name) : '';
+      if (label) this.cachedCidadesMap.set(idStr, label);
+      return label;
+    } catch {
+      return '';
+    }
+  }
+
+  /** URL do painel web oficial do ISPFY para abrir quando precisar de escrita financeira manual. */
+  getIspfyWebPanelUrl(path = ''): string {
+    const base = 'https://avltelecom.ispfycloud.com.br';
+    if (!path) return base;
+    return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  /**
+   * Busca inteligente unificada para o ISPFY Explorer 360°:
+   * detecta automaticamente CPF/CNPJ, ID numérico, telefone/WhatsApp, e-mail ou nome/cidade.
+   */
+  async smartSearchClientes(rawQuery: string): Promise<ISPFYClienteData[]> {
+    const trimmed = rawQuery.trim();
+    if (!trimmed) return [];
+
+    const digits = trimmed.replace(/\D/g, '');
+    const isMostlyNumeric = digits.length > 0 && digits.length >= trimmed.replace(/[\s./()-]/g, '').length;
+
+    const results: ISPFYClienteData[] = [];
+    const seenIds = new Set<string>();
+    const pushUnique = (list: (ISPFYClienteData | null | undefined)[]) => {
+      for (const item of list) {
+        if (!item) continue;
+        const key = String(item.id || item.cpf_cnpj || Math.random());
+        if (!seenIds.has(key)) {
+          seenIds.add(key);
+          results.push(item);
+        }
+      }
+    };
+
+    if (trimmed.includes('@')) {
+      const emailResp = await this.makeRequest<ISPFYClienteData>('/cliente', {
+        search: trimmed,
+        limit: 50,
+      }).catch(() => null);
+      if (emailResp) pushUnique(this.getRows(emailResp));
+    } else if (isMostlyNumeric) {
+      if (digits.length === 11 || digits.length === 14) {
+        const byDoc = await this.getClienteByCnpjCpf(digits).catch(() => null);
+        pushUnique([byDoc]);
+      }
+      if (digits.length <= 7) {
+        const byId = await this.getClienteById(digits).catch(() => null);
+        pushUnique([byId]);
+      }
+      if (results.length === 0 && digits.length >= 8 && digits.length <= 13) {
+        const byPhone = await this.getClienteByPhone(digits).catch(() => null);
+        pushUnique([byPhone]);
+      }
+      if (results.length === 0) {
+        const fallback = await this.getClienteByNome(digits).catch(() => []);
+        pushUnique(fallback);
+      }
+    } else {
+      const byName = await this.getClienteByNome(trimmed).catch(() => []);
+      pushUnique(byName);
+    }
+
+    if (results.length > 0) {
+      await this.ensureCitiesCached(results.slice(0, 60)).catch(() => undefined);
+    }
+
+    return results.map((cli) => {
+      const cityId = String(cli.endereco_cobranca_id_cidade || '').trim();
+      const resolvedCity = cli.cidade || (cityId ? this.cachedCidadesMap.get(cityId) : '') || '';
+      return resolvedCity && !cli.cidade ? { ...cli, cidade: resolvedCity } : cli;
+    });
   }
 }
 

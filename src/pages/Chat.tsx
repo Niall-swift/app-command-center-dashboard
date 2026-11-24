@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +38,7 @@ import {
   ArrowDown,
   Reply,
   MailWarning,
+  ClipboardList,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PredefinedMessages from '@/components/PredefinedMessages';
@@ -63,6 +65,7 @@ import {
   orderBy,
   limit,
   addDoc,
+  getDoc,
   getDocs,
   doc,
   setDoc,
@@ -73,6 +76,9 @@ import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { aiService } from '@/services/ai/aiService';
 import { whapiService } from '@/services/whapi/whapiService';
+import { ispfyService } from '@/services/ispfy/ispfyService';
+import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
+import { obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 import { compressImage } from '@/utils/compressImage';
 
 const SLASH_MACROS = [
@@ -187,6 +193,15 @@ function isAvatarImageUrl(avatar?: string): boolean {
 }
 
 export default function Chat() {
+  const navigate = useNavigate();
+  const {
+    activeIspfyClient,
+    resolvingIspfy,
+    setActiveChat,
+    reportActiveChatIspfyClient,
+    getCachedIspfyClient,
+    clearActiveChat,
+  } = useActiveChatClient();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientLimit, setClientLimit] = useState(40);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -247,6 +262,123 @@ export default function Chat() {
   const [showClientInfo, setShowClientInfo] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1280 : true
   );
+
+  // Sincroniza o cliente selecionado no Chat com o contexto global (FAB de O.S., Sidebar e botão O.S.)
+  useEffect(() => {
+    if (!selectedClient) {
+      setActiveChat(null);
+      return;
+    }
+    setActiveChat({
+      chatId: selectedClient.id,
+      chatName: selectedClient.name,
+      chatPhone: selectedClient.phone,
+    });
+  }, [selectedClient, setActiveChat]);
+
+  useEffect(() => {
+    return () => {
+      clearActiveChat();
+    };
+  }, [clearActiveChat]);
+
+  // Fallback de resolução do cliente ISPFY quando a ficha lateral (ClientInfoCard) está oculta
+  useEffect(() => {
+    if (!selectedClient || showClientInfo) return;
+    const chatId = selectedClient.id;
+    const cached = getCachedIspfyClient(chatId);
+    if (cached) {
+      reportActiveChatIspfyClient(chatId, cached, false);
+      return;
+    }
+
+    let cancelled = false;
+    reportActiveChatIspfyClient(chatId, null, true);
+
+    const resolveInBackground = async () => {
+      try {
+        let client = null;
+        const snap = await getDoc(doc(db, 'chat', chatId)).catch(() => null);
+        const savedId = snap?.exists()
+          ? String(snap.data()?.ispfy_id || snap.data()?.ixc_id || '').trim()
+          : '';
+        if (savedId) {
+          client = await ispfyService.getClienteById(savedId).catch(() => null);
+        }
+        if (!client) {
+          const phone = selectedClient.phone || chatId;
+          if (phone) {
+            client = await ispfyService.getClienteByPhone(phone).catch(() => null);
+          }
+        }
+        if (!cancelled) {
+          reportActiveChatIspfyClient(chatId, client, false);
+        }
+      } catch {
+        if (!cancelled) {
+          reportActiveChatIspfyClient(chatId, null, false);
+        }
+      }
+    };
+
+    void resolveInBackground();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient, showClientInfo, getCachedIspfyClient, reportActiveChatIspfyClient]);
+
+  const handleOpenSelectedClientOS = useCallback(async () => {
+    if (!selectedClient) return;
+    if (activeIspfyClient?.id) {
+      navigate(`/ispfy/nova-os?clienteId=${activeIspfyClient.id}`, {
+        state: { preselectedClient: activeIspfyClient },
+      });
+      return;
+    }
+
+    const chatId = selectedClient.id;
+    const cached = getCachedIspfyClient(chatId);
+    if (cached?.id) {
+      navigate(`/ispfy/nova-os?clienteId=${cached.id}`, {
+        state: { preselectedClient: cached },
+      });
+      return;
+    }
+
+    // Se o usuário clicou em O.S. antes da ficha lateral terminar de carregar, resolve rapidamente
+    try {
+      let resolved = null;
+      const snap = await getDoc(doc(db, 'chat', chatId)).catch(() => null);
+      const savedId = snap?.exists()
+        ? String(snap.data()?.ispfy_id || snap.data()?.ixc_id || '').trim()
+        : '';
+      if (savedId) {
+        resolved = await ispfyService.getClienteById(savedId).catch(() => null);
+      }
+      if (!resolved) {
+        const phone = selectedClient.phone || chatId;
+        if (phone) {
+          resolved = await ispfyService.getClienteByPhone(phone).catch(() => null);
+        }
+      }
+      if (resolved?.id) {
+        reportActiveChatIspfyClient(chatId, resolved, false);
+        navigate(`/ispfy/nova-os?clienteId=${resolved.id}`, {
+          state: { preselectedClient: resolved },
+        });
+        return;
+      }
+    } catch {
+      // fallback para busca pré-preenchida
+    }
+
+    const fallbackQuery = (selectedClient.phone || selectedClient.name || '').trim();
+    navigate(
+      fallbackQuery
+        ? `/ispfy/nova-os?busca=${encodeURIComponent(fallbackQuery)}`
+        : '/ispfy/nova-os'
+    );
+  }, [selectedClient, activeIspfyClient, getCachedIspfyClient, reportActiveChatIspfyClient, navigate]);
   const [globalAiEnabled, setGlobalAiEnabled] = useState(() => {
     return localStorage.getItem('globalAiEnabled') === 'true';
   });
@@ -1705,6 +1837,26 @@ export default function Chat() {
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenSelectedClientOS}
+                    className="h-8 text-[10px] font-bold border-emerald-500/35 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 gap-1.5 mr-0.5"
+                    title={
+                      activeIspfyClient
+                        ? `Abrir Nova O.S. para ${obterNomeClienteISPFY(activeIspfyClient)}`
+                        : resolvingIspfy
+                        ? 'Localizando cliente no ISPFY para abrir O.S...'
+                        : 'Abrir Nova O.S. para este contato'
+                    }
+                  >
+                    {resolvingIspfy && !activeIspfyClient ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <ClipboardList className="w-3 h-3" />
+                    )}
+                    O.S.
+                  </Button>
                   {!selectedClient.protocol && (
                     <Button
                       variant="outline"
@@ -2378,6 +2530,7 @@ export default function Chat() {
                 clientName={selectedClient.name}
                 onSendMessage={handleSendMessage}
                 onOntResolved={handleOntResolved}
+                onIspfyClientResolved={reportActiveChatIspfyClient}
               />
               <AttendantCard
                 onSendMessage={(msg, media) => handleSendMessage(msg, media)}

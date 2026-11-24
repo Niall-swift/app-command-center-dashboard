@@ -1,681 +1,365 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  ArrowUpRight,
+  Database,
+  ExternalLink,
+  Loader2,
+  MapPin,
+  RefreshCw,
+  Search,
+  Sparkles,
+  User,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import PageTransition from '@/components/PageTransition';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  Search, 
-  User, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Building, 
-  FileText,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  ExternalLink,
-  Copy,
-  Download,
-  Database,
-} from 'lucide-react';
-import PageTransition from '@/components/PageTransition';
+import {
+  AceternityEmptyState,
+  AceternityPageHeader,
+  MovingBorderButton,
+  ShimmerBadge,
+  SpotlightCard,
+} from '@/components/ui/aceternity';
+import { ISPFYClientDashboard } from '@/components/ispfy/ISPFYClientDashboard';
+import { NewClientISPFYDialog } from '@/components/ispfy/explorer/NewClientISPFYDialog';
 import { ispfyService } from '@/services/ispfy/ispfyService';
-import { 
-  ISPFYSearchState, 
-  ISPFYSearchType,
-  ISPFYClienteData 
-} from '@/types/ispfy';
-import { TechnicalDiagnostics } from '@/components/ispfy/TechnicalDiagnostics';
-import { ClientContracts } from '@/components/ispfy/ClientContracts';
-import { QuickOSModal } from '@/components/ispfy/QuickOSModal';
-import { ClientTickets } from '@/components/ispfy/ClientTickets';
+import type { ISPFYClienteData } from '@/types/ispfy';
+import {
+  formatarDocumentoCpfCnpj,
+  obterNomeClienteISPFY,
+} from '@/utils/ispfyFormatters';
+
+type QuickFilterMode = 'recentes' | 'busca' | 'leads';
 
 const ISPFYConsulta: React.FC = () => {
-  const [searchState, setSearchState] = useState<ISPFYSearchState>({
-    loading: false,
-    error: null,
-    results: [],
-    searchType: 'cnpj_cpf',
-    searchValue: '',
-    totalResults: 0,
-    currentPage: 1,
-  });
-
-  const [selectedClient, setSelectedClient] = useState<ISPFYClienteData | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'testing' | 'connected' | 'disconnected' | null>(null);
   const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [mode, setMode] = useState<QuickFilterMode>('recentes');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<ISPFYClienteData[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<
+    'testing' | 'connected' | 'disconnected'
+  >('testing');
+  const [newClientOpen, setNewClientOpen] = useState(false);
 
-  // Testar conexão com a API
-  const testConnection = async () => {
-    setConnectionStatus('testing');
+  const loadRecentClients = async () => {
+    setLoading(true);
+    setMode('recentes');
     try {
-      const isConnected = await ispfyService.testConnection();
-      setConnectionStatus(isConnected ? 'connected' : 'disconnected');
-    } catch (error) {
+      const resp = await ispfyService.getAllClientes(1, 30, 'id', 'desc');
+      const rows = (resp.data ?? resp.rows ?? resp.registros ?? []) as ISPFYClienteData[];
+      setResults(rows);
+      setConnectionStatus('connected');
+      if (rows.length > 0 && !selectedClientId && rows[0].id) {
+        setSelectedClientId(String(rows[0].id));
+      }
+    } catch (err) {
+      console.error(err);
       setConnectionStatus('disconnected');
+      toast.error('Não foi possível conectar ao ISPFY.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Executar busca
-  const handleSearch = async () => {
-    if (!searchState.searchValue.trim()) {
-      setSearchState(prev => ({ ...prev, error: 'Por favor, insira um valor para buscar' }));
+  useEffect(() => {
+    loadRecentClients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSmartSearch = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) {
+      loadRecentClients();
       return;
     }
 
-    setSearchState(prev => ({ ...prev, loading: true, error: null }));
-
+    setLoading(true);
+    setMode('busca');
     try {
-      let results: ISPFYClienteData[] = [];
-
-      switch (searchState.searchType) {
-        case 'cnpj_cpf': {
-          const cliente = await ispfyService.getClienteByCnpjCpf(searchState.searchValue);
-          results = cliente ? [cliente] : [];
-          break;
-        }
-        case 'nome': {
-          results = await ispfyService.getClienteByNome(searchState.searchValue);
-          break;
-        }
-        case 'id': {
-          const clienteById = await ispfyService.getClienteById(searchState.searchValue);
-          results = clienteById ? [clienteById] : [];
-          break;
-        }
-        case 'cidade': {
-          results = await ispfyService.getClientesByCidade(searchState.searchValue);
-          break;
-        }
-        case 'email': {
-          const emailResults = await ispfyService.searchClientes(
-            'email',
-            searchState.searchValue,
-            'EQ'
-          );
-          results = emailResults.registros as ISPFYClienteData[];
-          break;
-        }
-        case 'whatsapp': {
-          const whatsappResults = await ispfyService.searchClientes(
-            'fone_whatsapp',
-            searchState.searchValue,
-            'EQ'
-          );
-          results = whatsappResults.registros as ISPFYClienteData[];
-          break;
-        }
-        default:
-          results = [];
+      const found = await ispfyService.smartSearchClientes(trimmed);
+      setResults(found);
+      setConnectionStatus('connected');
+      if (found.length > 0 && found[0].id) {
+        setSelectedClientId(String(found[0].id));
+      } else {
+        setSelectedClientId(null);
+        toast.info('Nenhum cliente encontrado para esta busca.');
       }
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao pesquisar clientes no ISPFY.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        results,
-        totalResults: results.length,
-        error: results.length === 0 ? 'Nenhum cliente encontrado com os critérios especificados' : null,
-      }));
-
-      if (results.length > 0) {
-        setSelectedClient(results[0]);
+  const handleLoadLeads = async () => {
+    setLoading(true);
+    setMode('leads');
+    setQuery('');
+    try {
+      const leads = await ispfyService.getLeads();
+      setResults(leads);
+      if (leads.length > 0 && leads[0].id) {
+        setSelectedClientId(String(leads[0].id));
+      } else {
+        setSelectedClientId(null);
       }
-    } catch (error) {
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Erro desconhecido ao buscar cliente',
-      }));
+    } catch {
+      toast.error('Erro ao buscar leads no ISPFY.');
+    } finally {
+      setLoading(false);
     }
   };
-
-  // Buscar clientes ativos
-  const handleGetClientesAtivos = async () => {
-    setSearchState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const results = await ispfyService.getClientesAtivos();
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        results,
-        totalResults: results.length,
-        searchType: 'ativo',
-        searchValue: 'Todos os clientes ativos',
-      }));
-    } catch (error) {
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        error: 'Erro ao buscar clientes ativos',
-      }));
-    }
-  };
-
-  // Buscar leads
-  const handleGetLeads = async () => {
-    setSearchState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const results = await ispfyService.getLeads();
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        results,
-        totalResults: results.length,
-        searchType: 'lead',
-        searchValue: 'Todos os leads',
-      }));
-    } catch (error) {
-      setSearchState(prev => ({
-        ...prev,
-        loading: false,
-        error: 'Erro ao buscar leads',
-      }));
-    }
-  };
-
-  // Formatar telefone
-  const formatPhone = (phone: string | undefined): string => {
-    if (!phone) return 'Não informado';
-    const cleaned = phone.replace(/\D/g, '');
-    if (cleaned.length === 11) {
-      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
-    }
-    if (cleaned.length === 10) {
-      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 6)}-${cleaned.slice(6)}`;
-    }
-    return phone;
-  };
-
-  // Formatar CNPJ/CPF
-  const formatCnpjCpf = (cnpjCpf: string | undefined): string => {
-    if (!cnpjCpf) return 'Não informado';
-    const cleaned = cnpjCpf.replace(/\D/g, '');
-    if (cleaned.length === 11) {
-      return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-    }
-    if (cleaned.length === 14) {
-      return cleaned.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-    }
-    return cnpjCpf;
-  };
-
-  // Copiar para clipboard
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      // Aqui poderia adicionar uma notificação de sucesso
-      console.log(`${label} copiado para a área de transferência`);
-    });
-  };
-
-  React.useEffect(() => {
-    testConnection();
-  }, []);
 
   return (
     <PageTransition>
-      <div className="space-y-6 text-foreground">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-2"
-        >
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Database className="w-4 h-4" />
-            <span>Sistema ISPFY</span>
-            <span>/</span>
-            <span className="text-foreground font-medium">Consulta de Clientes</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
-                  <User className="w-6 h-6 text-white" />
-                </div>
-                Consulta ISPFY
-              </h1>
-              <p className="text-muted-foreground mt-2">
-                Busque informações de clientes na base de dados ISPFY
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <div 
-                  className={`w-3 h-3 rounded-full ${
-                    connectionStatus === 'connected' ? 'bg-green-500' :
-                    connectionStatus === 'disconnected' ? 'bg-red-500' :
-                    connectionStatus === 'testing' ? 'bg-yellow-500 animate-pulse' :
-                    'bg-muted-foreground'
-                  }`}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {connectionStatus === 'connected' && 'Conectado'}
-                  {connectionStatus === 'disconnected' && 'Desconectado'}
-                  {connectionStatus === 'testing' && 'Testando...'}
-                  {!connectionStatus && 'Não testado'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Card de Busca */}
-        <Card className="bg-card border-border shadow-sm text-card-foreground">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="w-5 h-5" />
-              Buscar Cliente
-            </CardTitle>
-            <CardDescription>
-              Escolha o tipo de busca e insira o valor desejado
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="search-type">Tipo de Busca</Label>
-                <Select
-                  value={searchState.searchType}
-                  onValueChange={(value: ISPFYSearchType) =>
-                    setSearchState(prev => ({ ...prev, searchType: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cnpj_cpf">CNPJ/CPF</SelectItem>
-                    <SelectItem value="nome">Nome</SelectItem>
-                    <SelectItem value="id">ID</SelectItem>
-                    <SelectItem value="cidade">Cidade</SelectItem>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="search-value">Valor</Label>
-                <Input
-                  id="search-value"
-                  value={searchState.searchValue}
-                  onChange={(e) =>
-                    setSearchState(prev => ({ ...prev, searchValue: e.target.value }))
-                  }
-                  placeholder={`Digite o ${searchState.searchType}...`}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>&nbsp;</Label>
-                <Button 
-                  onClick={handleSearch} 
-                  disabled={searchState.loading}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                >
-                  {searchState.loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Search className="w-4 h-4 mr-2" />
-                  )}
-                  <span>Buscar</span>
-                </Button>
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="flex flex-wrap gap-2">
+      <div className="space-y-5 text-foreground">
+        {/* Header Unificado Aceternity */}
+        <AceternityPageHeader
+          eyebrow={
+            <span className="inline-flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5 text-primary" />
+              <span>Sistema ISPFY</span>
+            </span>
+          }
+          badge={
+            <ShimmerBadge
+              pulse={connectionStatus === 'connected'}
+              tone={
+                connectionStatus === 'connected'
+                  ? 'emerald'
+                  : connectionStatus === 'testing'
+                  ? 'amber'
+                  : 'rose'
+              }
+            >
+              {connectionStatus === 'connected'
+                ? 'API ISPFY Conectada'
+                : connectionStatus === 'testing'
+                ? 'Conectando...'
+                : 'Offline'}
+            </ShimmerBadge>
+          }
+          icon={<Users className="w-6 h-6" />}
+          title="ISPFY Explorer 360°"
+          subtitle="Pesquise por nome, CPF/CNPJ, telefone/WhatsApp, e-mail ou ID e acesse cadastro completo, contratos, faturas, PIX, PPPoE, RADIUS, SmartOLT e O.S. em uma única tela."
+          actions={
+            <>
+              <MovingBorderButton
+                tone="primary"
+                size="sm"
+                onClick={() => setNewClientOpen(true)}
+              >
+                <UserPlus className="w-4 h-4" />
+                Novo Cliente
+              </MovingBorderButton>
               <Button
                 variant="outline"
-                onClick={handleGetClientesAtivos}
-                disabled={searchState.loading}
+                size="sm"
+                className="h-9 rounded-xl gap-1.5 text-xs"
+                onClick={() =>
+                  window.open(ispfyService.getIspfyWebPanelUrl(), '_blank', 'noopener,noreferrer')
+                }
               >
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Clientes Ativos
+                <ExternalLink className="w-3.5 h-3.5" />
+                Painel ISPFY
+              </Button>
+            </>
+          }
+        />
+
+        {/* Barra de Busca Inteligente Auto-Detect */}
+        <SpotlightCard tone="blue" className="p-4">
+          <form onSubmit={handleSmartSearch} className="flex flex-col md:flex-row gap-2.5">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Digite nome, CPF/CNPJ, telefone/WhatsApp, ID ou e-mail do cliente..."
+                className="pl-10 pr-9 h-11 rounded-xl text-sm"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('');
+                    loadRecentClients();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button type="submit" disabled={loading} className="h-11 px-5 rounded-xl gap-2 font-semibold">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                Buscar 360°
               </Button>
               <Button
-                variant="outline"
-                onClick={handleGetLeads}
-                disabled={searchState.loading}
+                type="button"
+                variant={mode === 'recentes' ? 'secondary' : 'outline'}
+                onClick={loadRecentClients}
+                disabled={loading}
+                className="h-11 rounded-xl text-xs gap-1.5"
               >
-                <User className="w-4 h-4 mr-2" />
+                <RefreshCw className={`w-3.5 h-3.5 ${loading && mode === 'recentes' ? 'animate-spin' : ''}`} />
+                Recentes
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'leads' ? 'secondary' : 'outline'}
+                onClick={handleLoadLeads}
+                disabled={loading}
+                className="h-11 rounded-xl text-xs"
+              >
                 Leads
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </form>
+        </SpotlightCard>
 
-        {/* Alertas de Erro */}
-        <AnimatePresence>
-          {searchState.error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-            >
-              <Alert className="border-red-200 bg-red-50">
-                <XCircle className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-800">
-                  {searchState.error}
-                </AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Master-Detail Explorer 360° */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+          {/* Coluna Esquerda: Diretório de Clientes */}
+          <SpotlightCard tone="violet" className="xl:col-span-4 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {mode === 'busca'
+                    ? 'Resultados da Busca'
+                    : mode === 'leads'
+                    ? 'Leads ISPFY'
+                    : 'Clientes Recentes'}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {results.length} cliente(s) listado(s)
+                </p>
+              </div>
+              {selectedClientId && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px] gap-1 text-primary hover:text-primary"
+                  onClick={() => navigate(`/ispfy/cliente/${selectedClientId}`)}
+                >
+                  Tela cheia
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
 
-        {/* Resultados da Busca */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Lista de Resultados */}
-          <Card className="bg-card border-border shadow-sm text-card-foreground">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <User className="w-5 h-5 text-primary" />
-                  Resultados ({searchState.totalResults})
-                </span>
-                {searchState.loading && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {searchState.loading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <Skeleton key={i} className="h-16 w-full" />
-                  ))}
-                </div>
-              ) : searchState.results.length > 0 ? (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {searchState.results.map((cliente, index) => (
-                    <motion.div
-                      key={cliente.id || index}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                        selectedClient?.id === cliente.id
-                          ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary/20'
-                          : 'border-border hover:border-primary/30 hover:bg-secondary/40'
-                      }`}
-                      onClick={async () => {
-                        console.log('--- DADOS BRUTOS DO CLIENTE (Consulta) ---', cliente);
-                        if (cliente.id) {
-                          try {
-                            const contatos = await ispfyService.getClienteContatos(cliente.id);
-                            console.log('--- CONTATOS ENCONTRADOS ---', contatos);
-                            if (contatos && contatos.length > 0) {
-                              cliente.fone_celular = contatos.find((ct: any) => ct.tipo_contato === 'c')?.contato || contatos[0].contato;
-                              cliente.fone_whatsapp = contatos.find((ct: any) => ct.pode_enviar_mensagem === 's')?.contato;
-                            }
-                          } catch (err) {
-                            console.error('Erro ao buscar contatos:', err);
-                          }
-                        }
-                        setSelectedClient(cliente);
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-foreground">
-                            {cliente.nome_razao || cliente.nome || cliente.razao || 'Nome não informado'}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {(cliente.cpf_cnpj || cliente.cnpj_cpf) ? formatCnpjCpf(cliente.cpf_cnpj || cliente.cnpj_cpf) : 'CPF/CNPJ não informado'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {(cliente.ativo === 'S' || cliente.contrato_ativo === 'S') && (
-                            <Badge variant="default" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-medium">
-                              Ativo
+            {loading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-16 w-full rounded-xl" />
+                ))}
+              </div>
+            ) : results.length === 0 ? (
+              <AceternityEmptyState
+                className="py-8"
+                icon={<Search className="w-5 h-5" />}
+                title="Nenhum cliente listado"
+                description="Digite nome, CPF/CNPJ, WhatsApp ou ID acima para localizar qualquer assinante."
+              />
+            ) : (
+              <ScrollArea className="h-[580px] pr-2">
+                <div className="space-y-2">
+                  {results.map((cli) => {
+                    const idStr = String(cli.id || '');
+                    const isSelected = selectedClientId === idStr;
+                    const displayName = obterNomeClienteISPFY(cli, 'Cliente sem nome');
+                    const docFmt = formatarDocumentoCpfCnpj(cli.cpf_cnpj || cli.cnpj_cpf || '');
+                    const locationText = [
+                      cli.endereco_cobranca_bairro || cli.bairro,
+                      cli.cidade,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ');
+
+                    return (
+                      <button
+                        key={idStr || displayName}
+                        type="button"
+                        onClick={() => setSelectedClientId(idStr)}
+                        className={`w-full text-left rounded-xl border p-3 transition-all ${
+                          isSelected
+                            ? 'border-primary/50 bg-primary/10 shadow-[0_2px_12px_rgba(37,99,235,0.12)]'
+                            : 'border-border/70 bg-background/60 dark:bg-white/[0.02] hover:border-primary/30 hover:bg-muted/40'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-foreground truncate">
+                              {displayName}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground font-mono">
+                              <span>#{idStr}</span>
+                              {docFmt && <span>• {docFmt}</span>}
+                            </div>
+                            {locationText && (
+                              <p className="mt-1 text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                                <MapPin className="w-3 h-3 shrink-0 opacity-70" />
+                                {locationText}
+                              </p>
+                            )}
+                          </div>
+                          {cli.lead === 'S' && (
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              Lead
                             </Badge>
                           )}
-                          {cliente.lead === 'S' && (
-                            <Badge variant="secondary">Lead</Badge>
-                          )}
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Nenhum resultado encontrado</p>
-                  <p className="text-sm">Tente ajustar os critérios de busca</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </ScrollArea>
+            )}
+          </SpotlightCard>
 
-          {/* Detalhes do Cliente Selecionado */}
-          <Card className="bg-card border-border shadow-sm text-card-foreground">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-primary" />
-                Detalhes do Cliente
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedClient ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground">Nome</Label>
-                      <div className="flex items-center gap-2">
-                        <p className="text-foreground font-semibold">{selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || 'Não informado'}</p>
-                        {(selectedClient.nome_razao || selectedClient.nome || selectedClient.razao) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.nome_razao || selectedClient.nome || selectedClient.razao || '', 'Nome')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground">Tipo de Pessoa</Label>
-                      <p className="text-foreground">
-                        {selectedClient.tipo_pessoa === 'F' ? 'Física' : 
-                         selectedClient.tipo_pessoa === 'J' ? 'Jurídica' : 'Não informado'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground">CNPJ/CPF</Label>
-                      <div className="flex items-center gap-2">
-                        <p className="text-foreground font-mono">{formatCnpjCpf(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf)}</p>
-                        {(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.cpf_cnpj || selectedClient.cnpj_cpf || '', 'CNPJ/CPF')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground">Status</Label>
-                      <div className="flex items-center gap-2">
-                        {(selectedClient.ativo === 'S' || selectedClient.contrato_ativo === 'S') ? (
-                          <Badge variant="default" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Ativo
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">
-                            <XCircle className="w-3 h-3 mr-1" />
-                            Inativo
-                          </Badge>
-                        )}
-                        {selectedClient.lead === 'S' && (
-                          <Badge variant="outline">Lead</Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <Phone className="w-3 h-3" />
-                        Telefone
-                      </Label>
-                      <div className="flex items-center gap-2">
-                        <p className="text-foreground">{formatPhone(selectedClient.fone_celular)}</p>
-                        {selectedClient.fone_celular && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.fone_celular || '', 'Telefone')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <Phone className="w-3 h-3" />
-                        WhatsApp
-                      </Label>
-                      <div className="flex items-center gap-2">
-                        <p className="text-foreground">{formatPhone(selectedClient.fone_whatsapp)}</p>
-                        {selectedClient.fone_whatsapp && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.fone_whatsapp || '', 'WhatsApp')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <Mail className="w-3 h-3" />
-                        Email
-                      </Label>
-                      <div className="flex items-center gap-2">
-                        <p className="text-foreground">{selectedClient.email || 'Não informado'}</p>
-                        {selectedClient.email && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard(selectedClient.email || '', 'Email')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        Cidade
-                      </Label>
-                      <p className="text-foreground">{selectedClient.endereco_cobranca_bairro ? `${selectedClient.endereco_cobranca_bairro}` : selectedClient.cidade || 'Não informado'}</p>
-                    </div>
-
-                    <div className="space-y-2 md:col-span-2">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        Endereço
-                      </Label>
-                      <p className="text-foreground">
-                        {(selectedClient.endereco_cobranca_rua || selectedClient.endereco) 
-                          ? `${selectedClient.endereco_cobranca_rua || selectedClient.endereco}, ${selectedClient.endereco_cobranca_numero || ''} ${selectedClient.endereco_cobranca_bairro || selectedClient.bairro || ''}`.trim()
-                          : 'Não informado'}
-                      </p>
-                    </div>
-
-                    {selectedClient.obs && (
-                      <div className="space-y-2 md:col-span-2">
-                        <Label className="text-sm font-medium text-muted-foreground">Observações</Label>
-                        <p className="text-foreground bg-secondary/30 p-2.5 rounded-lg border border-border/60">{selectedClient.obs}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex gap-2">
-                    <Button 
-                      className="bg-primary hover:bg-primary/90" 
-                      onClick={() => navigate(`/ispfy/cliente/${selectedClient.id}`)}
-                    >
-                      <Database className="w-4 h-4 mr-2" />
-                      Abrir Dashboard
-                    </Button>
-                    <Button variant="outline" size="sm" className="hidden md:flex">
-                      <ExternalLink className="w-3 h-3 mr-2" />
-                      Abrir no ISPFY
-                    </Button>
-                    <QuickOSModal
-                        preselectedClient={selectedClient}
-                        trigger={
-                          <button className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-md shadow-emerald-900/30">
-                            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/></svg>
-                            Nova O.S.
-                          </button>
-                        }
-                      />
-                  </div>
-                </motion.div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Selecione um cliente para ver os detalhes</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Coluna Direita: Ficha Explorer 360° ao Vivo */}
+          <div className="xl:col-span-8 min-w-0">
+            {selectedClientId ? (
+              <ISPFYClientDashboard
+                key={selectedClientId}
+                clientId={selectedClientId}
+                compactHeader
+              />
+            ) : (
+              <AceternityEmptyState
+                icon={<User className="w-6 h-6" />}
+                title="Selecione um cliente à esquerda"
+                description="Ao clicar em qualquer cliente você verá cadastro completo, contratos, todas as faturas com PIX e Pré-Baixa, PPPoE, RADIUS, SmartOLT e chamados."
+              />
+            )}
+          </div>
         </div>
 
-        {/* Contratos e Diagnóstico */}
-        {selectedClient && selectedClient.id && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-          >
-            {/* Contratos */}
-            <div>
-               <ClientContracts idCliente={selectedClient.id} />
-            </div>
-
-            {/* Diagnóstico Técnico */}
-            <div>
-              <TechnicalDiagnostics idCliente={selectedClient.id} />
-            </div>
-
-            {/* Histórico de Chamados */}
-            <div className="lg:col-span-2">
-              <ClientTickets idCliente={selectedClient.id} />
-            </div>
-          </motion.div>
-        )}
+        <NewClientISPFYDialog
+          open={newClientOpen}
+          onOpenChange={setNewClientOpen}
+          onCreated={(newId) => {
+            if (newId) {
+              setSelectedClientId(newId);
+            }
+            loadRecentClients();
+          }}
+        />
       </div>
     </PageTransition>
   );

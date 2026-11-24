@@ -1,225 +1,182 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ExternalLink, Landmark, Layers, Wallet } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Plus, Wallet, Landmark, ArrowRightLeft, RefreshCcw } from 'lucide-react';
-import { ISPFYFinancialCaixaData } from '@/types/ispfy';
-import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SpotlightCard } from '@/components/ui/aceternity';
 import { ispfyService } from '@/services/ispfy/ispfyService';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { ISPFYFinancialCaixaData } from '@/types/ispfy';
+
+export type EnrichedCaixaAccount = ISPFYFinancialCaixaData & {
+  recebidoHoje?: number;
+  recebidoMes?: number;
+  qtdPagamentos?: number;
+  carteiraStatus?: string;
+};
 
 interface CaixaManagerProps {
-  accounts: ISPFYFinancialCaixaData[];
+  accounts: EnrichedCaixaAccount[];
   selectedId: string;
   onSelect: (id: string) => void;
   onRefresh: () => void;
   loading: boolean;
 }
 
-export const CaixaManager: React.FC<CaixaManagerProps> = ({ 
-  accounts, 
-  selectedId, 
-  onSelect, 
-  onRefresh,
-  loading 
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+export const CaixaManager: React.FC<CaixaManagerProps> = ({
+  accounts,
+  selectedId,
+  onSelect,
+  loading,
 }) => {
-  const [isCreating, setIsCreating] = React.useState(false);
-  const [newAccountName, setNewAccountName] = React.useState('');
-  const [isTransferModalOpen, setIsTransferModalOpen] = React.useState(false);
-  const [transferData, setTransferData] = React.useState({
-      toId: '',
-      value: ''
-  });
-  const [isTransferring, setIsTransferring] = React.useState(false);
-
-  const handleCreate = async () => {
-    if (!newAccountName.trim()) return;
-    try {
-      const res = await ispfyService.createCashAccount(newAccountName);
-      if (res.success) {
-        toast.success(res.message);
-        setNewAccountName('');
-        setIsCreating(false);
-        onRefresh();
-      } else {
-        toast.error(res.message);
-      }
-    } catch (error) {
-      toast.error('Erro ao criar caixa.');
-    }
-  };
-
-  const handleTransfer = async () => {
-      if (!selectedId || !transferData.toId || !transferData.value) {
-          toast.error("Preencha todos os campos da transferência.");
-          return;
-      }
-      
-      if (selectedId === transferData.toId) {
-          toast.error("Selecione um destino diferente da origem.");
-          return;
-      }
-
-      setIsTransferring(true);
-      try {
-          const res = await ispfyService.transferBetweenAccounts(
-              selectedId,
-              transferData.toId,
-              parseFloat(transferData.value)
-          );
-          
-          if (res.success) {
-              toast.success("Transferência realizada com sucesso!");
-              setIsTransferModalOpen(false);
-              setTransferData({ toId: '', value: '' });
-              onRefresh();
-          } else {
-              toast.error(res.message);
-          }
-      } catch (error) {
-          toast.error("Erro ao processar transferência.");
-      } finally {
-          setIsTransferring(false);
-      }
-  };
+  const total30dAll = accounts.reduce(
+    (sum, acc) => sum + (parseFloat(String(acc.saldo || '0')) || 0),
+    0
+  );
+  const totalTodayAll = accounts.reduce((sum, acc) => sum + (acc.recebidoHoje || 0), 0);
+  const totalCountAll = accounts.reduce((sum, acc) => sum + (acc.qtdPagamentos || 0), 0);
 
   return (
-    <Card className="bg-card border-border shadow-sm h-full text-card-foreground">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-xl font-bold text-foreground flex items-center gap-2">
-           <Wallet className="w-5 h-5 text-primary" />
-           Contas e Caixas
-        </CardTitle>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="h-8 gap-1"
-          onClick={() => setIsCreating(!isCreating)}
-        >
-          <Plus className="w-4 h-4" /> Novo
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isCreating && (
-          <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg space-y-3 animate-in fade-in slide-in-from-top-2">
-            <h4 className="text-sm font-semibold text-foreground">Novo Caixa (Caixa 2)</h4>
-            <Input 
-              placeholder="Ex: Caixa 2 - Filial Norte" 
-              value={newAccountName}
-              onChange={(e) => setNewAccountName(e.target.value)}
-              className="bg-background border-input text-foreground"
-            />
-            <div className="flex gap-2">
-              <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleCreate}>Criar</Button>
-              <Button size="sm" variant="ghost" className="flex-1" onClick={() => setIsCreating(false)}>Cancelar</Button>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          {accounts.map((acc) => (
-            <div 
-              key={acc.id}
-              onClick={() => onSelect(acc.id as string)}
-              className={`p-4 rounded-xl border transition-all cursor-pointer group ${
-                selectedId === acc.id 
-                ? 'border-primary bg-primary/10 shadow-sm' 
-                : 'border-border/60 bg-secondary/30 hover:bg-secondary/60'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                    selectedId === acc.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground group-hover:text-primary'
-                  }`}>
-                    {acc.descricao?.toLowerCase().includes('banco') ? <Landmark className="w-5 h-5" /> : <Wallet className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <h5 className="font-bold text-foreground">{acc.descricao}</h5>
-                    <p className="text-xs text-muted-foreground">ID: {acc.id}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-foreground">R$ {parseFloat(acc.saldo || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Saldo Atual</p>
-                </div>
-              </div>
-            </div>
-          ))}
-          
-          {accounts.length === 0 && !loading && (
-            <p className="text-center text-muted-foreground py-10 text-sm italic">Nenhuma conta vinculada.</p>
-          )}
-
-          <Button 
-            variant="ghost" 
-            className="w-full text-primary hover:bg-primary/10 gap-2 border border-dashed border-primary/30 mt-2"
-            onClick={() => setIsTransferModalOpen(true)}
-            disabled={!selectedId}
-          >
-            <ArrowRightLeft className="w-4 h-4" /> Transferir entre Caixas
-          </Button>
+    <SpotlightCard tone="blue" showTopBeam className="p-5 h-full space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-primary" />
+            Carteiras &amp; Caixas (ISPFY)
+          </h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Recebimentos reais consolidados dos últimos 30 dias
+          </p>
         </div>
-      </CardContent>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs rounded-xl gap-1"
+          onClick={() =>
+            window.open(ispfyService.getIspfyWebPanelUrl(), '_blank', 'noopener,noreferrer')
+          }
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          ISPFY
+        </Button>
+      </div>
 
-      <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
-          <DialogContent className="max-w-md bg-card border-border text-foreground">
-              <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-foreground flex items-center gap-2">
-                      <ArrowRightLeft className="w-5 h-5 text-primary" />
-                      Transferência entre Contas
-                  </DialogTitle>
-              </DialogHeader>
-              
-              <div className="grid gap-4 py-4">
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-300">
-                      <strong>Origem:</strong> {accounts.find(a => a.id === selectedId)?.descricao || 'Selecione um caixa'}
-                  </div>
-
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Conta Destino</label>
-                      <Select 
-                        value={transferData.toId} 
-                        onValueChange={(val) => setTransferData({...transferData, toId: val})}
-                      >
-                          <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecione o destino" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-popover border-border text-popover-foreground">
-                              {accounts.filter(a => a.id !== selectedId).map(acc => (
-                                  <SelectItem key={acc.id} value={acc.id as string}>
-                                      {acc.descricao} (R$ {parseFloat(acc.saldo || '0').toLocaleString('pt-BR')})
-                                  </SelectItem>
-                              ))}
-                          </SelectContent>
-                      </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                      <label className="text-sm font-medium">Valor da Transferência (R$)</label>
-                      <Input 
-                        type="number" 
-                        placeholder="0,00" 
-                        value={transferData.value}
-                        onChange={(e) => setTransferData({...transferData, value: e.target.value})}
-                      />
-                  </div>
+      {loading ? (
+        <div className="space-y-2.5">
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-18 w-full rounded-xl" />
+          <Skeleton className="h-18 w-full rounded-xl" />
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {/* Card Consolidado: Todas as Carteiras */}
+          <button
+            type="button"
+            onClick={() => onSelect('ALL')}
+            className={`w-full text-left p-3.5 rounded-xl border transition-all ${
+              selectedId === 'ALL' || !selectedId
+                ? 'border-primary/60 bg-primary/10 shadow-sm'
+                : 'border-border/70 bg-background/60 dark:bg-white/[0.02] hover:border-primary/35'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    selectedId === 'ALL' || !selectedId
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground truncate">
+                    Todas as Carteiras
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {totalCountAll} recebimento(s) • Hoje: {BRL.format(totalTodayAll)}
+                  </p>
+                </div>
               </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {BRL.format(total30dAll)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  30 dias
+                </p>
+              </div>
+            </div>
+          </button>
 
-              <DialogFooter>
-                  <Button variant="ghost" onClick={() => setIsTransferModalOpen(false)}>Cancelar</Button>
-                  <Button 
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
-                    onClick={handleTransfer}
-                    disabled={isTransferring}
-                  >
-                      {isTransferring ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
-                      Executar Transferência
-                  </Button>
-              </DialogFooter>
-          </DialogContent>
-      </Dialog>
-    </Card>
+          {/* Carteiras Reais do ISPFY */}
+          {accounts.map((acc) => {
+            const idStr = String(acc.id || '');
+            const isSelected = selectedId === idStr;
+            const label = acc.descricao || `Carteira #${idStr}`;
+            const isBank = /efi|banco|inter|sicoob|sicredi|pix|asaas|gerencianet/i.test(label);
+            const isActive = acc.ativo !== 'N' && acc.carteiraStatus !== '0';
+            const total30d = parseFloat(String(acc.saldo || '0')) || 0;
+
+            return (
+              <button
+                key={idStr}
+                type="button"
+                onClick={() => onSelect(idStr)}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all ${
+                  isSelected
+                    ? 'border-primary/60 bg-primary/10 shadow-sm'
+                    : 'border-border/70 bg-background/60 dark:bg-white/[0.02] hover:border-primary/35'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
+                      {isBank ? <Landmark className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-bold text-foreground truncate">{label}</p>
+                        {!isActive && (
+                          <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                            Inativa
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        #{idStr} • {acc.qtdPagamentos || 0} baixa(s) • Hoje:{' '}
+                        {BRL.format(acc.recebidoHoje || 0)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-black text-foreground tabular-nums">
+                      {BRL.format(total30d)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      30 dias
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+
+          {accounts.length === 0 && (
+            <p className="text-center text-muted-foreground py-8 text-xs italic">
+              Nenhuma carteira bancária retornada pelo ISPFY.
+            </p>
+          )}
+        </div>
+      )}
+    </SpotlightCard>
   );
 };

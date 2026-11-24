@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
@@ -49,13 +50,15 @@ import { Badge } from '@/components/ui/badge';
 import { useTheme } from 'next-themes';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useChatNotifications } from '@/contexts/ChatNotificationContext';
+import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface SidebarNavItem {
   title: string;
   url: string;
   icon: React.ComponentType<{ className?: string }>;
-  badgeKey?: 'chat_unread' | 'region_offline' | 'new_intel';
+  badgeKey?: 'chat_unread' | 'region_offline' | 'new_intel' | 'explorer_360';
+  matchPrefixes?: string[];
 }
 
 interface SidebarNavGroup {
@@ -101,7 +104,13 @@ const NAV_GROUPS: SidebarNavGroup[] = [
     accent: 'amber',
     defaultOpen: true,
     items: [
-      { title: 'Consulta Clientes', url: '/ispfy/consulta', icon: Users },
+      {
+        title: 'ISPFY Explorer',
+        url: '/ispfy/consulta',
+        icon: Users,
+        badgeKey: 'explorer_360',
+        matchPrefixes: ['/ispfy/consulta', '/ispfy/explorer', '/ispfy/cliente/'],
+      },
       { title: 'Financeiro & Caixa', url: '/ispfy/financeiro', icon: DollarSign },
       { title: 'Auditoria Base', url: '/ispfy/auditoria', icon: ShieldCheck },
       { title: 'Vencimentos Massa', url: '/ispfy/vencimentos', icon: Calendar },
@@ -169,6 +178,7 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
   const { resolvedTheme } = useTheme();
   const { dadosRegiao, rompimentosEmMassa } = useNetworkMonitor();
   const { totalUnreadCount } = useChatNotifications();
+  const { activeIspfyClient } = useActiveChatClient();
   const { user } = useAuth();
   const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar();
   const isDark = resolvedTheme !== 'light';
@@ -385,59 +395,91 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
                 <SidebarGroupContent className="mt-1">
                   <SidebarMenu className="space-y-0.5">
                     {group.items.map((item) => {
-                      const isActive = location.pathname === item.url;
+                      const isActive =
+                        location.pathname === item.url ||
+                        Boolean(
+                          item.matchPrefixes?.some((prefix) =>
+                            location.pathname.startsWith(prefix)
+                          )
+                        );
                       const Icon = item.icon;
+                      const isNovaOsFromChat =
+                        item.url === '/ispfy/nova-os' &&
+                        location.pathname === '/chat' &&
+                        Boolean(activeIspfyClient?.id);
+                      const targetUrl = isNovaOsFromChat
+                        ? `/ispfy/nova-os?clienteId=${activeIspfyClient!.id}`
+                        : item.url;
+                      const linkState = isNovaOsFromChat
+                        ? { preselectedClient: activeIspfyClient }
+                        : undefined;
                       return (
                         <SidebarMenuItem key={item.url}>
                           <SidebarMenuButton asChild>
                             <Link
-                              to={item.url}
-                              className={`group relative flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-150 ${
+                              to={targetUrl}
+                              state={linkState}
+                              className={`group relative flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] font-medium transition-colors duration-150 ${
                                 isActive
-                                  ? 'bg-primary/15 text-slate-900 dark:text-white border border-primary/30 shadow-sm'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+                                  ? 'text-slate-950 dark:text-white'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
                               }`}
                             >
                               {isActive && (
-                                <span
-                                  className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
+                                <motion.span
+                                  layoutId="sidebar-active-item"
+                                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                                  className="pointer-events-none absolute inset-0 rounded-xl bg-primary/12 dark:bg-primary/18 border border-primary/30 shadow-[0_1px_8px_rgba(37,99,235,0.14)]"
+                                />
+                              )}
+                              {isActive && (
+                                <motion.span
+                                  layoutId="sidebar-active-beam"
+                                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                                  className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full"
                                   style={{ background: 'linear-gradient(180deg, #60A5FA, #7C3AED)' }}
                                 />
                               )}
 
-                              <span className="flex items-center gap-2.5 min-w-0">
+                              <span className="relative z-10 flex items-center gap-2.5 min-w-0 transition-transform duration-150 group-hover:translate-x-0.5">
                                 <Icon
                                   className={`w-4 h-4 shrink-0 transition-colors ${
                                     isActive
                                       ? 'text-primary'
-                                      : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:group-hover:text-slate-200'
+                                      : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white'
                                   }`}
                                 />
                                 <span className="truncate">{item.title}</span>
                               </span>
 
+                              {item.badgeKey === 'explorer_360' && (
+                                <Badge className="relative z-10 h-4 px-1.5 text-[9px] font-bold bg-blue-600/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+                                  360°
+                                </Badge>
+                              )}
+
                               {item.badgeKey === 'chat_unread' && totalUnreadCount > 0 && (
-                                <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] bg-blue-600 text-white border-none justify-center">
+                                <Badge className="relative z-10 h-5 min-w-[20px] px-1.5 text-[10px] bg-blue-600 text-white border-none justify-center">
                                   {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
                                 </Badge>
                               )}
 
                               {item.badgeKey === 'region_offline' &&
                                 (totalOutages > 0 ? (
-                                  <Badge className="h-5 px-1.5 text-[10px] bg-rose-600 text-white border-none animate-pulse">
+                                  <Badge className="relative z-10 h-5 px-1.5 text-[10px] bg-rose-600 text-white border-none animate-pulse">
                                     {totalOutages} ROMP.
                                   </Badge>
                                 ) : totalOffline > 0 ? (
                                   <Badge
                                     variant="secondary"
-                                    className="h-5 px-1.5 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                                    className="relative z-10 h-5 px-1.5 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
                                   >
                                     {totalOffline}
                                   </Badge>
                                 ) : null)}
 
                               {item.badgeKey === 'new_intel' && (
-                                <Badge className="h-4 px-1.5 text-[9px] bg-violet-600/20 text-violet-600 dark:text-violet-300 border border-violet-500/30">
+                                <Badge className="relative z-10 h-4 px-1.5 text-[9px] bg-violet-600/20 text-violet-600 dark:text-violet-300 border border-violet-500/30">
                                   IA
                                 </Badge>
                               )}

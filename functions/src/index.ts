@@ -2907,6 +2907,7 @@ export * from "./ispfyPaymentMonitor";
 
 export * from "./ispfyCarenciaMonitor";
 export * from "./ispfyAutomations";
+export * from "./ispfyFinancialReports";
 export * from "./ispfyOutageMonitor";
 export * from "./zapiSuite";
 export { smartOltProxy, smartOltWebhook } from "./smartOltProxy";
