@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +9,13 @@ import { getRoleDisplayLabel } from '@/config/permissions';
 export const UserMenu = () => {
   const { user, panelProfile, logout } = useAuth();
   const { toast } = useToast();
+  const [imgError, setImgError] = useState(false);
+
+  const photoUrl = panelProfile?.photoUrl || user?.photoURL || '';
+
+  useEffect(() => {
+    setImgError(false);
+  }, [photoUrl]);
 
   const handleLogout = async () => {
     try {
@@ -42,15 +49,26 @@ export const UserMenu = () => {
   return (
     <div className="flex items-center gap-2 sm:gap-3">
       <div
-        className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-secondary/60 border border-border/70"
+        className="hidden md:flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-xl bg-secondary/60 border border-border/70"
         title={`${displayName} (${user.email}) — ${roleLabel}`}
       >
-        {role === 'creator' ? (
-          <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-        ) : role === 'admin' ? (
-          <ShieldCheck className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+        {photoUrl && !imgError ? (
+          <img
+            src={photoUrl}
+            alt={displayName}
+            onError={() => setImgError(true)}
+            className="w-6 h-6 rounded-full object-cover ring-1 ring-primary/40 shrink-0"
+          />
         ) : (
-          <User className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+          <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+            {role === 'creator' ? (
+              <Crown className="h-3.5 w-3.5 text-amber-500" />
+            ) : role === 'admin' ? (
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
+            ) : (
+              <User className="h-3.5 w-3.5 text-emerald-500" />
+            )}
+          </div>
         )}
         <span className="text-xs font-semibold text-foreground max-w-[140px] truncate">
           {displayName}

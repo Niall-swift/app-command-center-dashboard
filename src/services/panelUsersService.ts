@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '@/config/firebase';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { functions, storage } from '@/config/firebase';
+import { compressImage } from '@/utils/compressImage';
 import type { PanelUserProfile, PanelUserRole } from '@/config/permissions';
 
 interface SyncSelfResponse {
@@ -30,6 +32,7 @@ export interface CreatePanelUserInput {
   role: Exclude<PanelUserRole, 'creator'>;
   active?: boolean;
   allowedRoutes: string[];
+  photoUrl?: string;
   jobTitle?: string;
   syncToAttendants?: boolean;
 }
@@ -37,6 +40,7 @@ export interface CreatePanelUserInput {
 export interface UpdatePanelUserInput {
   uid: string;
   name?: string;
+  photoUrl?: string;
   jobTitle?: string;
   role?: Exclude<PanelUserRole, 'creator'>;
   active?: boolean;
@@ -86,5 +90,43 @@ export const panelUsersService = {
     });
     const data = res.data as DeleteUserResponse;
     return data.deletedUid;
+  },
+
+  async uploadAvatarPhoto(file: File, identifier: string): Promise<string> {
+    const { file: compressedFile } = await compressImage(file, {
+      maxWidth: 800,
+      maxHeight: 800,
+      quality: 0.9,
+      mimeType: 'image/jpeg',
+    });
+
+    const safeKey =
+      identifier
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '_')
+        .slice(0, 48) || 'operador';
+    const storagePath = `panel_user_avatars/${safeKey}_${Date.now()}.jpg`;
+    const storageRef = ref(storage, storagePath);
+
+    return new Promise<string>((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, compressedFile, {
+        contentType: 'image/jpeg',
+        cacheControl: 'public, max-age=31536000',
+      });
+
+      task.on(
+        'state_changed',
+        undefined,
+        (err) => reject(err),
+        async () => {
+          try {
+            const url = await getDownloadURL(task.snapshot.ref);
+            resolve(url);
+          } catch (err) {
+            reject(err);
+          }
+        }
+      );
+    });
   },
 };

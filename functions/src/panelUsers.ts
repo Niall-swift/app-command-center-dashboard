@@ -15,6 +15,7 @@ export interface PanelUserDoc {
   role: PanelUserRole;
   active: boolean;
   allowedRoutes: string[];
+  photoUrl?: string;
   jobTitle?: string;
   createdAt: string;
   updatedAt: string;
@@ -62,6 +63,24 @@ function normalizeEmail(raw: unknown): string {
   return String(raw || "").trim().toLowerCase();
 }
 
+function sanitizePhotoUrl(raw: unknown): string {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.length > 2048) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "URL da foto excede o limite permitido."
+    );
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "A URL da foto deve começar com http:// ou https://."
+    );
+  }
+  return trimmed;
+}
+
 function sanitizeRoutes(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const unique = new Set<string>();
@@ -88,6 +107,15 @@ async function ensureCreatorProfile(
   const now = new Date().toISOString();
 
   const existing = snap.exists ? (snap.data() as Partial<PanelUserDoc>) : null;
+  let authPhotoUrl = "";
+  if (!existing?.photoUrl) {
+    const authRec = await admin
+      .auth()
+      .getUser(uid)
+      .catch(() => null);
+    authPhotoUrl = authRec?.photoURL || "";
+  }
+
   const profile: PanelUserDoc = {
     uid,
     name: existing?.name || displayName || "Niall (Criador)",
@@ -95,6 +123,7 @@ async function ensureCreatorProfile(
     role: "creator",
     active: true,
     allowedRoutes: ALL_PANEL_ROUTES,
+    photoUrl: existing?.photoUrl || authPhotoUrl || "",
     jobTitle: existing?.jobTitle || "Criador & Administrador Master",
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -249,6 +278,7 @@ export const managePanelUsers = functions
       const role: PanelUserRole = data?.role === "admin" ? "admin" : "operador";
       const active = data?.active !== false;
       const jobTitle = String(data?.jobTitle || "").trim();
+      const photoUrl = sanitizePhotoUrl(data?.photoUrl);
       const syncToAttendants = Boolean(data?.syncToAttendants);
       const allowedRoutes =
         role === "admin" ? ALL_PANEL_ROUTES : sanitizeRoutes(data?.allowedRoutes);
@@ -306,6 +336,7 @@ export const managePanelUsers = functions
           const updatePayload: admin.auth.UpdateRequest = {
             displayName: name,
             disabled: !active,
+            ...(photoUrl ? { photoURL: photoUrl } : {}),
           };
           if (password.length >= 6) {
             updatePayload.password = password;
@@ -323,6 +354,7 @@ export const managePanelUsers = functions
             password,
             displayName: name,
             disabled: !active,
+            ...(photoUrl ? { photoURL: photoUrl } : {}),
           });
         }
       } catch (err: unknown) {
@@ -344,6 +376,7 @@ export const managePanelUsers = functions
         role,
         active,
         allowedRoutes,
+        photoUrl: photoUrl || authUser.photoURL || "",
         jobTitle: jobTitle || (role === "admin" ? "Administrador" : "Operador"),
         createdAt: now,
         updatedAt: now,
@@ -362,7 +395,7 @@ export const managePanelUsers = functions
           await db.collection("attendants").add({
             name,
             email,
-            avatar: "",
+            avatar: photoUrl || "",
             role: role === "admin" ? "tecnico" : "atendente",
             status: active ? "ativo" : "inativo",
             createdAt: now,
@@ -410,6 +443,10 @@ export const managePanelUsers = functions
           : current.name;
       const nextJobTitle =
         typeof data?.jobTitle === "string" ? data.jobTitle.trim() : current.jobTitle || "";
+      const hasPhotoUpdate = typeof data?.photoUrl === "string";
+      const nextPhotoUrl = hasPhotoUpdate
+        ? sanitizePhotoUrl(data?.photoUrl)
+        : current.photoUrl || "";
       const nextRole: PanelUserRole = targetIsCreator
         ? "creator"
         : data?.role === "admin"
@@ -454,6 +491,9 @@ export const managePanelUsers = functions
         displayName: nextName,
         disabled: !nextActive,
       };
+      if (hasPhotoUpdate) {
+        authUpdate.photoURL = nextPhotoUrl || null;
+      }
       if (newPassword.length >= 6) {
         authUpdate.password = newPassword;
       }
@@ -481,6 +521,7 @@ export const managePanelUsers = functions
         ...current,
         uid: targetUid,
         name: nextName,
+        photoUrl: nextPhotoUrl,
         jobTitle: nextJobTitle,
         role: nextRole,
         active: nextActive,
@@ -489,6 +530,28 @@ export const managePanelUsers = functions
       };
 
       await targetRef.set(updated, { merge: true });
+
+      // Se existir assinatura em attendants vinculada a este login, mantém foto e nome sincronizados
+      if (hasPhotoUpdate || nextName !== current.name) {
+        const attByUid = await db
+          .collection("attendants")
+          .where("panelUid", "==", targetUid)
+          .limit(1)
+          .get();
+        if (!attByUid.empty) {
+          await attByUid.docs[0].ref
+            .set(
+              {
+                name: nextName,
+                ...(hasPhotoUpdate ? { avatar: nextPhotoUrl } : {}),
+                status: nextActive ? "ativo" : "inativo",
+              },
+              { merge: true }
+            )
+            .catch(() => undefined);
+        }
+      }
+
       return { success: true, user: updated };
     }
 

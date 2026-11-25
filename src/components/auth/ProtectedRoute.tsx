@@ -1,29 +1,94 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import { Lock, LogOut, ShieldAlert, ArrowRight, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginForm } from './LoginForm';
+import { Ps5UserSplashScreen } from './Ps5UserSplashScreen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getScreenLabelByPath } from '@/config/permissions';
+import { readCachedSplashUser } from '@/utils/userSplashCache';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+const PS5_WELCOME_SPLASH_MS = 2300;
+
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, panelProfile, loading, profileLoading, logout, refreshPanelProfile } = useAuth();
+  const [cachedSplashUser] = useState(() => readCachedSplashUser());
+  const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
+  const welcomedUidRef = useRef<string | null>(null);
+  const welcomeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      welcomedUidRef.current = null;
+      setShowWelcomeSplash(false);
+      if (welcomeTimerRef.current !== null) {
+        window.clearTimeout(welcomeTimerRef.current);
+        welcomeTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (panelProfile && panelProfile.active && welcomedUidRef.current !== user.uid) {
+      welcomedUidRef.current = user.uid;
+      setShowWelcomeSplash(true);
+
+      if (welcomeTimerRef.current !== null) {
+        window.clearTimeout(welcomeTimerRef.current);
+      }
+      welcomeTimerRef.current = window.setTimeout(() => {
+        setShowWelcomeSplash(false);
+        welcomeTimerRef.current = null;
+      }, PS5_WELCOME_SPLASH_MS);
+    }
+  }, [user, panelProfile]);
+
+  useEffect(() => {
+    return () => {
+      if (welcomeTimerRef.current !== null) {
+        window.clearTimeout(welcomeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const dismissWelcomeSplash = () => {
+    if (welcomeTimerRef.current !== null) {
+      window.clearTimeout(welcomeTimerRef.current);
+      welcomeTimerRef.current = null;
+    }
+    setShowWelcomeSplash(false);
+  };
 
   if (loading || (user && profileLoading && !panelProfile)) {
+    const bootSplashUser = panelProfile
+      ? {
+          name: panelProfile.name,
+          email: panelProfile.email,
+          photoUrl: panelProfile.photoUrl || user?.photoURL || '',
+          role: panelProfile.role,
+          jobTitle: panelProfile.jobTitle,
+        }
+      : user
+      ? {
+          name: user.displayName || cachedSplashUser?.name || user.email,
+          email: user.email,
+          photoUrl: user.photoURL || cachedSplashUser?.photoUrl || '',
+          role: cachedSplashUser?.role,
+          jobTitle: cachedSplashUser?.jobTitle,
+        }
+      : cachedSplashUser;
+
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-        <div className="text-center space-y-2.5">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto" />
-          <p className="text-xs text-muted-foreground font-medium">
-            Verificando credenciais e permissões...
-          </p>
-        </div>
-      </div>
+      <Ps5UserSplashScreen
+        user={bootSplashUser}
+        eyebrowText={bootSplashUser ? 'INICIANDO SESSÃO' : 'AVL TELECOM • NOC'}
+        statusText="Verificando credenciais e permissões..."
+      />
     );
   }
 
@@ -109,7 +174,28 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <AnimatePresence>
+        {showWelcomeSplash && (
+          <Ps5UserSplashScreen
+            user={{
+              name: panelProfile.name || user.displayName || user.email,
+              email: panelProfile.email || user.email,
+              photoUrl: panelProfile.photoUrl || user.photoURL || '',
+              role: panelProfile.role,
+              jobTitle: panelProfile.jobTitle,
+            }}
+            eyebrowText="AVL TELECOM • NOC"
+            statusText="Carregando seu Command Center..."
+            dismissible
+            onDismiss={dismissWelcomeSplash}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  );
 };
 
 export const RoutePermissionGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -158,7 +244,6 @@ export const RoutePermissionGuard: React.FC<{ children: React.ReactNode }> = ({ 
     return <>{children}</>;
   }
 
-  // Se o operador acessou a raiz "/" mas não tem Dashboard liberado, redireciona direto para sua primeira tela liberada
   if (location.pathname === '/' && firstAllowedRoute !== '/') {
     return <Navigate to={firstAllowedRoute} replace />;
   }

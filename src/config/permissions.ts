@@ -7,6 +7,7 @@ export interface PanelUserProfile {
   role: PanelUserRole;
   active: boolean;
   allowedRoutes: string[];
+  photoUrl?: string;
   jobTitle?: string;
   createdAt?: string;
   updatedAt?: string;

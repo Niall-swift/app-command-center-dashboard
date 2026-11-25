@@ -503,12 +503,20 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
       {/* Footer */}
       <SidebarFooter className="relative z-10 p-3 pt-2">
         <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.07]">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-            style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
-          >
-            {userInitial}
-          </div>
+          {panelProfile?.photoUrl || user?.photoURL ? (
+            <img
+              src={panelProfile?.photoUrl || user?.photoURL || ''}
+              alt={panelProfile?.name || user?.displayName || 'Usuário'}
+              className="w-8 h-8 rounded-full object-cover ring-2 ring-primary/35 shrink-0"
+            />
+          ) : (
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+              style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
+            >
+              {userInitial}
+            </div>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">

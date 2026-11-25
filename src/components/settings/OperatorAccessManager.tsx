@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'framer-motion';
 import {
+  Camera,
   CheckSquare,
   Copy,
   Crown,
   Edit3,
   Eye,
   EyeOff,
+  ImagePlus,
   KeyRound,
   Loader2,
   Lock,
@@ -17,10 +21,12 @@ import {
   Sparkles,
   Square,
   Trash2,
+  Upload,
   UserCheck,
   UserCog,
   UserX,
   Users,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -38,6 +44,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { SpotlightCard } from '@/components/ui/aceternity/spotlight-card';
+import {
+  Ps5UserSplashScreen,
+  type Ps5SplashUserInfo,
+} from '@/components/auth/Ps5UserSplashScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { panelUsersService } from '@/services/panelUsersService';
 import {
@@ -57,6 +67,7 @@ interface FormState {
   name: string;
   email: string;
   password: string;
+  photoUrl: string;
   jobTitle: string;
   role: EditableRole;
   active: boolean;
@@ -71,6 +82,7 @@ function createEmptyForm(): FormState {
     name: '',
     email: '',
     password: '',
+    photoUrl: '',
     jobTitle: '',
     role: 'operador',
     active: true,
@@ -110,11 +122,12 @@ function extractCallableErrorMessage(err: unknown, fallback: string): string {
 }
 
 export const OperatorAccessManager: React.FC = () => {
-  const { user: currentUser, isAdmin, isCreator } = useAuth();
+  const { user: currentUser, panelProfile: currentProfile, isAdmin, isCreator } = useAuth();
 
   const [users, setUsers] = useState<PanelUserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [busyUid, setBusyUid] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -124,6 +137,8 @@ export const OperatorAccessManager: React.FC = () => {
   const [editingUser, setEditingUser] = useState<PanelUserProfile | null>(null);
   const [form, setForm] = useState<FormState>(createEmptyForm);
   const [showPassword, setShowPassword] = useState(false);
+  const [splashPreviewUser, setSplashPreviewUser] = useState<Ps5SplashUserInfo | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadUsers = useCallback(async () => {
     if (!isAdmin) {
@@ -180,6 +195,7 @@ export const OperatorAccessManager: React.FC = () => {
       name: target.name || '',
       email: target.email || '',
       password: '',
+      photoUrl: target.photoUrl || '',
       jobTitle: target.jobTitle || '',
       role: target.role === 'operador' ? 'operador' : 'admin',
       active: target.active !== false,
@@ -191,6 +207,38 @@ export const OperatorAccessManager: React.FC = () => {
     });
     setShowPassword(false);
     setDialogOpen(true);
+  };
+
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.warning('Selecione um arquivo de imagem (JPG, PNG ou WebP).');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.warning('A imagem deve ter no máximo 10 MB.');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const key = editingUser?.uid || form.email || form.name || 'operador';
+      const downloadUrl = await panelUsersService.uploadAvatarPhoto(file, key);
+      setForm((prev) => ({ ...prev, photoUrl: downloadUrl }));
+      toast.success('Foto enviada! Clique em salvar para aplicar ao login.');
+    } catch (err) {
+      toast.error(
+        extractCallableErrorMessage(
+          err,
+          'Erro ao enviar foto para o Storage. Você também pode colar uma URL direta.'
+        )
+      );
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const toggleRoute = (path: string) => {
@@ -270,18 +318,20 @@ export const OperatorAccessManager: React.FC = () => {
         await panelUsersService.updateUser({
           uid: editingUser.uid,
           name: form.name.trim(),
+          photoUrl: form.photoUrl.trim(),
           jobTitle: form.jobTitle.trim(),
           role: form.role,
           active: form.active,
           allowedRoutes: form.role === 'admin' ? ALL_ROUTE_PATHS : form.allowedRoutes,
           ...(form.password.length >= 6 ? { password: form.password } : {}),
         });
-        toast.success(`Permissões de ${form.name.trim()} atualizadas!`);
+        toast.success(`Perfil e permissões de ${form.name.trim()} atualizados!`);
       } else {
         await panelUsersService.createUser({
           name: form.name.trim(),
           email: form.email.trim().toLowerCase(),
           password: form.password,
+          photoUrl: form.photoUrl.trim(),
           jobTitle: form.jobTitle.trim(),
           role: form.role,
           active: form.active,
@@ -383,17 +433,36 @@ export const OperatorAccessManager: React.FC = () => {
                 variant="outline"
                 className="bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/30 text-[10px] font-bold uppercase tracking-wider"
               >
-                Controle por Tela
+                Foto + Controle por Tela
               </Badge>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-              Crie contas de <strong>Admin</strong> (acesso completo) ou <strong>Operador</strong>{' '}
-              limitando exatamente quais telas cada login pode abrir.
+              Crie contas de <strong>Admin</strong> ou <strong>Operador</strong>, adicione a foto de
+              cada perfil (exibida na Splash Screen PS5) e limite exatamente quais telas podem abrir.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setSplashPreviewUser({
+                name: currentProfile?.name || currentUser?.displayName || currentUser?.email,
+                email: currentProfile?.email || currentUser?.email,
+                photoUrl: currentProfile?.photoUrl || currentUser?.photoURL || '',
+                role: currentProfile?.role || 'admin',
+                jobTitle: currentProfile?.jobTitle,
+              })
+            }
+            className="h-9 rounded-xl gap-1.5 border-indigo-500/35 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/10"
+            title="Ver prévia da Splash Screen estilo PlayStation 5 com sua foto"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Testar Splash PS5
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -515,6 +584,13 @@ export const OperatorAccessManager: React.FC = () => {
                 ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
                 : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
 
+            const avatarRingClass =
+              item.role === 'creator'
+                ? 'ring-2 ring-amber-500/60'
+                : item.role === 'admin'
+                ? 'ring-2 ring-blue-500/60'
+                : 'ring-2 ring-emerald-500/60';
+
             return (
               <div
                 key={item.uid}
@@ -525,17 +601,25 @@ export const OperatorAccessManager: React.FC = () => {
                 }`}
               >
                 <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                  <div
-                    className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm text-white shrink-0 shadow-sm ${
-                      item.role === 'creator'
-                        ? 'bg-gradient-to-br from-amber-500 to-orange-600'
-                        : item.role === 'admin'
-                        ? 'bg-gradient-to-br from-blue-600 to-indigo-600'
-                        : 'bg-gradient-to-br from-emerald-600 to-teal-600'
-                    }`}
-                  >
-                    {(item.name || item.email || 'U').substring(0, 2).toUpperCase()}
-                  </div>
+                  {item.photoUrl ? (
+                    <img
+                      src={item.photoUrl}
+                      alt={item.name}
+                      className={`w-12 h-12 rounded-full object-cover shrink-0 shadow-sm ${avatarRingClass}`}
+                    />
+                  ) : (
+                    <div
+                      className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 shadow-sm ${
+                        item.role === 'creator'
+                          ? 'bg-gradient-to-br from-amber-500 to-orange-600'
+                          : item.role === 'admin'
+                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600'
+                          : 'bg-gradient-to-br from-emerald-600 to-teal-600'
+                      }`}
+                    >
+                      {(item.name || item.email || 'U').substring(0, 2).toUpperCase()}
+                    </div>
+                  )}
 
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -619,6 +703,25 @@ export const OperatorAccessManager: React.FC = () => {
 
                 {/* Ações */}
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      setSplashPreviewUser({
+                        name: item.name,
+                        email: item.email,
+                        photoUrl: item.photoUrl || '',
+                        role: item.role,
+                        jobTitle: item.jobTitle,
+                      })
+                    }
+                    className="h-8 w-8 rounded-xl text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10"
+                    title="Visualizar Splash Screen PS5 deste usuário"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </Button>
+
                   {canEditItem && (
                     <Button
                       type="button"
@@ -629,7 +732,7 @@ export const OperatorAccessManager: React.FC = () => {
                       className="h-8 rounded-xl text-xs gap-1.5"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      {itemIsCreator ? 'Editar' : 'Telas & Senha'}
+                      {itemIsCreator ? 'Foto & Perfil' : 'Foto, Telas & Senha'}
                     </Button>
                   )}
 
@@ -688,12 +791,92 @@ export const OperatorAccessManager: React.FC = () => {
             </DialogTitle>
             <DialogDescription>
               {editingUser
-                ? 'Ajuste o perfil, as telas liberadas ou redefina a senha de acesso. As permissões entram em vigor em tempo real.'
-                : 'Crie um login real no Firebase Auth e defina exatamente quais telas este usuário poderá acessar.'}
+                ? 'Atualize a foto do perfil, as telas liberadas ou a senha. A foto aparece no topo, no menu e no centro da Splash Screen PS5.'
+                : 'Crie um login real no Firebase Auth com foto personalizada e defina exatamente quais telas este usuário poderá acessar.'}
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5 pt-2">
+            {/* Upload de Foto do Usuário */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => void handlePhotoFileChange(e)}
+              className="hidden"
+            />
+            <div className="p-4 rounded-2xl border border-border bg-secondary/30 flex flex-col sm:flex-row items-center gap-4">
+              <div className="relative group shrink-0">
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  className="relative w-20 h-20 rounded-full overflow-hidden ring-2 ring-primary/40 shadow-lg bg-gradient-to-br from-blue-600 via-indigo-600 to-slate-900 flex items-center justify-center focus:outline-none"
+                  title="Clique para enviar uma foto"
+                >
+                  {form.photoUrl ? (
+                    <img
+                      src={form.photoUrl}
+                      alt={form.name || 'Avatar'}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ImagePlus className="w-7 h-7 text-white/80" />
+                  )}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    {uploadingPhoto ? (
+                      <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    ) : (
+                      <Camera className="w-5 h-5 text-white" />
+                    )}
+                  </div>
+                </button>
+                {form.photoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, photoUrl: '' }))}
+                    title="Remover foto"
+                    className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-md hover:bg-rose-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 w-full space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <p className="text-sm font-bold text-foreground">Foto do Perfil (Splash PS5)</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Aparece em círculo no centro da Splash Screen ao fazer login e no menu.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingPhoto}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="h-8 rounded-xl text-xs gap-1.5"
+                  >
+                    {uploadingPhoto ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                    {uploadingPhoto ? 'Enviando...' : 'Enviar Foto'}
+                  </Button>
+                </div>
+
+                <Input
+                  value={form.photoUrl}
+                  onChange={(e) => setForm((p) => ({ ...p, photoUrl: e.target.value }))}
+                  placeholder="Ou cole a URL da imagem (https://...)"
+                  className="h-8 text-xs bg-background"
+                />
+              </div>
+            </div>
+
             {/* Dados de identificação */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div className="space-y-1.5">
@@ -1011,13 +1194,13 @@ export const OperatorAccessManager: React.FC = () => {
                   type="button"
                   variant="ghost"
                   onClick={() => setDialogOpen(false)}
-                  disabled={saving}
+                  disabled={saving || uploadingPhoto}
                 >
                   Cancelar
                 </Button>
                 <Button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || uploadingPhoto}
                   className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0"
                 >
                   {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -1028,6 +1211,23 @@ export const OperatorAccessManager: React.FC = () => {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Pré-visualização ao vivo da Splash Screen PS5 */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {splashPreviewUser && (
+              <Ps5UserSplashScreen
+                user={splashPreviewUser}
+                eyebrowText="PRÉVIA DA SPLASH SCREEN"
+                statusText="Fundo PlayStation 5 com ondulações e brilhos ao vivo"
+                dismissible
+                onDismiss={() => setSplashPreviewUser(null)}
+              />
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
     </SpotlightCard>
   );
 };

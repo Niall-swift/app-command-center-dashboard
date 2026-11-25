@@ -10,18 +10,12 @@ declare global {
 
 createRoot(document.getElementById('root')!).render(<App />);
 
-// Encerra a splash screen suavemente após o React montar
-// No app instalado (standalone), mantém ~950ms para sensação fluida de app desktop/mobile nativo
+// Transiciona rapidamente da splash 0ms do index.html para a Splash Screen PS5 60fps em React
 function dismissPwaSplash() {
   const splash = document.getElementById('avl-pwa-splash');
   if (!splash) return;
 
-  const isStandalone =
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true ||
-    window.location.search.includes('source=pwa');
-
-  const minDisplayMs = isStandalone ? 950 : 320;
+  const minDisplayMs = 140;
   const elapsed = performance.now() - (window.__AVL_SPLASH_START__ ?? 0);
   const remaining = Math.max(0, minDisplayMs - elapsed);
 

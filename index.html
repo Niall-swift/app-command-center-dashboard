@@ -8,18 +8,18 @@
     <meta name="author" content="AVL Telecom" />
 
     <!-- PWA & Native App Meta Tags (Windows, macOS, Android, iOS) -->
-    <meta name="theme-color" content="#0b1222" />
+    <meta name="theme-color" content="#050404" />
     <meta name="application-name" content="AVL NOC" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="AVL NOC" />
-    <meta name="msapplication-TileColor" content="#0b1222" />
+    <meta name="msapplication-TileColor" content="#050404" />
 
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="mask-icon" href="/mask-icon.svg" color="#2563EB" />
+    <link rel="mask-icon" href="/mask-icon.svg" color="#E2B372" />
 
     <meta property="og:title" content="AVL Telecom — Command Center NOC" />
     <meta property="og:description" content="Painel de Operações NOC, ISPFY e Atendimento AVL Telecom" />
@@ -30,15 +30,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
 
-    <!-- Native 0ms PWA Splash Screen (carrega antes do React, sem flash branco) -->
+    <!-- Native 0ms PS5 Obsidian + Underwater Sunbeams + Silk Waves Splash Screen -->
     <style>
       html, body {
         margin: 0;
-        background-color: #0b1222;
+        background-color: #050404;
       }
       #avl-pwa-splash {
         position: fixed;
@@ -48,17 +48,15 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background-color: #0b1222;
+        overflow: hidden;
+        background-color: #030304;
         background-image:
-          radial-gradient(circle at 22% 20%, rgba(37, 99, 235, 0.28), transparent 46%),
-          radial-gradient(circle at 80% 78%, rgba(124, 58, 237, 0.24), transparent 46%),
-          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-        background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+          radial-gradient(circle at 10% 4%, rgba(242, 206, 158, 0.11), rgba(176, 134, 86, 0.04) 32%, transparent 60%),
+          linear-gradient(145deg, #0a0807 0%, #050505 38%, #030304 72%, #010102 100%);
         font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
         color: #f8fafc;
-        transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-                    transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: opacity 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
         user-select: none;
         -webkit-user-select: none;
       }
@@ -67,95 +65,182 @@
         transform: scale(1.03);
         pointer-events: none;
       }
-      .avl-splash-logo-wrap {
+      .ps5-boot-rays {
+        position: absolute;
+        top: -15%;
+        left: -10%;
+        width: 75vw;
+        height: 85vh;
+        pointer-events: none;
+        background:
+          linear-gradient(128deg, rgba(255, 232, 192, 0.055) 0%, rgba(214, 168, 114, 0.02) 35%, transparent 68%);
+        filter: blur(28px);
+        transform-origin: top left;
+        animation: ps5RaySway 6.5s ease-in-out infinite alternate;
+      }
+      .ps5-boot-waves {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .ps5-boot-wave {
+        position: absolute;
+        left: -20%;
+        width: 140%;
+        height: 120px;
+        border-radius: 50%;
+        border-top: 1px solid rgba(248, 236, 218, 0.12);
+        border-bottom: 1px solid rgba(235, 208, 170, 0.08);
+        background: linear-gradient(180deg, rgba(245, 230, 205, 0.028), rgba(245, 230, 205, 0.005), rgba(245, 230, 205, 0.022));
+        filter: blur(2px);
+        animation: ps5WaveDrift 7s ease-in-out infinite alternate;
+      }
+      .ps5-boot-wave-1 {
+        top: 52%;
+        transform: rotate(-3deg);
+      }
+      .ps5-boot-wave-2 {
+        top: 58%;
+        transform: rotate(2.5deg);
+        animation-duration: 9s;
+        animation-direction: alternate-reverse;
+      }
+      .avl-splash-avatar-wrap {
         position: relative;
-        width: 104px;
-        height: 104px;
+        width: clamp(176px, 28vw, 256px);
+        height: clamp(176px, 28vw, 256px);
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 24px;
+        margin-bottom: 34px;
+        z-index: 2;
       }
       .avl-splash-ring {
         position: absolute;
-        inset: -12px;
-        border-radius: 34px;
-        border: 1.5px solid rgba(96, 165, 250, 0.32);
-        animation: avlRingPulse 2.2s ease-in-out infinite;
+        inset: -24px;
+        border-radius: 9999px;
+        border: 1px solid rgba(254, 243, 199, 0.28);
+        animation: avlRingPulse 2.8s ease-in-out infinite;
       }
       .avl-splash-ring-2 {
         position: absolute;
-        inset: -24px;
-        border-radius: 42px;
-        border: 1px solid rgba(124, 58, 237, 0.18);
-        animation: avlRingPulse 2.2s ease-in-out 0.45s infinite;
+        inset: -48px;
+        border-radius: 9999px;
+        border: 1px solid rgba(245, 208, 148, 0.18);
+        animation: avlRingPulse 3.4s ease-in-out 0.45s infinite;
+      }
+      .avl-splash-spin {
+        position: absolute;
+        inset: -8px;
+        border-radius: 9999px;
+        padding: 3px;
+        background: conic-gradient(from 0deg, rgba(255,250,240,0.94), rgba(245,208,148,0.85), rgba(186,138,84,0.45), rgba(255,255,255,0.06), rgba(245,222,182,0.55), rgba(255,250,240,0.94));
+        animation: ps5Spin 7s linear infinite;
+      }
+      .avl-splash-spin-inner {
+        width: 100%;
+        height: 100%;
+        border-radius: 9999px;
+        background: #090706;
+      }
+      .avl-splash-circle {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 9999px;
+        overflow: hidden;
+        background: linear-gradient(145deg, #1b1612, #070606);
+        box-shadow: 0 28px 85px -10px rgba(218, 172, 108, 0.46),
+                    0 0 0 2px rgba(254, 243, 199, 0.28);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .avl-splash-photo {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 9999px;
       }
       .avl-splash-icon {
-        width: 96px;
-        height: 96px;
-        border-radius: 24px;
-        box-shadow: 0 20px 50px -12px rgba(37, 99, 235, 0.65),
-                    0 0 0 1px rgba(255, 255, 255, 0.14);
-        animation: avlIconFloat 2.6s ease-in-out infinite;
+        width: 56%;
+        height: 56%;
+        object-fit: contain;
+      }
+      .avl-splash-initials {
+        font-size: clamp(48px, 7vw, 72px);
+        font-weight: 800;
+        color: #fffbeb;
+        letter-spacing: -0.02em;
+      }
+      .avl-splash-eyebrow {
+        position: relative;
+        z-index: 2;
+        margin: 0 0 10px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: rgba(254, 243, 199, 0.72);
       }
       .avl-splash-title {
-        font-size: 24px;
+        position: relative;
+        z-index: 2;
+        font-size: clamp(28px, 4.5vw, 48px);
         font-weight: 800;
         letter-spacing: -0.02em;
+        line-height: 1.15;
         margin: 0;
+        padding: 0 20px;
+        text-align: center;
         color: #ffffff;
       }
-      .avl-splash-sub {
-        margin: 8px 0 26px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-        color: #93c5fd;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 4px 12px;
-        border-radius: 999px;
-        background: rgba(37, 99, 235, 0.14);
-        border: 1px solid rgba(96, 165, 250, 0.24);
-      }
-      .avl-splash-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: #34d399;
-        box-shadow: 0 0 10px #34d399;
+      .avl-splash-greeting {
+        font-weight: 600;
+        color: rgba(254, 243, 199, 0.9);
       }
       .avl-splash-bar-track {
-        width: 210px;
-        height: 4px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.1);
-        overflow: hidden;
         position: relative;
+        z-index: 2;
+        margin-top: 24px;
+        width: 192px;
+        height: 2px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        overflow: hidden;
       }
       .avl-splash-bar-fill {
         position: absolute;
         inset: 0;
-        width: 45%;
+        width: 48%;
         border-radius: 999px;
-        background: linear-gradient(90deg, #3b82f6, #8b5cf6, #34d399);
-        animation: avlBarSlide 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        background: linear-gradient(90deg, transparent, rgba(255, 244, 224, 0.9) 35%, rgba(245, 201, 132, 0.95) 65%, transparent);
+        animation: avlBarSlide 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
       .avl-splash-status {
-        margin-top: 14px;
+        position: relative;
+        z-index: 2;
+        margin-top: 12px;
         font-size: 12px;
-        font-weight: 500;
-        color: #94a3b8;
+        font-weight: 400;
+        color: rgba(214, 211, 209, 0.72);
       }
       @keyframes avlRingPulse {
-        0%, 100% { transform: scale(0.97); opacity: 0.45; }
-        50% { transform: scale(1.05); opacity: 1; }
+        0%, 100% { transform: scale(0.98); opacity: 0.42; }
+        50% { transform: scale(1.1); opacity: 0.12; }
       }
-      @keyframes avlIconFloat {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-4px); }
+      @keyframes ps5Spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes ps5RaySway {
+        0% { transform: rotate(-3deg) scale(0.98); opacity: 0.78; }
+        100% { transform: rotate(4deg) scale(1.06); opacity: 1; }
+      }
+      @keyframes ps5WaveDrift {
+        0% { transform: translateX(-4%) translateY(-8px) rotate(-2.5deg); }
+        100% { transform: translateX(4%) translateY(8px) rotate(2.5deg); }
       }
       @keyframes avlBarSlide {
         0% { transform: translateX(-110%); }
@@ -165,18 +250,22 @@
   </head>
 
   <body>
-    <!-- Splash Screen Nativa PWA -->
+    <!-- Splash Screen Nativa 0ms estilo PlayStation 5 -->
     <div id="avl-pwa-splash" role="status" aria-label="Carregando AVL Telecom Command Center">
-      <div class="avl-splash-logo-wrap">
+      <div class="ps5-boot-rays" aria-hidden="true"></div>
+      <div class="ps5-boot-waves" aria-hidden="true">
+        <div class="ps5-boot-wave ps5-boot-wave-1"></div>
+      </div>
+      <div class="avl-splash-avatar-wrap">
         <div class="avl-splash-ring"></div>
         <div class="avl-splash-ring-2"></div>
-        <img src="/pwa-192x192.png" alt="AVL Telecom" class="avl-splash-icon" width="96" height="96" />
+        <div class="avl-splash-spin"><div class="avl-splash-spin-inner"></div></div>
+        <div class="avl-splash-circle" id="avl-splash-circle">
+          <img src="/pwa-192x192.png" alt="AVL Telecom" class="avl-splash-icon" width="76" height="76" />
+        </div>
       </div>
-      <h1 class="avl-splash-title">AVL Telecom</h1>
-      <div class="avl-splash-sub">
-        <span class="avl-splash-dot"></span>
-        Command Center NOC
-      </div>
+      <p class="avl-splash-eyebrow" id="avl-splash-eyebrow">AVL TELECOM • NOC</p>
+      <h1 class="avl-splash-title" id="avl-splash-title">AVL Telecom</h1>
       <div class="avl-splash-bar-track">
         <div class="avl-splash-bar-fill"></div>
       </div>
@@ -185,6 +274,51 @@
 
     <script>
       window.__AVL_SPLASH_START__ = performance.now();
+      // Hidrata imediatamente a foto circular e nome do último usuário logado (0ms)
+      try {
+        var cachedRaw = localStorage.getItem('avl_last_user_splash_v1');
+        if (cachedRaw) {
+          var cached = JSON.parse(cachedRaw);
+          var circle = document.getElementById('avl-splash-circle');
+          var titleEl = document.getElementById('avl-splash-title');
+          var eyebrowEl = document.getElementById('avl-splash-eyebrow');
+          if (cached && (cached.name || cached.email)) {
+            if (eyebrowEl) eyebrowEl.textContent = 'AVL TELECOM • NOC';
+            if (titleEl) {
+              titleEl.textContent = '';
+              var greetSpan = document.createElement('span');
+              greetSpan.className = 'avl-splash-greeting';
+              greetSpan.textContent = 'Bem-vindo de volta, ';
+              var nameSpan = document.createElement('span');
+              nameSpan.textContent = cached.name || cached.email;
+              titleEl.appendChild(greetSpan);
+              titleEl.appendChild(nameSpan);
+            }
+            if (circle) {
+              var initials = String(cached.name || cached.email || 'AV').trim().substring(0, 2).toUpperCase();
+              var renderInitials = function () {
+                circle.textContent = '';
+                var span = document.createElement('span');
+                span.className = 'avl-splash-initials';
+                span.textContent = initials;
+                circle.appendChild(span);
+              };
+              if (cached.photoUrl && /^https?:\/\//i.test(cached.photoUrl)) {
+                circle.textContent = '';
+                var img = document.createElement('img');
+                img.src = cached.photoUrl;
+                img.alt = cached.name || 'Usuário';
+                img.className = 'avl-splash-photo';
+                img.onerror = renderInitials;
+                circle.appendChild(img);
+              } else {
+                renderInitials();
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
       // Fallback de segurança caso algum script falhe
       window.setTimeout(function () {
         var el = document.getElementById('avl-pwa-splash');

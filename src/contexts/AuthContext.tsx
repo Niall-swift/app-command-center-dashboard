@@ -20,6 +20,11 @@ import { SessionExpiredModal } from '../components/auth/SessionExpiredModal';
 import { pointsService } from '../services/pointsService';
 import { panelUsersService } from '../services/panelUsersService';
 import {
+  clearCachedSplashUser,
+  readCachedSplashUser,
+  writeCachedSplashUser,
+} from '../utils/userSplashCache';
+import {
   ALL_ROUTE_PATHS,
   CREATOR_EMAIL,
   canProfileAccessRoute,
@@ -67,13 +72,17 @@ export const useAuth = () => {
 };
 
 function buildCreatorFallbackProfile(user: User): PanelUserProfile {
+  const cached = readCachedSplashUser();
+  const cachedPhoto =
+    cached && cached.email.toLowerCase() === CREATOR_EMAIL ? cached.photoUrl || '' : '';
   return {
     uid: user.uid,
-    name: user.displayName || 'Niall (Criador)',
+    name: user.displayName || cached?.name || 'Niall (Criador)',
     email: CREATOR_EMAIL,
     role: 'creator',
     active: true,
     allowedRoutes: ALL_ROUTE_PATHS,
+    photoUrl: user.photoURL || cachedPhoto,
     jobTitle: 'Criador & Administrador Master',
   };
 }
@@ -256,6 +265,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
     localStorage.removeItem('firebase_user');
     localStorage.removeItem('firebase_user_expiry');
+    clearCachedSplashUser();
     setUserData(null);
     setPanelProfile(null);
   };
@@ -271,6 +281,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return null;
   }, [panelProfile, user]);
+
+  // Mantém o cache da foto e nome do usuário logado para a Splash Screen PS5 carregar em 0ms
+  useEffect(() => {
+    if (user && effectiveProfile && effectiveProfile.active) {
+      writeCachedSplashUser({
+        uid: user.uid,
+        name: effectiveProfile.name || user.displayName || user.email || 'Operador',
+        email: effectiveProfile.email || user.email || '',
+        role: effectiveProfile.role,
+        photoUrl: effectiveProfile.photoUrl || user.photoURL || '',
+        jobTitle: effectiveProfile.jobTitle || '',
+      });
+    }
+  }, [user, effectiveProfile]);
 
   const isCreator = Boolean(
     effectiveProfile?.role === 'creator' || (user && isCreatorEmail(user.email))
