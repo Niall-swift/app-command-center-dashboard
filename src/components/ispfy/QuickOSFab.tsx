@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Ticket } from 'lucide-react';
 import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUiPreferences } from '@/contexts/UiPreferencesContext';
 import { obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 
 const loadQuickOSModal = () =>
@@ -25,6 +26,7 @@ const QuickOSFabComponent: React.FC = () => {
   const location = useLocation();
   const { activeIspfyClient } = useActiveChatClient();
   const { canAccessRoute } = useAuth();
+  const { preferences } = useUiPreferences();
 
   const handlePreload = useCallback(() => {
     void loadQuickOSModal();
@@ -35,7 +37,10 @@ const QuickOSFabComponent: React.FC = () => {
     setModalOpen(true);
   }, []);
 
-  if (!canAccessRoute('/ispfy/nova-os') && !canAccessRoute('/ispfy/tickets')) {
+  if (
+    !preferences.showQuickOsFab ||
+    (!canAccessRoute('/ispfy/nova-os') && !canAccessRoute('/ispfy/tickets'))
+  ) {
     return null;
   }
 

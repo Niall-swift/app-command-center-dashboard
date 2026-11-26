@@ -1696,7 +1696,7 @@ export default function Chat() {
                 <div
                   ref={messagesScrollRef}
                   onScroll={handleMessagesScroll}
-                  className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 avl-chat-pattern custom-scrollbar"
+                  className="flex-1 overflow-y-auto px-4 sm:px-6 pt-11 pb-5 avl-chat-pattern custom-scrollbar"
                 >
                   {currentMessages.length >= messageLimit && (
                     <div className="flex justify-center pb-3">

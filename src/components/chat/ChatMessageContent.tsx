@@ -337,14 +337,15 @@ export const ChatMessageContent = React.memo(function ChatMessageContent({
       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
 
   return (
-    <div className="group/bubble relative">
+    <div>
       {/* Barra flutuante unificada (Reações + Responder + Copiar + Editar + Apagar para todos) */}
       {!isEditing && !confirmingDelete && (
         <div
-          className={`opacity-0 group-hover/bubble:opacity-100 focus-within:opacity-100 transition-opacity absolute -top-9 z-20 flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-popover/95 backdrop-blur-md border border-border shadow-xl ${
+          className={`absolute bottom-full pb-1.5 z-50 ${
             fromMe ? 'right-0' : 'left-0'
-          }`}
+          } opacity-0 pointer-events-none group-hover/bubble:opacity-100 group-hover/bubble:pointer-events-auto group-focus-within/bubble:opacity-100 group-focus-within/bubble:pointer-events-auto transition-opacity duration-150`}
         >
+          <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-popover/95 backdrop-blur-md border border-border shadow-xl whitespace-nowrap">
           {message.zapiMessageId && !message.isPrivate && onReactMessage && (
             <>
               {QUICK_REACTIONS.map((emoji) => (
@@ -413,6 +414,7 @@ export const ChatMessageContent = React.memo(function ChatMessageContent({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+          </div>
         </div>
       )}
 
@@ -818,7 +820,7 @@ export const ChatMessageContent = React.memo(function ChatMessageContent({
       {/* Badge de Reação */}
       {message.reaction && (
         <span
-          className={`absolute -bottom-3.5 ${
+          className={`absolute -bottom-3 z-10 ${
             fromMe ? 'left-2' : 'right-2'
           } px-1.5 py-0.5 rounded-full bg-card border border-border shadow-sm text-xs leading-none`}
         >

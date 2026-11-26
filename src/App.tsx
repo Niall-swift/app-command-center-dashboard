@@ -1,15 +1,17 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { UiPreferencesProvider, useUiPreferences } from "./contexts/UiPreferencesContext";
 import { ActiveChatClientProvider } from "./contexts/ActiveChatClientContext";
 import { ChatNotificationProvider } from "./contexts/ChatNotificationContext";
 import { NetworkMonitorProvider } from "./contexts/NetworkMonitorContext";
+import { QuickClientDrawerProvider } from "./contexts/QuickClientDrawerContext";
 import { ProtectedRoute, RoutePermissionGuard } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -31,6 +33,7 @@ const NetworkMap = lazy(() => import("./pages/NetworkMap"));
 const Movies = lazy(() => import("./pages/Movies"));
 const Series = lazy(() => import("./pages/Series"));
 const ISPFYConsulta = lazy(() => import("./pages/ISPFYConsulta"));
+const ISPFYWebHub = lazy(() => import("./components/ispfy/IspfyWebViewKeepAlive"));
 const ISPFYFinanceiro = lazy(() => import("./pages/ISPFYFinanceiro"));
 const ISPFYTickets = lazy(() => import("./pages/ISPFYTickets"));
 const WhatsAppBulkSender = lazy(() => import("./pages/WhatsAppBulkSender"));
@@ -89,6 +92,7 @@ function AnimatedRoutes() {
       <Route path="/network-map" element={<NetworkMap />} />
       <Route path="/ispfy/consulta" element={<ISPFYConsulta />} />
       <Route path="/ispfy/explorer" element={<ISPFYConsulta />} />
+      <Route path="/ispfy/web" element={<ISPFYWebHub />} />
       <Route path="/ispfy/auditoria" element={<ISPFYAuditoria />} />
       <Route path="/ispfy/regiao" element={<ISPFYClientesRegiao />} />
       <Route path="/ispfy/inteligencia" element={<ISPFYInteligencia />} />
@@ -129,25 +133,52 @@ function AppContent() {
     <ProtectedRoute>
       <NetworkMonitorProvider>
         <ActiveChatClientProvider>
-          <DashboardLayout>
-            <ErrorBoundary>
-              <Suspense fallback={<PageLoader />}>
-                <RoutePermissionGuard>
-                  <AppContentWithRouterFix />
-                </RoutePermissionGuard>
-              </Suspense>
-            </ErrorBoundary>
-          </DashboardLayout>
-          <QuickOSFab />
-          <PwaAppBridge />
+          <QuickClientDrawerProvider>
+            <DashboardLayout>
+              <ErrorBoundary>
+                <Suspense fallback={<PageLoader />}>
+                  <RoutePermissionGuard>
+                    <AppContentWithRouterFix />
+                  </RoutePermissionGuard>
+                </Suspense>
+              </ErrorBoundary>
+            </DashboardLayout>
+            <QuickOSFab />
+            <PwaAppBridge />
+          </QuickClientDrawerProvider>
         </ActiveChatClientProvider>
       </NetworkMonitorProvider>
     </ProtectedRoute>
   );
 }
 
-// Helper to keep location context working properly within the dashboard layout
+// Helper to keep location context working properly and honor user's preferred landing screen once per session
 function AppContentWithRouterFix() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user, canAccessRoute } = useAuth();
+  const { preferences } = useUiPreferences();
+  const redirectedUidRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      redirectedUidRef.current = null;
+      return;
+    }
+    if (redirectedUidRef.current === user.uid) return;
+    redirectedUidRef.current = user.uid;
+
+    const targetHome = preferences.defaultHomeRoute;
+    if (
+      location.pathname === "/" &&
+      targetHome &&
+      targetHome !== "/" &&
+      canAccessRoute(targetHome)
+    ) {
+      navigate(targetHome, { replace: true });
+    }
+  }, [user?.uid, location.pathname, preferences.defaultHomeRoute, canAccessRoute, navigate]);
+
   return <AnimatedRoutes />;
 }
 
@@ -158,11 +189,13 @@ const App = () => (
         <Toaster />
         <Sonner position="top-right" richColors closeButton />
         <AuthProvider>
-          <ChatNotificationProvider>
-            <BrowserRouter>
-              <AppContent />
-            </BrowserRouter>
-          </ChatNotificationProvider>
+          <UiPreferencesProvider>
+            <ChatNotificationProvider>
+              <BrowserRouter>
+                <AppContent />
+              </BrowserRouter>
+            </ChatNotificationProvider>
+          </UiPreferencesProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>

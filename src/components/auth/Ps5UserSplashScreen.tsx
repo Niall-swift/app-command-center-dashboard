@@ -3,6 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Delete, Grid3X3, Loader2, LogOut, X } from 'lucide-react';
 import type { PanelUserRole } from '@/config/permissions';
 import type { VerifyPinResponse } from '@/services/panelUsersService';
+import {
+  ACCENT_PRESETS,
+  useUiPreferences,
+} from '@/contexts/UiPreferencesContext';
 
 export const SPLASH_BG_IMAGE_URL = 'https://picsum.photos/1080/180/?blur';
 
@@ -55,6 +59,7 @@ export const Ps5UserSplashScreen: React.FC<Ps5UserSplashScreenProps> = ({
   onSwitchAccount,
   previewMode = false,
 }) => {
+  const { preferences } = useUiPreferences();
   const [imgFailed, setImgFailed] = useState(false);
   const [pin, setPin] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -134,8 +139,7 @@ export const Ps5UserSplashScreen: React.FC<Ps5UserSplashScreenProps> = ({
           setErrorMessage('Muitas tentativas incorretas. Aguarde para tentar novamente.');
         } else if (typeof res.remainingAttempts === 'number' && res.remainingAttempts > 0) {
           setErrorMessage(
-            `Senha incorreta. Restam ${res.remainingAttempts} tentativa${
-              res.remainingAttempts === 1 ? '' : 's'
+            `Senha incorreta. Restam ${res.remainingAttempts} tentativa${res.remainingAttempts === 1 ? '' : 's'
             }.`
           );
         } else {
@@ -228,6 +232,10 @@ export const Ps5UserSplashScreen: React.FC<Ps5UserSplashScreenProps> = ({
   };
 
   const isLockedOut = lockSecondsLeft > 0;
+  const resolvedBgUrl =
+    preferences.splashBgPreset === 'custom' && preferences.splashCustomBgUrl
+      ? preferences.splashCustomBgUrl
+      : SPLASH_BG_IMAGE_URL;
 
   return (
     <motion.div
@@ -243,25 +251,46 @@ export const Ps5UserSplashScreen: React.FC<Ps5UserSplashScreenProps> = ({
           ? `Tela de entrada de ${displayName} — digite sua senha de 6 dígitos`
           : `Carregando perfil de ${displayName}`
       }
-      className={`fixed inset-0 z-[99998] overflow-y-auto flex flex-col items-center justify-center select-none bg-[#0b0d12] text-white ${
-        !requirePin && dismissible ? 'cursor-pointer' : ''
-      }`}
+      className={`fixed inset-0 z-[99998] overflow-y-auto flex flex-col items-center justify-center select-none bg-[#0b0d12] text-white ${!requirePin && dismissible ? 'cursor-pointer' : ''
+        }`}
     >
-      {/* Fundo minimalista com a imagem informada */}
-      <div
-        aria-hidden="true"
-        className="fixed inset-0 bg-cover bg-center bg-no-repeat scale-105 pointer-events-none"
-        style={{ backgroundImage: `url('${SPLASH_BG_IMAGE_URL}')` }}
-      />
-      {/* Película escura suave para garantir legibilidade minimalista */}
-      <div
-        aria-hidden="true"
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(circle at 50% 42%, rgba(8, 10, 16, 0.36) 0%, rgba(5, 7, 12, 0.72) 100%)',
-        }}
-      />
+      {/* Fundo minimalista personalizável (imagem blur padrão, escuro puro, aura da cor ou URL própria) */}
+      {preferences.splashBgPreset === 'obsidian' ? (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle at 50% 35%, #171920 0%, #07080b 100%)',
+          }}
+        />
+      ) : preferences.splashBgPreset === 'accent' ? (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(circle at 50% 32%, ${(ACCENT_PRESETS[preferences.accent] || ACCENT_PRESETS.blue).swatch
+              }36 0%, #0a0c12 58%, #050609 100%)`,
+          }}
+        />
+      ) : (
+        <>
+          <div
+            aria-hidden="true"
+            className="fixed inset-0 bg-cover bg-center bg-no-repeat scale-105 pointer-events-none"
+            style={{
+              backgroundImage: `url('${resolvedBgUrl}')`,
+            }}
+          />
+          <div
+            aria-hidden="true"
+            className="fixed inset-0 pointer-events-none"
+            style={{
+              background:
+                'radial-gradient(circle at 50% 42%, rgba(8, 10, 16, 0.36) 0%, rgba(5, 7, 12, 0.72) 100%)',
+            }}
+          />
+        </>
+      )}
 
       {/* Botão discreto para fechar prévia nas Configurações */}
       {previewMode && onDismiss && (
@@ -365,15 +394,14 @@ export const Ps5UserSplashScreen: React.FC<Ps5UserSplashScreenProps> = ({
                 return (
                   <div
                     key={idx}
-                    className={`w-11 h-12 sm:w-12 sm:h-14 rounded-2xl backdrop-blur-md border flex items-center justify-center transition-all duration-150 ${
-                      isError
-                        ? 'border-rose-400/75 bg-rose-500/15'
-                        : isActive
+                    className={`w-11 h-12 sm:w-12 sm:h-14 rounded-2xl backdrop-blur-md border flex items-center justify-center transition-all duration-150 ${isError
+                      ? 'border-rose-400/75 bg-rose-500/15'
+                      : isActive
                         ? 'border-white/75 bg-white/15 scale-105 shadow-[0_0_24px_rgba(255,255,255,0.16)]'
                         : isFilled
-                        ? 'border-white/45 bg-white/15'
-                        : 'border-white/25 bg-white/[0.08]'
-                    }`}
+                          ? 'border-white/45 bg-white/15'
+                          : 'border-white/25 bg-white/[0.08]'
+                      }`}
                   >
                     {isFilled && (
                       <motion.span

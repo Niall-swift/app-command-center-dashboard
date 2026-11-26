@@ -40,7 +40,7 @@ const ChatMessageBubbleInner: React.FC<ChatMessageBubbleProps> = ({
   onScrollToMessage,
 }) => {
   return (
-    <div style={{ contentVisibility: 'auto', containIntrinsicSize: '72px' }}>
+    <div>
       {showDayDivider && (
         <div className="flex justify-center my-3">
           <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-card/95 border border-border/70 text-muted-foreground shadow-sm">
@@ -51,12 +51,12 @@ const ChatMessageBubbleInner: React.FC<ChatMessageBubbleProps> = ({
 
       <div
         data-msg-id={message.id}
-        className={`flex ${message.fromMe ? 'justify-end' : 'justify-start'} ${
+        className={`relative hover:z-40 focus-within:z-40 flex ${message.fromMe ? 'justify-end' : 'justify-start'} ${
           message.isPrivate ? 'my-2.5' : isGroupedWithPrev ? 'mt-1' : 'mt-3'
         } ${message.reaction ? 'mb-4' : ''}`}
       >
         <div
-          className={`max-w-[84%] sm:max-w-[74%] rounded-2xl px-3.5 py-2.5 shadow-sm relative transition-shadow duration-150 ${
+          className={`group/bubble max-w-[84%] sm:max-w-[74%] rounded-2xl px-3.5 py-2.5 shadow-sm relative transition-shadow duration-150 ${
             isHighlighted ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-background' : ''
           } ${
             message.isPrivate

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -16,6 +16,7 @@ import {
   FileText,
   Film,
   Gift,
+  Globe,
   Home,
   Map,
   MapPin,
@@ -28,6 +29,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Star,
   Ticket,
   Tv,
   Users,
@@ -47,18 +49,19 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Badge } from '@/components/ui/badge';
-import { useTheme } from 'next-themes';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useChatNotifications } from '@/contexts/ChatNotificationContext';
 import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUiPreferences, WORKSPACE_MODES } from '@/contexts/UiPreferencesContext';
 import { getRoleDisplayLabel } from '@/config/permissions';
+import { prefetchRoute } from '@/config/routePrefetch';
 
 interface SidebarNavItem {
   title: string;
   url: string;
   icon: React.ComponentType<{ className?: string }>;
-  badgeKey?: 'chat_unread' | 'region_offline' | 'new_intel' | 'explorer_360';
+  badgeKey?: 'chat_unread' | 'region_offline' | 'new_intel' | 'explorer_360' | 'ispfy_web';
   matchPrefixes?: string[];
 }
 
@@ -111,6 +114,12 @@ const NAV_GROUPS: SidebarNavGroup[] = [
         icon: Users,
         badgeKey: 'explorer_360',
         matchPrefixes: ['/ispfy/consulta', '/ispfy/explorer', '/ispfy/cliente/'],
+      },
+      {
+        title: 'ISPFY Web',
+        url: '/ispfy/web',
+        icon: Globe,
+        badgeKey: 'ispfy_web',
       },
       { title: 'Financeiro & Caixa', url: '/ispfy/financeiro', icon: DollarSign },
       { title: 'Auditoria Base', url: '/ispfy/auditoria', icon: ShieldCheck },
@@ -176,13 +185,12 @@ interface AppSidebarProps {
 
 export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
   const location = useLocation();
-  const { resolvedTheme } = useTheme();
   const { dadosRegiao, rompimentosEmMassa } = useNetworkMonitor();
   const { totalUnreadCount } = useChatNotifications();
   const { activeIspfyClient } = useActiveChatClient();
   const { user, panelProfile, canAccessRoute } = useAuth();
+  const { preferences, updatePreferences, toggleFavoriteRoute } = useUiPreferences();
   const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar();
-  const isDark = resolvedTheme !== 'light';
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadInitialGroups);
   const [isPinned, setIsPinned] = useState<boolean>(loadInitialPinned);
@@ -261,6 +269,169 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
   const totalOutages = rompimentosEmMassa.length;
   const userInitial = (user?.displayName || user?.email || 'A').charAt(0).toUpperCase();
 
+  const allNavItemsByUrl = useMemo(() => {
+    const lookup: Record<string, SidebarNavItem> = {};
+    for (const g of NAV_GROUPS) {
+      for (const item of g.items) {
+        lookup[item.url] = item;
+      }
+    }
+    return lookup;
+  }, []);
+
+  const favoriteSet = useMemo(
+    () => new Set(preferences.favoriteRoutes || []),
+    [preferences.favoriteRoutes]
+  );
+
+  const favoriteItems = useMemo(() => {
+    const list: SidebarNavItem[] = [];
+    for (const url of preferences.favoriteRoutes || []) {
+      const item = allNavItemsByUrl[url];
+      if (item && canAccessRoute(item.url)) {
+        list.push(item);
+      }
+    }
+    return list;
+  }, [preferences.favoriteRoutes, allNavItemsByUrl, canAccessRoute]);
+
+  const activeModeConfig = useMemo(
+    () =>
+      WORKSPACE_MODES.find((m) => m.id === preferences.workspaceMode) ||
+      WORKSPACE_MODES[0],
+    [preferences.workspaceMode]
+  );
+
+  const activeModeRouteSet = useMemo(
+    () => (activeModeConfig.routes ? new Set(activeModeConfig.routes) : null),
+    [activeModeConfig]
+  );
+
+  const renderNavItem = (item: SidebarNavItem, scopeKey: 'fav' | 'group') => {
+    const isActive =
+      location.pathname === item.url ||
+      Boolean(
+        item.matchPrefixes?.some((prefix) => location.pathname.startsWith(prefix))
+      );
+    const Icon = item.icon;
+    const isStarred = favoriteSet.has(item.url);
+    const isNovaOsFromChat =
+      item.url === '/ispfy/nova-os' &&
+      location.pathname === '/chat' &&
+      Boolean(activeIspfyClient?.id);
+    const targetUrl = isNovaOsFromChat
+      ? `/ispfy/nova-os?clienteId=${activeIspfyClient!.id}`
+      : item.url;
+    const linkState = isNovaOsFromChat
+      ? { preselectedClient: activeIspfyClient }
+      : undefined;
+
+    return (
+      <SidebarMenuItem key={`${scopeKey}-${item.url}`}>
+        <div className="group/nav relative flex items-center">
+          <SidebarMenuButton asChild className="flex-1">
+            <Link
+              to={targetUrl}
+              state={linkState}
+              onMouseEnter={() => prefetchRoute(item.url)}
+              onFocus={() => prefetchRoute(item.url)}
+              className={`group relative flex items-center justify-between gap-2 px-3 py-2 pr-8 rounded-xl text-[13px] font-medium transition-colors duration-150 ${
+                isActive
+                  ? 'text-slate-950 dark:text-white'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
+              }`}
+            >
+              {isActive && scopeKey === 'group' && (
+                <motion.span
+                  layoutId="sidebar-active-item"
+                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                  className="pointer-events-none absolute inset-0 rounded-xl bg-primary/10 dark:bg-primary/15 border border-primary/25"
+                />
+              )}
+              {isActive && scopeKey === 'fav' && (
+                <span className="pointer-events-none absolute inset-0 rounded-xl bg-primary/10 dark:bg-primary/15 border border-primary/25" />
+              )}
+              {isActive && scopeKey === 'group' && (
+                <motion.span
+                  layoutId="sidebar-active-beam"
+                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                  className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-primary"
+                />
+              )}
+
+              <span className="relative z-10 flex items-center gap-2.5 min-w-0 transition-transform duration-150 group-hover:translate-x-0.5">
+                <Icon
+                  className={`w-4 h-4 shrink-0 transition-colors ${
+                    isActive
+                      ? 'text-primary'
+                      : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white'
+                  }`}
+                />
+                <span className="truncate">{item.title}</span>
+              </span>
+
+              {item.badgeKey === 'explorer_360' && (
+                <Badge className="relative z-10 h-4 px-1.5 text-[9px] font-bold bg-blue-600/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+                  360°
+                </Badge>
+              )}
+
+              {item.badgeKey === 'ispfy_web' && (
+                <Badge className="relative z-10 h-4 px-1.5 text-[9px] font-bold bg-emerald-600/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                  WEB
+                </Badge>
+              )}
+
+              {item.badgeKey === 'chat_unread' && totalUnreadCount > 0 && (
+                <Badge className="relative z-10 h-5 min-w-[20px] px-1.5 text-[10px] bg-blue-600 text-white border-none justify-center">
+                  {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                </Badge>
+              )}
+
+              {item.badgeKey === 'region_offline' &&
+                (totalOutages > 0 ? (
+                  <Badge className="relative z-10 h-5 px-1.5 text-[10px] bg-rose-600 text-white border-none animate-pulse">
+                    {totalOutages} ROMP.
+                  </Badge>
+                ) : totalOffline > 0 ? (
+                  <Badge
+                    variant="secondary"
+                    className="relative z-10 h-5 px-1.5 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                  >
+                    {totalOffline}
+                  </Badge>
+                ) : null)}
+
+              {item.badgeKey === 'new_intel' && (
+                <Badge className="relative z-10 h-4 px-1.5 text-[9px] bg-violet-600/20 text-violet-600 dark:text-violet-300 border border-violet-500/30">
+                  IA
+                </Badge>
+              )}
+            </Link>
+          </SidebarMenuButton>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleFavoriteRoute(item.url);
+            }}
+            title={isStarred ? 'Remover dos favoritos' : 'Fixar nos favoritos'}
+            aria-label={isStarred ? `Remover ${item.title} dos favoritos` : `Fixar ${item.title} nos favoritos`}
+            className={`absolute right-1.5 z-20 h-6 w-6 rounded-md flex items-center justify-center transition-all ${
+              isStarred
+                ? 'text-amber-500 opacity-90 hover:opacity-100 hover:bg-amber-500/10'
+                : 'text-muted-foreground opacity-0 group-hover/nav:opacity-75 hover:!opacity-100 hover:bg-black/5 dark:hover:bg-white/10'
+            }`}
+          >
+            <Star className={`w-3 h-3 ${isStarred ? 'fill-amber-400 text-amber-500' : ''}`} />
+          </button>
+        </div>
+      </SidebarMenuItem>
+    );
+  };
+
   return (
     <Sidebar className="border-r-0" style={{ background: 'transparent' }}>
       <div
@@ -277,22 +448,14 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
         onKeyDown={() => setActivityTick((t) => t + 1)}
       >
       <div
-        className="absolute inset-0 pointer-events-none transition-colors duration-200"
-        style={{
-          background: isDark
-            ? 'linear-gradient(180deg, #0B1220 0%, #0F172A 65%, #0B1120 100%)'
-            : 'linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 65%, #E2E8F0 100%)',
-          borderRight: isDark
-            ? '1px solid rgba(255,255,255,0.07)'
-            : '1px solid rgba(0,0,0,0.08)',
-        }}
+        className="absolute inset-0 pointer-events-none transition-colors duration-200 bg-[hsl(var(--sidebar-background))] border-r border-[hsl(var(--sidebar-border))]"
       />
 
       <div
-        className="absolute top-0 left-0 right-0 h-40 pointer-events-none"
+        className="absolute top-0 left-0 right-0 h-36 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse 80% 100% at 50% 0%, rgba(37,99,235,0.14) 0%, transparent 70%)',
+            'radial-gradient(ellipse 80% 100% at 50% 0%, hsl(var(--primary) / 0.09) 0%, transparent 70%)',
         }}
       />
 
@@ -300,11 +463,8 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
       <SidebarHeader className="relative z-10 p-4 pb-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-md"
-              style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
-            >
-              <Zap className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-primary text-primary-foreground">
+              <Zap className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <h2 className="text-sm font-bold leading-none tracking-wide text-slate-900 dark:text-white truncate">
@@ -354,15 +514,65 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
             </kbd>
           </button>
         )}
+
+        {/* Seletor de Modo de Trabalho: 1 clique para focar a Sidebar na rotina atual */}
+        <div
+          className="grid grid-cols-4 gap-0.5 p-0.5 rounded-xl bg-black/[0.04] dark:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.06]"
+          role="group"
+          aria-label="Modo de trabalho do menu"
+        >
+          {WORKSPACE_MODES.map((mode) => {
+            const selected = preferences.workspaceMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => updatePreferences({ workspaceMode: mode.id })}
+                title={`${mode.label} — ${mode.description}`}
+                className={`py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                  selected
+                    ? 'bg-background dark:bg-white/15 text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {mode.shortLabel}
+              </button>
+            );
+          })}
+        </div>
       </SidebarHeader>
 
       {/* Content */}
       <SidebarContent className="relative z-10 px-2.5 py-1 space-y-1">
+        {/* Seção Favoritos fixados pelo usuário */}
+        {favoriteItems.length > 0 && (
+          <SidebarGroup className="py-1 pb-2 border-b border-border/50">
+            <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase text-amber-600 dark:text-amber-400">
+              <span className="flex items-center gap-1.5">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                Favoritos
+              </span>
+              <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
+                {favoriteItems.length}
+              </span>
+            </div>
+            <SidebarGroupContent className="mt-1">
+              <SidebarMenu className="space-y-0.5">
+                {favoriteItems.map((item) => renderNavItem(item, 'fav'))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {NAV_GROUPS.map((group) => {
-          const visibleItems = group.items.filter((item) => canAccessRoute(item.url));
+          const visibleItems = group.items.filter(
+            (item) =>
+              canAccessRoute(item.url) &&
+              (!activeModeRouteSet || activeModeRouteSet.has(item.url))
+          );
           if (visibleItems.length === 0) return null;
 
-          const isOpen = openGroups[group.id] !== false;
+          const isOpen = activeModeRouteSet ? true : openGroups[group.id] !== false;
           const groupHasActive = visibleItems.some((i) => i.url === location.pathname);
 
           return (
@@ -398,106 +608,25 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
               {isOpen && (
                 <SidebarGroupContent className="mt-1">
                   <SidebarMenu className="space-y-0.5">
-                    {visibleItems.map((item) => {
-                      const isActive =
-                        location.pathname === item.url ||
-                        Boolean(
-                          item.matchPrefixes?.some((prefix) =>
-                            location.pathname.startsWith(prefix)
-                          )
-                        );
-                      const Icon = item.icon;
-                      const isNovaOsFromChat =
-                        item.url === '/ispfy/nova-os' &&
-                        location.pathname === '/chat' &&
-                        Boolean(activeIspfyClient?.id);
-                      const targetUrl = isNovaOsFromChat
-                        ? `/ispfy/nova-os?clienteId=${activeIspfyClient!.id}`
-                        : item.url;
-                      const linkState = isNovaOsFromChat
-                        ? { preselectedClient: activeIspfyClient }
-                        : undefined;
-                      return (
-                        <SidebarMenuItem key={item.url}>
-                          <SidebarMenuButton asChild>
-                            <Link
-                              to={targetUrl}
-                              state={linkState}
-                              className={`group relative flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] font-medium transition-colors duration-150 ${
-                                isActive
-                                  ? 'text-slate-950 dark:text-white'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
-                              }`}
-                            >
-                              {isActive && (
-                                <motion.span
-                                  layoutId="sidebar-active-item"
-                                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                                  className="pointer-events-none absolute inset-0 rounded-xl bg-primary/12 dark:bg-primary/18 border border-primary/30 shadow-[0_1px_8px_rgba(37,99,235,0.14)]"
-                                />
-                              )}
-                              {isActive && (
-                                <motion.span
-                                  layoutId="sidebar-active-beam"
-                                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                                  className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full"
-                                  style={{ background: 'linear-gradient(180deg, #60A5FA, #7C3AED)' }}
-                                />
-                              )}
-
-                              <span className="relative z-10 flex items-center gap-2.5 min-w-0 transition-transform duration-150 group-hover:translate-x-0.5">
-                                <Icon
-                                  className={`w-4 h-4 shrink-0 transition-colors ${
-                                    isActive
-                                      ? 'text-primary'
-                                      : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white'
-                                  }`}
-                                />
-                                <span className="truncate">{item.title}</span>
-                              </span>
-
-                              {item.badgeKey === 'explorer_360' && (
-                                <Badge className="relative z-10 h-4 px-1.5 text-[9px] font-bold bg-blue-600/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
-                                  360°
-                                </Badge>
-                              )}
-
-                              {item.badgeKey === 'chat_unread' && totalUnreadCount > 0 && (
-                                <Badge className="relative z-10 h-5 min-w-[20px] px-1.5 text-[10px] bg-blue-600 text-white border-none justify-center">
-                                  {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
-                                </Badge>
-                              )}
-
-                              {item.badgeKey === 'region_offline' &&
-                                (totalOutages > 0 ? (
-                                  <Badge className="relative z-10 h-5 px-1.5 text-[10px] bg-rose-600 text-white border-none animate-pulse">
-                                    {totalOutages} ROMP.
-                                  </Badge>
-                                ) : totalOffline > 0 ? (
-                                  <Badge
-                                    variant="secondary"
-                                    className="relative z-10 h-5 px-1.5 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
-                                  >
-                                    {totalOffline}
-                                  </Badge>
-                                ) : null)}
-
-                              {item.badgeKey === 'new_intel' && (
-                                <Badge className="relative z-10 h-4 px-1.5 text-[9px] bg-violet-600/20 text-violet-600 dark:text-violet-300 border border-violet-500/30">
-                                  IA
-                                </Badge>
-                              )}
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      );
-                    })}
+                    {visibleItems.map((item) => renderNavItem(item, 'group'))}
                   </SidebarMenu>
                 </SidebarGroupContent>
               )}
             </SidebarGroup>
           );
         })}
+
+        {activeModeRouteSet && (
+          <div className="px-2 pt-1 pb-2">
+            <button
+              type="button"
+              onClick={() => updatePreferences({ workspaceMode: 'all' })}
+              className="w-full py-1.5 px-2.5 rounded-xl text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.05] border border-dashed border-border/70 transition-colors"
+            >
+              Ver todos os módulos
+            </button>
+          </div>
+        )}
       </SidebarContent>
 
       {/* Footer */}
@@ -510,10 +639,7 @@ export function AppSidebar({ onOpenGlobalSearch }: AppSidebarProps) {
               className="w-8 h-8 rounded-full object-cover ring-2 ring-primary/35 shrink-0"
             />
           ) : (
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-              style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}
-            >
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-primary text-primary-foreground shrink-0">
               {userInitial}
             </div>
           )}

@@ -16,6 +16,7 @@ vite.config.ts.timestamp-*.mjs
 node_modules
 dist
 dist-ssr
+desktop/dist-desktop
 *.local
 
 # Editor directories and files

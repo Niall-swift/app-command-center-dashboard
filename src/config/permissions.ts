@@ -133,6 +133,12 @@ export const SCREEN_PERMISSIONS: ScreenPermissionItem[] = [
 
   // ISPFY & Financeiro
   {
+    path: '/ispfy/web',
+    label: 'ISPFY Web (Oficial)',
+    description: 'Painel oficial ISPFY embutido em tela cheia com Keep-Alive',
+    groupId: 'ispfy_financeiro',
+  },
+  {
     path: '/ispfy/consulta',
     label: 'ISPFY Explorer 360°',
     description: 'Consulta e ficha completa de clientes, contratos e faturas',
@@ -240,19 +246,20 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: 'atendimento',
     label: 'Atendimento / Chat',
-    description: 'Chat ao Vivo, ISPFY 360°, Nova O.S., Tickets e Solicitações',
-    routes: ['/chat', '/ispfy/consulta', '/ispfy/nova-os', '/ispfy/tickets', '/requests'],
+    description: 'Chat ao Vivo, ISPFY 360°, ISPFY Web, Nova O.S., Tickets e Solicitações',
+    routes: ['/chat', '/ispfy/consulta', '/ispfy/web', '/ispfy/nova-os', '/ispfy/tickets', '/requests'],
   },
   {
     id: 'suporte_noc',
     label: 'Suporte Técnico / NOC',
-    description: 'Dashboard, Chat, Bairro/Rua, CTO, Mapa, O.S., Tickets e ISPFY 360°',
+    description: 'Dashboard, Chat, Bairro/Rua, CTO, Mapa, O.S., Tickets, ISPFY 360° e ISPFY Web',
     routes: [
       '/',
       '/chat',
       '/ispfy/regiao',
       '/ispfy/inteligencia',
       '/ispfy/consulta',
+      '/ispfy/web',
       '/ispfy/nova-os',
       '/ispfy/tickets',
       '/network-map',
@@ -262,11 +269,12 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: 'financeiro',
     label: 'Financeiro & Cobrança',
-    description: 'Dashboard, Chat, Explorer, Financeiro/Caixa, Vencimentos, Carência e Auditoria',
+    description: 'Dashboard, Chat, Explorer, ISPFY Web, Financeiro/Caixa, Vencimentos, Carência e Auditoria',
     routes: [
       '/',
       '/chat',
       '/ispfy/consulta',
+      '/ispfy/web',
       '/ispfy/financeiro',
       '/ispfy/vencimentos',
       '/ispfy/carencia',
@@ -277,11 +285,12 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: 'comercial',
     label: 'Comercial & Engajamento',
-    description: 'Dashboard, Chat, Explorer, Inteligência, Envio em Massa e Sorteios/Prêmios',
+    description: 'Dashboard, Chat, Explorer, ISPFY Web, Inteligência, Envio em Massa e Sorteios/Prêmios',
     routes: [
       '/',
       '/chat',
       '/ispfy/consulta',
+      '/ispfy/web',
       '/ispfy/inteligencia',
       '/whatsapp/bulk',
       '/raffle',

@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUiPreferences } from '@/contexts/UiPreferencesContext';
 import { Lock, LogOut, ShieldCheck, Crown, User } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { getRoleDisplayLabel } from '@/config/permissions';
 
 export const UserMenu = () => {
   const { user, panelProfile, lockScreen, logout } = useAuth();
+  const { preferences } = useUiPreferences();
   const { toast } = useToast();
   const [imgError, setImgError] = useState(false);
 
@@ -80,20 +82,23 @@ export const UserMenu = () => {
       {panelProfile?.hasPin && (
         <Button
           variant="outline"
-          size="sm"
+          size="icon"
           onClick={lockScreen}
-          className="flex items-center gap-1.5 h-9 rounded-xl"
-          title="Bloquear tela (exigir PIN de 6 dígitos para retornar)"
+          className="h-9 w-9 rounded-xl border-border/70 bg-background/70 hover:bg-secondary/80"
+          title={
+            preferences.autoLockMinutes > 0
+              ? `Bloquear tela agora (bloqueio automático em ${preferences.autoLockMinutes} min)`
+              : 'Bloquear tela agora'
+          }
         >
           <Lock className="h-4 w-4" />
-          <span className="hidden xl:inline">Bloquear</span>
         </Button>
       )}
       <Button
         variant="outline"
         size="sm"
         onClick={handleLogout}
-        className="flex items-center gap-1.5 h-9 rounded-xl"
+        className="flex items-center gap-1.5 h-9 rounded-xl border-border/70 bg-background/70 hover:bg-secondary/80"
       >
         <LogOut className="h-4 w-4" />
         <span className="hidden sm:inline">Sair</span>

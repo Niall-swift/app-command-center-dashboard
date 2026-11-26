@@ -1011,7 +1011,7 @@ export const OperatorAccessManager: React.FC = () => {
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Exigida na splash screen minimalista sempre que este usuário abrir ou desbloquear o painel.
+                      Exigida na tela de entrada ao abrir o painel e automaticamente após 10 minutos sem atividade.
                     </p>
                   </div>
                 </div>

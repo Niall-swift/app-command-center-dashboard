@@ -9,6 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "desktop": "npm --prefix desktop start",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:build:win": "npm --prefix desktop run build:win",
     "server": "set GOOGLE_CLOUD_PROJECT=avl-telecom&&set GCLOUD_PROJECT=avl-telecom&&tsx watch src/server/real_backend.ts"
   },
   "dependencies": {

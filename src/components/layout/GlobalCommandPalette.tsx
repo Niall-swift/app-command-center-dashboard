@@ -14,6 +14,7 @@ import {
   FileText,
   Film,
   Gift,
+  Globe,
   Home,
   Lock,
   Map,
@@ -45,7 +46,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQuickClientDrawer } from '@/contexts/QuickClientDrawerContext';
 import { ispfyService } from '@/services/ispfy/ispfyService';
+import { prefetchRoute } from '@/config/routePrefetch';
 import type { ISPFYClienteData } from '@/types/ispfy';
 
 interface NavShortcut {
@@ -70,6 +73,7 @@ const ALL_PAGES: NavShortcut[] = [
   { title: 'Notificações Push', url: '/notifications', category: 'Atendimento', keywords: 'push app celular', icon: Bell },
   { title: 'Solicitações de Usuários', url: '/requests', category: 'Atendimento', keywords: 'pedidos solicitacoes', icon: FileText },
   { title: 'Consulta de Clientes ISPFY', url: '/ispfy/consulta', category: 'ISPFY', keywords: 'buscar cpf cliente cadastro', icon: Users },
+  { title: 'ISPFY Web (Painel Oficial)', url: '/ispfy/web', category: 'ISPFY', keywords: 'ispfy webview sistema oficial iframe', icon: Globe },
   { title: 'Financeiro & Caixa', url: '/ispfy/financeiro', category: 'ISPFY', keywords: 'receita caixa inadimplencia contas', icon: DollarSign },
   { title: 'Auditoria de Clientes', url: '/ispfy/auditoria', category: 'ISPFY', keywords: 'novos cancelados excluidos base', icon: ShieldCheck },
   { title: 'Vencimentos em Massa', url: '/ispfy/vencimentos', category: 'ISPFY', keywords: 'vencimento alterar data', icon: Calendar },
@@ -101,7 +105,14 @@ export function GlobalCommandPalette({
   const navigate = useNavigate();
   const { dadosRegiao, tocarSireneRompimento } = useNetworkMonitor();
   const { canAccessRoute } = useAuth();
+  const { openClientDrawer, preloadClientDrawer } = useQuickClientDrawer();
   const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      preloadClientDrawer();
+    }
+  }, [open, preloadClientDrawer]);
   const [remoteClients, setRemoteClients] = useState<ISPFYClienteData[]>([]);
   const [searchingRemote, setSearchingRemote] = useState(false);
 
@@ -203,12 +214,33 @@ export function GlobalCommandPalette({
         </CommandEmpty>
 
         {canViewClientProfile && localMatches.length > 0 && (
-          <CommandGroup heading="Clientes ISPFY (Busca Instantânea)">
+          <CommandGroup heading="Clientes ISPFY (Abre Gaveta 360° sem sair da tela)">
             {localMatches.map((cli) => (
               <CommandItem
                 key={`local-${cli.clienteId}-${cli.pontoId}`}
                 value={`${cli.nome} ${cli.cpfCnpj} ${cli.ruaLabel} ${cli.bairroLabel} ${cli.telefone} ${cli.usuarioPppoe}`}
-                onSelect={() => goTo(`/ispfy/cliente/${cli.clienteId}`)}
+                onSelect={() => {
+                  onOpenChange(false);
+                  setQuery('');
+                  openClientDrawer({
+                    clienteId: cli.clienteId,
+                    nome: cli.nome,
+                    telefone: cli.telefone,
+                    bairro: cli.bairroLabel,
+                    rua: cli.ruaLabel,
+                    enderecoCompleto: cli.enderecoCompleto,
+                    usuarioPppoe: cli.usuarioPppoe,
+                    plano: cli.plano,
+                    connectionHealth:
+                      cli.connectionHealth === 'ok'
+                        ? 'ok'
+                        : cli.connectionHealth === 'desconectado'
+                        ? 'desconectado'
+                        : cli.connectionHealth === 'inativo'
+                        ? 'inativo'
+                        : 'bloqueado',
+                  });
+                }}
                 className="flex items-center justify-between gap-2 py-2.5"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -253,7 +285,18 @@ export function GlobalCommandPalette({
               <CommandItem
                 key={`remote-${cli.id}`}
                 value={`remote ${cli.nome_razao || cli.nome || cli.razao} ${cli.cpf_cnpj || ''}`}
-                onSelect={() => goTo(`/ispfy/cliente/${cli.id}`)}
+                onSelect={() => {
+                  if (!cli.id) return;
+                  onOpenChange(false);
+                  setQuery('');
+                  openClientDrawer({
+                    clienteId: String(cli.id),
+                    nome: cli.nome_razao || cli.razao || cli.nome,
+                    telefone: cli.fone_whatsapp || cli.fone_celular || cli.telefone_celular,
+                    bairro: cli.endereco_cobranca_bairro || cli.bairro,
+                    rua: cli.endereco_cobranca_rua || cli.endereco,
+                  });
+                }}
                 className="flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
@@ -265,7 +308,7 @@ export function GlobalCommandPalette({
                   </p>
                 </div>
                 <Badge variant="outline" className="text-[10px]">
-                  Abrir Ficha
+                  Gaveta 360°
                 </Badge>
               </CommandItem>
             ))}
@@ -273,6 +316,12 @@ export function GlobalCommandPalette({
         )}
 
         <CommandGroup heading="Ações Rápidas">
+          {canAccessRoute('/ispfy/web') && (
+            <CommandItem onSelect={() => goTo('/ispfy/web')}>
+              <Globe className="mr-2 h-4 w-4 text-primary" />
+              <span>Abrir ISPFY Web (Integrado no App)</span>
+            </CommandItem>
+          )}
           {canAccessRoute('/ispfy/nova-os') && (
             <CommandItem onSelect={() => goTo('/ispfy/nova-os')}>
               <ClipboardList className="mr-2 h-4 w-4 text-emerald-500" />
@@ -307,6 +356,7 @@ export function GlobalCommandPalette({
               <CommandItem
                 key={page.url}
                 value={`${page.title} ${page.category} ${page.keywords}`}
+                onMouseEnter={() => prefetchRoute(page.url)}
                 onSelect={() => goTo(page.url)}
                 className="flex items-center justify-between"
               >

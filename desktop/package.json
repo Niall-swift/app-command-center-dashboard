@@ -1,0 +1,46 @@
+{
+  "name": "avl-control-desktop",
+  "productName": "AVL Control",
+  "version": "1.0.0",
+  "description": "AVL Telecom Command Center com ISPFY WebView nativo embutido",
+  "author": "AVL Telecom",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:win": "electron-builder --win portable --x64"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "br.com.avltelecom.control",
+    "productName": "AVL Control",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "icon.png"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "portable": {
+      "artifactName": "AVL-Control-Desktop.exe"
+    }
+  }
+}

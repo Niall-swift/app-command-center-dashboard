@@ -16,6 +16,7 @@ import {
   Bell,
   BellOff,
   ExternalLink,
+  Eye,
   MapPin,
   Phone,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
+import { useQuickClientDrawer } from '@/contexts/QuickClientDrawerContext';
 import { abrirConversaWhatsApp } from '@/lib/utils';
 import { formatarDataHoraCurta, formatarHorarioCurto } from '@/utils/date';
 import { toast } from 'sonner';
@@ -31,6 +33,7 @@ import { toast } from 'sonner';
 /** Painel de clientes desconectados no momento e histórico de quedas/reconexões ao vivo. */
 export const RealtimeOfflinePanel: React.FC = () => {
   const navegar = useNavigate();
+  const { openClientDrawer } = useQuickClientDrawer();
   const {
     dadosRegiao,
     eventosRecentes,
@@ -175,8 +178,24 @@ export const RealtimeOfflinePanel: React.FC = () => {
                   key={registro.pontoId}
                   className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-secondary/30 transition-colors"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-foreground truncate">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openClientDrawer({
+                        clienteId: registro.clienteId,
+                        nome: registro.nome,
+                        telefone: registro.telefone,
+                        bairro: registro.bairroLabel,
+                        rua: registro.ruaLabel,
+                        enderecoCompleto: registro.enderecoCompleto,
+                        usuarioPppoe: registro.usuarioPppoe,
+                        plano: registro.plano,
+                        connectionHealth: 'desconectado',
+                      })
+                    }
+                    className="min-w-0 flex-1 text-left group"
+                  >
+                    <p className="font-bold text-foreground group-hover:text-primary transition-colors truncate">
                       {registro.nome}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
@@ -190,9 +209,30 @@ export const RealtimeOfflinePanel: React.FC = () => {
                       })}
                       {registro.plano ? ` • ${registro.plano}` : ''}
                     </p>
-                  </div>
+                  </button>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-primary"
+                      onClick={() =>
+                        openClientDrawer({
+                          clienteId: registro.clienteId,
+                          nome: registro.nome,
+                          telefone: registro.telefone,
+                          bairro: registro.bairroLabel,
+                          rua: registro.ruaLabel,
+                          enderecoCompleto: registro.enderecoCompleto,
+                          usuarioPppoe: registro.usuarioPppoe,
+                          plano: registro.plano,
+                          connectionHealth: 'desconectado',
+                        })
+                      }
+                      title="Abrir Gaveta 360° sem sair do Dashboard"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

@@ -6,36 +6,37 @@
 
 @layer base {
   :root {
-    /* Shadcn tokens — AVL Executive Light */
-    --background: 220 26% 97%;
-    --foreground: 222.2 84% 4.9%;
+    /* Apple / Linear Minimalist Light */
+    --background: 220 20% 98%;
+    --foreground: 224 32% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 224 32% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 224 32% 10%;
     --primary: 221 83% 53%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 215 30% 95%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 215 28% 94.5%;
-    --muted-foreground: 215.4 16.3% 44%;
-    --accent: 217 40% 94%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --secondary: 220 18% 94.5%;
+    --secondary-foreground: 224 28% 18%;
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 12% 46%;
+    --accent: 220 20% 93%;
+    --accent-foreground: 224 32% 12%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 218 22% 89%;
-    --input: 218 22% 89%;
+    --border: 220 16% 89.5%;
+    --input: 220 16% 88%;
     --ring: 221 83% 53%;
     --radius: 0.75rem;
+    --avl-main-pad: 1.5rem;
 
     /* Sidebar tokens */
-    --sidebar-background: 215 30% 98%;
-    --sidebar-foreground: 222 30% 24%;
+    --sidebar-background: 220 20% 97.5%;
+    --sidebar-foreground: 224 24% 24%;
     --sidebar-primary: 221 83% 53%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 217 30% 94%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 218 22% 90%;
+    --sidebar-accent: 220 18% 93%;
+    --sidebar-accent-foreground: 224 32% 12%;
+    --sidebar-border: 220 16% 90%;
     --sidebar-ring: 221 83% 53%;
 
     /* AVL brand palette */
@@ -55,52 +56,99 @@
   }
 
   .dark {
-    /* Base background: Deep obsidian slate */
-    --background: 224 45% 5.5%;
-    --foreground: 210 40% 98%;
+    /* Apple / Linear Refined Dark (neutral obsidian charcoal, less noisy blue) */
+    --background: 228 18% 6.5%;
+    --foreground: 210 25% 97%;
 
-    /* Card elevation 1: Noticeably distinguished from background */
-    --card: 222 38% 9.5%;
-    --card-foreground: 210 40% 98%;
+    /* Card elevation 1: Subtle clean contrast */
+    --card: 228 16% 10%;
+    --card-foreground: 210 25% 97%;
 
-    /* Popover elevation 2: Floating surface */
-    --popover: 222 38% 11.5%;
-    --popover-foreground: 210 40% 98%;
+    /* Popover elevation 2: Floating translucent surface */
+    --popover: 228 16% 12%;
+    --popover-foreground: 210 25% 97%;
 
-    /* Brand primary: Electric vibrant blue */
+    /* Dynamic Accent Primary */
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
 
     /* Secondary interactive surfaces */
-    --secondary: 222 32% 15.5%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 228 14% 15.5%;
+    --secondary-foreground: 210 25% 95%;
 
-    /* Muted surfaces and high-contrast text */
-    --muted: 222 28% 14%;
-    --muted-foreground: 215 20% 68%;
+    /* Muted surfaces and calm hierarchy */
+    --muted: 228 13% 14%;
+    --muted-foreground: 220 12% 65%;
 
     /* Accent & interactive hover */
-    --accent: 222 32% 17%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 228 14% 17%;
+    --accent-foreground: 210 25% 97%;
 
     /* Destructive alert */
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
-    /* Crisp definition borders */
-    --border: 222 28% 17%;
-    --input: 222 28% 19%;
+    /* Hairline crisp borders */
+    --border: 228 13% 17.5%;
+    --input: 228 13% 19.5%;
     --ring: 217 91% 60%;
 
     /* Sidebar tokens */
-    --sidebar-background: 224 45% 6%;
-    --sidebar-foreground: 210 40% 94%;
+    --sidebar-background: 228 18% 7.2%;
+    --sidebar-foreground: 210 20% 92%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 32% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 28% 15%;
+    --sidebar-accent: 228 14% 14.5%;
+    --sidebar-accent-foreground: 210 25% 97%;
+    --sidebar-border: 228 13% 15.5%;
     --sidebar-ring: 217 91% 60%;
+  }
+
+  /* Superfície OLED Preto Puro (Personalizar → Tema OLED) */
+  .dark[data-surface="oled"] {
+    --background: 0 0% 0%;
+    --card: 240 6% 5.5%;
+    --popover: 240 6% 7.5%;
+    --secondary: 240 5% 11%;
+    --muted: 240 5% 10%;
+    --accent: 240 5% 13%;
+    --border: 240 5% 14.5%;
+    --input: 240 5% 16%;
+    --sidebar-background: 0 0% 1.5%;
+    --sidebar-accent: 240 5% 10%;
+    --sidebar-border: 240 5% 12.5%;
+  }
+
+  /* Escala global de fonte */
+  html[data-font-scale="sm"] {
+    font-size: 14.5px;
+  }
+  html[data-font-scale="md"] {
+    font-size: 16px;
+  }
+  html[data-font-scale="lg"] {
+    font-size: 17.5px;
+  }
+
+  /* Densidade global do workspace */
+  html[data-density="compact"] {
+    --avl-main-pad: 0.85rem;
+  }
+  html[data-density="comfortable"] {
+    --avl-main-pad: 1.5rem;
+  }
+  html[data-density="spacious"] {
+    --avl-main-pad: 2.1rem;
+  }
+
+  /* Modo animações reduzidas (ultraleve) */
+  html[data-reduced-motion="true"] *,
+  html[data-reduced-motion="true"] *::before,
+  html[data-reduced-motion="true"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -346,28 +394,52 @@
   transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(37, 99, 235, 0.65);
+  background: hsl(var(--primary) / 0.65);
 }
 .dark ::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.22);
 }
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(96, 165, 250, 0.6);
+  background: hsl(var(--primary) / 0.65);
 }
 
-/* ─── AVL Executive Visual Surfaces ───────────────────────────────────────── */
+/* ─── AVL Apple / Linear Minimalist Visual Surfaces ───────────────────────── */
 
 .avl-canvas-bg {
   background-color: hsl(var(--background));
+  background-image: radial-gradient(
+    ellipse 70% 34% at 50% -14%,
+    hsl(var(--primary) / 0.055),
+    transparent 70%
+  );
+}
+
+.dark .avl-canvas-bg {
+  background-image: radial-gradient(
+    ellipse 75% 38% at 50% -12%,
+    hsl(var(--primary) / 0.085),
+    transparent 72%
+  );
+}
+
+.dark[data-surface="oled"] .avl-canvas-bg {
+  background-image: radial-gradient(
+    ellipse 65% 30% at 50% -15%,
+    hsl(var(--primary) / 0.055),
+    transparent 68%
+  );
+}
+
+html[data-canvas-pattern="dots"] .avl-canvas-bg {
   background-image:
-    radial-gradient(ellipse 75% 40% at 50% -12%, rgba(37, 99, 235, 0.08), transparent 70%),
+    radial-gradient(ellipse 75% 40% at 50% -12%, hsl(var(--primary) / 0.07), transparent 70%),
     radial-gradient(rgba(15, 23, 42, 0.055) 1px, transparent 1px);
   background-size: 100% 100%, 24px 24px;
 }
 
-.dark .avl-canvas-bg {
+html.dark[data-canvas-pattern="dots"] .avl-canvas-bg {
   background-image:
-    radial-gradient(ellipse 80% 45% at 50% -10%, rgba(59, 130, 246, 0.14), transparent 72%),
+    radial-gradient(ellipse 80% 45% at 50% -10%, hsl(var(--primary) / 0.11), transparent 72%),
     radial-gradient(rgba(148, 163, 184, 0.075) 1px, transparent 1px);
   background-size: 100% 100%, 24px 24px;
 }
@@ -650,8 +722,8 @@
 }
 .dark input:focus-visible,
 .dark textarea:focus-visible {
-  border-color: #3B82F6 !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.24) !important;
 }
 
 /* ─── Aceternity UI Helpers ───────────────────────────────────────────────── */
