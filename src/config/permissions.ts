@@ -9,6 +9,8 @@ export interface PanelUserProfile {
   allowedRoutes: string[];
   photoUrl?: string;
   jobTitle?: string;
+  hasPin?: boolean;
+  pinUpdatedAt?: string;
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;

@@ -10,20 +10,27 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 
 import type { ChatMediaPayload } from "@/types/dashboard";
 
+interface AttendantProfile {
+  id?: string;
+  name: string;
+  role: string;
+  avatar: string;
+}
+
 interface AttendantCardProps {
   onSendMessage: (message: string, media?: ChatMediaPayload) => void;
 }
 
-export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
+function AttendantCardInner({ onSendMessage }: AttendantCardProps) {
   const [greeting, setGreeting] = useState("");
   const [icon, setIcon] = useState<React.ReactNode>(null);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [allAttendants, setAllAttendants] = useState<any[]>([]);
+  const [allAttendants, setAllAttendants] = useState<AttendantProfile[]>([]);
   
   // Perfil selecionado
-  const [attendant, setAttendant] = useState(() => {
+  const [attendant, setAttendant] = useState<AttendantProfile>(() => {
     const saved = localStorage.getItem('avl_selected_attendant');
-    return saved ? JSON.parse(saved) : {
+    return saved ? (JSON.parse(saved) as AttendantProfile) : {
       name: "Selecionar Atendente",
       role: "Clique na engrenagem",
       avatar: ""
@@ -34,10 +41,15 @@ export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
   useEffect(() => {
     const q = query(collection(db, "attendants"), where("status", "==", "ativo"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const data: AttendantProfile[] = snapshot.docs.map((docSnap) => {
+        const raw = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: String(raw.name || 'Atendente'),
+          role: String(raw.role || ''),
+          avatar: String(raw.avatar || ''),
+        };
+      });
       setAllAttendants(data);
     });
     return () => unsubscribe();
@@ -63,7 +75,7 @@ export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const selectProfile = (p: any) => {
+  const selectProfile = (p: AttendantProfile) => {
     setAttendant(p);
     localStorage.setItem('avl_selected_attendant', JSON.stringify(p));
     setIsSelecting(false);
@@ -72,11 +84,7 @@ export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
   const welcomeMessage = `Olá, ${greeting}! Me chamo ${attendant.name}, sou atendente da AVL Telecom. Como posso te ajudar hoje?`;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mb-4 relative"
-    >
+    <div className="relative">
       <Card className="bg-slate-900 text-white border-none shadow-xl overflow-hidden relative group">
         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full -mr-16 -mt-16 blur-3xl pointer-events-none" />
         
@@ -194,6 +202,9 @@ export default function AttendantCard({ onSendMessage }: AttendantCardProps) {
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
+
+const AttendantCard = React.memo(AttendantCardInner);
+export default AttendantCard;

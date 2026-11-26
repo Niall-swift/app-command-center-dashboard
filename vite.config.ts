@@ -131,11 +131,52 @@ export default defineConfig(({ mode }) => ({
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-ui': ['lucide-react', 'framer-motion'],
-          'vendor-charts': ['recharts'],
-          'vendor-firebase': ['firebase/app', 'firebase/firestore', 'firebase/auth'],
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/');
+          if (!normalizedId.includes('/node_modules/')) return;
+          if (
+            normalizedId.includes('/node_modules/react/') ||
+            normalizedId.includes('/node_modules/react-dom/') ||
+            normalizedId.includes('/node_modules/react-router/') ||
+            normalizedId.includes('/node_modules/react-router-dom/') ||
+            normalizedId.includes('/node_modules/scheduler/')
+          ) {
+            return 'vendor-react';
+          }
+          if (
+            normalizedId.includes('/node_modules/firebase/') ||
+            normalizedId.includes('/node_modules/@firebase/')
+          ) {
+            return 'vendor-firebase';
+          }
+          if (normalizedId.includes('/node_modules/@radix-ui/')) {
+            return 'vendor-radix';
+          }
+          if (normalizedId.includes('/node_modules/framer-motion/')) {
+            return 'vendor-motion';
+          }
+          if (normalizedId.includes('/node_modules/lucide-react/')) {
+            return 'vendor-icons';
+          }
+          if (normalizedId.includes('/node_modules/@tanstack/')) {
+            return 'vendor-query';
+          }
+          if (normalizedId.includes('/node_modules/recharts/')) {
+            return 'vendor-charts';
+          }
+          if (normalizedId.includes('/node_modules/date-fns/')) {
+            return 'vendor-dates';
+          }
+          if (
+            normalizedId.includes('/node_modules/jspdf/') ||
+            normalizedId.includes('/node_modules/jspdf-autotable/') ||
+            normalizedId.includes('/node_modules/html2canvas/')
+          ) {
+            return 'vendor-pdf';
+          }
+          if (normalizedId.includes('/node_modules/cmdk/')) {
+            return 'vendor-cmdk';
+          }
         },
       },
     },

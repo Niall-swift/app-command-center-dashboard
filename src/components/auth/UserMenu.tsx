@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ShieldCheck, Crown, User } from 'lucide-react';
+import { Lock, LogOut, ShieldCheck, Crown, User } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { getRoleDisplayLabel } from '@/config/permissions';
 
 export const UserMenu = () => {
-  const { user, panelProfile, logout } = useAuth();
+  const { user, panelProfile, lockScreen, logout } = useAuth();
   const { toast } = useToast();
   const [imgError, setImgError] = useState(false);
 
@@ -77,6 +77,18 @@ export const UserMenu = () => {
           {roleLabel}
         </Badge>
       </div>
+      {panelProfile?.hasPin && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={lockScreen}
+          className="flex items-center gap-1.5 h-9 rounded-xl"
+          title="Bloquear tela (exigir PIN de 6 dígitos para retornar)"
+        >
+          <Lock className="h-4 w-4" />
+          <span className="hidden xl:inline">Bloquear</span>
+        </Button>
+      )}
       <Button
         variant="outline"
         size="sm"

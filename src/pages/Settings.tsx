@@ -21,8 +21,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { toast } from 'sonner';
 import { formatDate } from '@/utils/date';
 import { Loader2, Building2, User, RefreshCcw, ArrowRightLeft, AlertTriangle, CheckCircle2, ShieldCheck, Users, FileText, Youtube, Pin, Send, Maximize2, Minimize2, Radio } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 interface Filial {
   id: string;
@@ -868,12 +866,17 @@ export default function Settings() {
     });
   };
 
-  const handleExportAuditPDF = () => {
+  const handleExportAuditPDF = async () => {
     const results = getAuditResults();
     if (results.length === 0) {
       toast.error('Nenhum dado de auditoria para exportar.');
       return;
     }
+
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
 
     const doc = new jsPDF();
     

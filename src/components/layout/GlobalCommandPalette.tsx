@@ -90,9 +90,14 @@ const ALL_PAGES: NavShortcut[] = [
 interface GlobalCommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  disableShortcut?: boolean;
 }
 
-export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPaletteProps) {
+export function GlobalCommandPalette({
+  open,
+  onOpenChange,
+  disableShortcut = false,
+}: GlobalCommandPaletteProps) {
   const navigate = useNavigate();
   const { dadosRegiao, tocarSireneRompimento } = useNetworkMonitor();
   const { canAccessRoute } = useAuth();
@@ -107,6 +112,7 @@ export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPalett
   );
 
   useEffect(() => {
+    if (disableShortcut) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -115,7 +121,7 @@ export function GlobalCommandPalette({ open, onOpenChange }: GlobalCommandPalett
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, disableShortcut]);
 
   // Busca instantânea (0ms) no snapshot em memória do NetworkMonitor
   const localMatches = useMemo(() => {

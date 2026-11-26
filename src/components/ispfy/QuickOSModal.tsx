@@ -58,8 +58,12 @@ interface QuickOSModalProps {
   preselectedClient?: ISPFYClienteData;
   /** Permite voltar ao passo 1 para trocar o cliente mesmo quando pré-selecionado */
   allowChangeClient?: boolean;
-  /** Trigger personalizado — se omitido, usa o botão padrão */
-  trigger?: React.ReactNode;
+  /** Trigger personalizado — passe null para controlar via open/onOpenChange sem trigger */
+  trigger?: React.ReactNode | null;
+  /** Estado controlado de abertura (opcional) */
+  open?: boolean;
+  /** Callback controlado de abertura (opcional) */
+  onOpenChange?: (open: boolean) => void;
   /** Callback chamado após criação bem-sucedida */
   onSuccess?: (ticketId: string) => void;
 }
@@ -71,9 +75,21 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   preselectedClient,
   allowChangeClient = false,
   trigger,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
   onSuccess,
 }) => {
-  const [aberto, setAberto] = useState(false);
+  const [abertoInterno, setAbertoInterno] = useState(false);
+  const aberto = openProp !== undefined ? openProp : abertoInterno;
+  const setAberto = useCallback(
+    (proximo: boolean) => {
+      if (openProp === undefined) {
+        setAbertoInterno(proximo);
+      }
+      onOpenChangeProp?.(proximo);
+    },
+    [openProp, onOpenChangeProp]
+  );
 
   // Etapa 1 = buscar cliente | 2 = dados da O.S. | 3 = sucesso
   const [etapa, setEtapa] = useState<1 | 2 | 3>(preselectedClient ? 2 : 1);
@@ -118,7 +134,12 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
   const [enviandoParaGrupo, setEnviandoParaGrupo] = useState(false);
   const [grupoEnviadoComSucesso, setGrupoEnviadoComSucesso] = useState<string | null>(null);
 
+  const gruposCarregadosRef = useRef(false);
+
+  // Só busca grupos do WhatsApp na Z-API quando o modal é realmente aberto
   useEffect(() => {
+    if (!aberto || gruposCarregadosRef.current) return;
+    gruposCarregadosRef.current = true;
     setCarregandoGrupos(true);
     whapiService
       .getGroups()
@@ -130,9 +151,12 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
           setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
         }
       })
-      .catch(console.error)
+      .catch((err) => {
+        gruposCarregadosRef.current = false;
+        console.error(err);
+      })
       .finally(() => setCarregandoGrupos(false));
-  }, []);
+  }, [aberto]);
 
   useEffect(() => {
     return () => {
@@ -449,17 +473,19 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
   return (
     <Dialog open={aberto} onOpenChange={setAberto}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button
-            size="sm"
-            className="bg-gradient-to-r from-emerald-600 to-green-500 hover:from-emerald-700 hover:to-green-600 text-white shadow-lg shadow-green-500/20 border-0 gap-2"
-          >
-            <PlusCircle className="w-4 h-4" />
-            Nova O.S.
-          </Button>
-        )}
-      </DialogTrigger>
+      {trigger !== null && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button
+              size="sm"
+              className="bg-gradient-to-r from-emerald-600 to-green-500 hover:from-emerald-700 hover:to-green-600 text-white shadow-lg shadow-green-500/20 border-0 gap-2"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Nova O.S.
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden border border-border bg-card shadow-2xl text-card-foreground">
         {/* Header */}

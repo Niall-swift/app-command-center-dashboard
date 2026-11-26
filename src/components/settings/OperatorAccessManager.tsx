@@ -67,6 +67,8 @@ interface FormState {
   name: string;
   email: string;
   password: string;
+  pin: string;
+  clearPin: boolean;
   photoUrl: string;
   jobTitle: string;
   role: EditableRole;
@@ -82,6 +84,8 @@ function createEmptyForm(): FormState {
     name: '',
     email: '',
     password: '',
+    pin: '',
+    clearPin: false,
     photoUrl: '',
     jobTitle: '',
     role: 'operador',
@@ -89,6 +93,10 @@ function createEmptyForm(): FormState {
     allowedRoutes: [...DEFAULT_OPERATOR_ROUTES],
     syncToAttendants: true,
   };
+}
+
+function generateSixDigitPin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function generateStrongPassword(): string {
@@ -137,6 +145,7 @@ export const OperatorAccessManager: React.FC = () => {
   const [editingUser, setEditingUser] = useState<PanelUserProfile | null>(null);
   const [form, setForm] = useState<FormState>(createEmptyForm);
   const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const [splashPreviewUser, setSplashPreviewUser] = useState<Ps5SplashUserInfo | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -186,6 +195,7 @@ export const OperatorAccessManager: React.FC = () => {
     setEditingUser(null);
     setForm(createEmptyForm());
     setShowPassword(true);
+    setShowPin(true);
     setDialogOpen(true);
   };
 
@@ -195,6 +205,8 @@ export const OperatorAccessManager: React.FC = () => {
       name: target.name || '',
       email: target.email || '',
       password: '',
+      pin: '',
+      clearPin: false,
       photoUrl: target.photoUrl || '',
       jobTitle: target.jobTitle || '',
       role: target.role === 'operador' ? 'operador' : 'admin',
@@ -206,6 +218,7 @@ export const OperatorAccessManager: React.FC = () => {
       syncToAttendants: false,
     });
     setShowPassword(false);
+    setShowPin(false);
     setDialogOpen(true);
   };
 
@@ -282,6 +295,7 @@ export const OperatorAccessManager: React.FC = () => {
       `Link: ${window.location.origin}`,
       `Login: ${form.email.trim()}`,
       ...(form.password ? [`Senha: ${form.password}`] : []),
+      ...(form.pin.length === 6 ? [`PIN de entrada (6 dígitos): ${form.pin}`] : []),
     ].join('\n');
     navigator.clipboard
       .writeText(lines)
@@ -307,6 +321,10 @@ export const OperatorAccessManager: React.FC = () => {
       toast.warning('A nova senha deve ter no mínimo 6 caracteres.');
       return;
     }
+    if (form.pin.length > 0 && !/^\d{6}$/.test(form.pin)) {
+      toast.warning('A senha numérica de entrada (PIN) deve ter exatamente 6 dígitos.');
+      return;
+    }
     if (form.role === 'operador' && form.allowedRoutes.length === 0) {
       toast.warning('Selecione pelo menos uma tela liberada para o operador.');
       return;
@@ -324,8 +342,9 @@ export const OperatorAccessManager: React.FC = () => {
           active: form.active,
           allowedRoutes: form.role === 'admin' ? ALL_ROUTE_PATHS : form.allowedRoutes,
           ...(form.password.length >= 6 ? { password: form.password } : {}),
+          ...(form.clearPin ? { clearPin: true } : form.pin.length === 6 ? { pin: form.pin } : {}),
         });
-        toast.success(`Perfil e permissões de ${form.name.trim()} atualizados!`);
+        toast.success(`Perfil, PIN e permissões de ${form.name.trim()} atualizados!`);
       } else {
         await panelUsersService.createUser({
           name: form.name.trim(),
@@ -336,6 +355,7 @@ export const OperatorAccessManager: React.FC = () => {
           role: form.role,
           active: form.active,
           allowedRoutes: form.role === 'admin' ? ALL_ROUTE_PATHS : form.allowedRoutes,
+          ...(form.pin.length === 6 ? { pin: form.pin } : {}),
           syncToAttendants: form.syncToAttendants,
         });
         toast.success(
@@ -433,12 +453,13 @@ export const OperatorAccessManager: React.FC = () => {
                 variant="outline"
                 className="bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/30 text-[10px] font-bold uppercase tracking-wider"
               >
-                Foto + Controle por Tela
+                Foto + PIN 6 Dígitos + Controle por Tela
               </Badge>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-              Crie contas de <strong>Admin</strong> ou <strong>Operador</strong>, adicione a foto de
-              cada perfil (exibida na Splash Screen PS5) e limite exatamente quais telas podem abrir.
+              Crie contas de <strong>Admin</strong> ou <strong>Operador</strong>, adicione a foto,
+              defina a <strong>senha numérica de 6 dígitos</strong> da tela de entrada e limite quais
+              telas cada usuário pode abrir.
             </p>
           </div>
         </div>
@@ -458,10 +479,10 @@ export const OperatorAccessManager: React.FC = () => {
               })
             }
             className="h-9 rounded-xl gap-1.5 border-indigo-500/35 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/10"
-            title="Ver prévia da Splash Screen estilo PlayStation 5 com sua foto"
+            title="Ver prévia da tela de entrada minimalista com PIN de 6 dígitos"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            Testar Splash PS5
+            Testar Tela de Entrada
           </Button>
           <Button
             type="button"
@@ -646,6 +667,17 @@ export const OperatorAccessManager: React.FC = () => {
                       >
                         {item.active ? 'Ativo' : 'Desativado'}
                       </Badge>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-semibold gap-1 ${
+                          item.hasPin
+                            ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
+                            : 'bg-secondary/60 text-muted-foreground border-border/80'
+                        }`}
+                      >
+                        <Lock className="w-2.5 h-2.5" />
+                        {item.hasPin ? 'PIN 6 dígitos' : 'Sem PIN'}
+                      </Badge>
                       {itemIsSelf && (
                         <Badge variant="secondary" className="text-[10px]">
                           Você
@@ -717,7 +749,7 @@ export const OperatorAccessManager: React.FC = () => {
                       })
                     }
                     className="h-8 w-8 rounded-xl text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10"
-                    title="Visualizar Splash Screen PS5 deste usuário"
+                    title="Visualizar Tela de Entrada minimalista deste usuário"
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
@@ -732,7 +764,7 @@ export const OperatorAccessManager: React.FC = () => {
                       className="h-8 rounded-xl text-xs gap-1.5"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      {itemIsCreator ? 'Foto & Perfil' : 'Foto, Telas & Senha'}
+                      {itemIsCreator ? 'Foto, PIN & Perfil' : 'Foto, PIN & Telas'}
                     </Button>
                   )}
 
@@ -791,8 +823,8 @@ export const OperatorAccessManager: React.FC = () => {
             </DialogTitle>
             <DialogDescription>
               {editingUser
-                ? 'Atualize a foto do perfil, as telas liberadas ou a senha. A foto aparece no topo, no menu e no centro da Splash Screen PS5.'
-                : 'Crie um login real no Firebase Auth com foto personalizada e defina exatamente quais telas este usuário poderá acessar.'}
+                ? 'Atualize a foto, o PIN numérico de 6 dígitos da tela de entrada, a senha ou as telas liberadas.'
+                : 'Crie um login real no Firebase Auth com foto personalizada, PIN numérico de 6 dígitos para a tela de entrada e permissões por tela.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -846,9 +878,9 @@ export const OperatorAccessManager: React.FC = () => {
               <div className="flex-1 w-full space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div>
-                    <p className="text-sm font-bold text-foreground">Foto do Perfil (Splash PS5)</p>
+                    <p className="text-sm font-bold text-foreground">Foto do Perfil (Tela de Entrada)</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Aparece em círculo no centro da Splash Screen ao fazer login e no menu.
+                      Aparece em círculo no centro da tela de entrada com PIN de 6 dígitos e no menu.
                     </p>
                   </div>
                   <Button
@@ -954,6 +986,98 @@ export const OperatorAccessManager: React.FC = () => {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Senha numérica de 6 dígitos (PIN da Tela de Entrada / Splash Screen) */}
+            <div className="p-4 rounded-2xl border border-indigo-500/25 bg-indigo-500/[0.05] space-y-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-500 shrink-0">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Label htmlFor="op-pin" className="text-sm font-bold text-foreground">
+                        Senha Numérica da Tela de Entrada (6 dígitos)
+                      </Label>
+                      {editingUser?.hasPin && !form.clearPin && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                        >
+                          PIN ativo
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Exigida na splash screen minimalista sempre que este usuário abrir ou desbloquear o painel.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm((p) => ({
+                      ...p,
+                      pin: generateSixDigitPin(),
+                      clearPin: false,
+                    }));
+                    setShowPin(true);
+                  }}
+                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 shrink-0"
+                >
+                  <KeyRound className="w-3 h-3" />
+                  Gerar 6 dígitos
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative flex-1 max-w-xs">
+                  <Input
+                    id="op-pin"
+                    type={showPin ? 'text' : 'password'}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    disabled={form.clearPin}
+                    value={form.pin}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setForm((p) => ({ ...p, pin: digits, clearPin: false }));
+                    }}
+                    placeholder={
+                      editingUser?.hasPin
+                        ? '•••••• (digite 6 números p/ trocar)'
+                        : 'Ex: 123456'
+                    }
+                    className="pr-10 font-mono tracking-[0.28em] bg-background"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPin((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                  >
+                    {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {editingUser?.hasPin && (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                    <Checkbox
+                      checked={form.clearPin}
+                      onCheckedChange={(checked) =>
+                        setForm((p) => ({
+                          ...p,
+                          clearPin: Boolean(checked),
+                          ...(checked ? { pin: '' } : {}),
+                        }))
+                      }
+                    />
+                    <span>Remover exigência de PIN para este usuário</span>
+                  </label>
+                )}
               </div>
             </div>
 
@@ -1212,16 +1336,20 @@ export const OperatorAccessManager: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Pré-visualização ao vivo da Splash Screen PS5 */}
+      {/* Pré-visualização ao vivo da Tela de Entrada Minimalista com PIN de 6 dígitos */}
       {typeof document !== 'undefined' &&
         createPortal(
           <AnimatePresence>
             {splashPreviewUser && (
               <Ps5UserSplashScreen
                 user={splashPreviewUser}
-                eyebrowText="PRÉVIA DA SPLASH SCREEN"
-                statusText="Fundo PlayStation 5 com ondulações e brilhos ao vivo"
-                dismissible
+                requirePin
+                previewMode
+                onVerifyPin={async () => ({ success: true, valid: true, hasPin: true })}
+                onPinVerified={() => {
+                  toast.success('Prévia da tela de entrada desbloqueada!');
+                  setSplashPreviewUser(null);
+                }}
                 onDismiss={() => setSplashPreviewUser(null)}
               />
             )}

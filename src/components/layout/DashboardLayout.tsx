@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from './AppSidebar';
 import { UserMenu } from '../auth/UserMenu';
@@ -11,10 +11,13 @@ import { GlobalNetworkAlertPill } from './GlobalNetworkAlertPill';
 import { ZapiHealthPill } from './ZapiHealthPill';
 import { MobileBottomDock } from './MobileBottomDock';
 import { usePwaInstall } from '@/hooks/usePwaInstall';
-import {
-  GlobalCommandPalette,
-  GlobalSearchTriggerButton,
-} from './GlobalCommandPalette';
+
+const loadGlobalCommandPalette = () =>
+  import('./GlobalCommandPalette').then((module) => ({
+    default: module.GlobalCommandPalette,
+  }));
+
+const LazyGlobalCommandPalette = lazy(loadGlobalCommandPalette);
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -55,8 +58,30 @@ const ROUTE_INFO: Record<string, { title: string; subtitle: string; category?: s
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const location = useLocation();
+  const [paletteMounted, setPaletteMounted] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const { canInstall, promptInstall } = usePwaInstall();
+
+  const openCommandPalette = useCallback(() => {
+    setPaletteMounted(true);
+    setCommandOpen(true);
+  }, []);
+
+  const preloadCommandPalette = useCallback(() => {
+    void loadGlobalCommandPalette();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteMounted(true);
+        setCommandOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const currentInfo = ROUTE_INFO[location.pathname] || {
     title: location.pathname.startsWith('/ispfy/cliente/') ? 'Ficha do Cliente ISPFY' : 'Command Center',
@@ -69,7 +94,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background text-foreground transition-colors duration-200 antialiased">
-        <AppSidebar onOpenGlobalSearch={() => setCommandOpen(true)} />
+        <AppSidebar onOpenGlobalSearch={openCommandPalette} />
         <main className="flex-1 flex flex-col min-w-0 avl-canvas-bg">
           <header className="sticky top-0 z-30 bg-card/85 backdrop-blur-xl border-b border-border/70 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3 transition-colors duration-200 shadow-[0_1px_12px_-4px_rgba(15,23,42,0.08)] dark:shadow-[0_1px_16px_-4px_rgba(0,0,0,0.5)]">
             <div className="flex items-center gap-3 min-w-0">
@@ -96,12 +121,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              {/* Busca Global Ctrl+K */}
-              <GlobalSearchTriggerButton onClick={() => setCommandOpen(true)} />
+              {/* Busca Global Ctrl+K (lazy-loaded) */}
+              <button
+                type="button"
+                onClick={openCommandPalette}
+                onMouseEnter={preloadCommandPalette}
+                onFocus={preloadCommandPalette}
+                className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-xl border border-border/80 bg-secondary/40 hover:bg-secondary/80 text-muted-foreground hover:text-foreground transition-all text-xs min-w-[190px] lg:min-w-[240px] justify-between"
+                title="Busca Global de Clientes e Módulos (Ctrl+K)"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Search className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Buscar cliente ou tela...</span>
+                </span>
+                <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                  Ctrl K
+                </kbd>
+              </button>
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setCommandOpen(true)}
+                onClick={openCommandPalette}
+                onMouseEnter={preloadCommandPalette}
                 className="sm:hidden h-9 w-9 rounded-xl"
                 title="Buscar (Ctrl+K)"
               >
@@ -163,8 +204,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {children}
           </div>
         </main>
-        <MobileBottomDock onOpenSearch={() => setCommandOpen(true)} />
-        <GlobalCommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+        <MobileBottomDock onOpenSearch={openCommandPalette} />
+        {paletteMounted && (
+          <Suspense fallback={null}>
+            <LazyGlobalCommandPalette
+              open={commandOpen}
+              onOpenChange={setCommandOpen}
+              disableShortcut
+            />
+          </Suspense>
+        )}
       </div>
     </SidebarProvider>
   );

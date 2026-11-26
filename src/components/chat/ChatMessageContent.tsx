@@ -212,7 +212,7 @@ interface ChatMessageContentProps {
  * Texto formatado, Foto, Vídeo, Áudio, Documento, Citação/Resposta,
  * Edição inline (Z-API editMessageId), Apagar para todos (DELETE /messages) e Reações.
  */
-export function ChatMessageContent({
+export const ChatMessageContent = React.memo(function ChatMessageContent({
   message,
   highlightQuery,
   onExpandImage,
@@ -564,6 +564,7 @@ export function ChatMessageContent({
                     src={message.mediaUrl}
                     alt="Imagem enviada no chat"
                     loading="lazy"
+                    decoding="async"
                     onError={() => setImgFailed(true)}
                     onClick={() => onExpandImage(message.mediaUrl!)}
                     className="max-w-full max-h-[340px] w-auto object-cover cursor-pointer transition-transform duration-200 group-hover/img:scale-[1.01]"
@@ -826,4 +827,4 @@ export function ChatMessageContent({
       )}
     </div>
   );
-}
+});

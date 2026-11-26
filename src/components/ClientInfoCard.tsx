@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Reorder } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClientOntStatusCard } from '@/components/chat/ClientOntStatusCard';
+import { SortableSidebarCard } from '@/components/chat/SortableSidebarCard';
+import {
+  useChatSidebarLayout,
+  type ChatSidebarWidgetId,
+} from '@/hooks/useChatSidebarLayout';
 import type { SmartOltOnu } from '@/types/smartOlt';
 import {
   User,
@@ -30,6 +36,9 @@ import {
   Zap,
   Link2,
   RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+  Check,
   X,
 } from 'lucide-react';
 import { ispfyService } from '@/services/ispfy/ispfyService';
@@ -71,6 +80,9 @@ interface ClientInfoCardProps {
     client: ISPFYClienteData | null,
     resolving: boolean
   ) => void;
+  attendantSlot?: React.ReactNode;
+  quickRepliesSlot?: React.ReactNode;
+  onCloseMobile?: () => void;
 }
 
 const GENERIC_POINT_LABELS = new Set([
@@ -160,16 +172,48 @@ const AVAILABLE_TAGS = [
   { id: 'resolvido', label: 'Resolvido', color: 'bg-muted text-muted-foreground border-border' },
 ];
 
-export default function ClientInfoCard({
+interface CachedClient360Entry {
+  fetchedAt: number;
+  ispfyData: ISPFYClienteData;
+  contracts: ISPFYContratoData[];
+  logins: ISPFYLoginData[];
+  livePoints: ISPFYLivePointStatus[];
+  invoices: ISPFYFaturaData[];
+}
+
+const CLIENT_360_CACHE_TTL_MS = 2 * 60 * 1000;
+const client360Cache = new Map<string, CachedClient360Entry>();
+
+function saveClient360Cache(chatId: string, entry: CachedClient360Entry) {
+  client360Cache.set(chatId, entry);
+  if (client360Cache.size > 40) {
+    const oldestKey = client360Cache.keys().next().value;
+    if (oldestKey) client360Cache.delete(oldestKey);
+  }
+}
+
+function ClientInfoCardInner({
   clientId,
   clientPhone,
   clientName,
   onSendMessage,
   onOntResolved,
   onIspfyClientResolved,
+  attendantSlot,
+  quickRepliesSlot,
+  onCloseMobile,
 }: ClientInfoCardProps) {
   const navigate = useNavigate();
   const { canAccessRoute } = useAuth();
+  const {
+    order: sidebarOrder,
+    hiddenIds: hiddenWidgetIds,
+    setOrder: setSidebarOrder,
+    moveWidget,
+    toggleWidgetVisibility,
+    resetLayout,
+  } = useChatSidebarLayout();
+  const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ispfyData, setIspfyData] = useState<ISPFYClienteData | null>(null);
   const [contracts, setContracts] = useState<ISPFYContratoData[]>([]);
@@ -331,6 +375,31 @@ export default function ClientInfoCard({
       return;
     }
 
+    // Hidratação instantânea (0ms) via cache em memória de 2 min ao alternar entre conversas
+    if (refreshTick === 0) {
+      const cached = client360Cache.get(clientId);
+      if (
+        cached &&
+        Date.now() - cached.fetchedAt < CLIENT_360_CACHE_TTL_MS &&
+        (!savedIspfyId || String(cached.ispfyData.id || '') === savedIspfyId)
+      ) {
+        loadedForChatRef.current = {
+          chatId: clientId,
+          ispfyId: String(cached.ispfyData.id || ''),
+          tick: refreshTick,
+        };
+        setUsageByPoint({});
+        setIspfyData(cached.ispfyData);
+        setContracts(cached.contracts);
+        setLogins(cached.logins);
+        setLivePoints(cached.livePoints);
+        setInvoices(cached.invoices);
+        setLoading(false);
+        onIspfyClientResolved?.(clientId, cached.ispfyData, false);
+        return;
+      }
+    }
+
     let cancelled = false;
     const fetchIspfyData = async () => {
       setLoading(true);
@@ -412,6 +481,14 @@ export default function ClientInfoCard({
           setLogins(details.clientLogins);
           setLivePoints(details.pointsStatus);
           setInvoices(details.openInvoices);
+          saveClient360Cache(clientId, {
+            fetchedAt: Date.now(),
+            ispfyData: client,
+            contracts: details.clientContracts,
+            logins: details.clientLogins,
+            livePoints: details.pointsStatus,
+            invoices: details.openInvoices,
+          });
         } else {
           onIspfyClientResolved?.(clientId, null, false);
         }
@@ -500,6 +577,14 @@ export default function ClientInfoCard({
       setLogins(details.clientLogins);
       setLivePoints(details.pointsStatus);
       setInvoices(details.openInvoices);
+      saveClient360Cache(clientId, {
+        fetchedAt: Date.now(),
+        ispfyData: client,
+        contracts: details.clientContracts,
+        logins: details.clientLogins,
+        livePoints: details.pointsStatus,
+        invoices: details.openInvoices,
+      });
       toast.success(`Vinculado a ${getClientDisplayName(client)}!`);
     } catch {
       toast.error('Erro ao carregar contratos do cliente.');
@@ -757,26 +842,18 @@ export default function ClientInfoCard({
     }
   };
 
-  if (loading) {
-    return (
-      <Card className="bg-card shadow-sm border-border overflow-hidden">
-        <CardContent className="p-8 flex flex-col items-center justify-center">
-          <Loader2 className="w-7 h-7 text-primary animate-spin mb-2" />
-          <p className="text-xs text-muted-foreground font-medium">Buscando dados no ISPFY...</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const hiddenSet = useMemo(() => new Set(hiddenWidgetIds), [hiddenWidgetIds]);
 
-  return (
-    <div className="space-y-3">
-      {/* Controle de IA */}
+  const widgetNodes: Record<ChatSidebarWidgetId, React.ReactNode> = {
+    josue_ai: (
       <Card
         className={`bg-card shadow-sm border overflow-hidden transition-all duration-200 ${
           aiEnabled ? 'border-indigo-500/40 ring-1 ring-indigo-500/20' : 'border-border'
         }`}
       >
-        <div className={`h-1 w-full ${aiEnabled ? 'bg-indigo-600 animate-pulse' : 'bg-transparent'}`} />
+        <div
+          className={`h-1 w-full ${aiEnabled ? 'bg-indigo-600 animate-pulse' : 'bg-transparent'}`}
+        />
         <CardContent className="p-3">
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -810,8 +887,9 @@ export default function ClientInfoCard({
           </div>
         </CardContent>
       </Card>
+    ),
 
-      {/* Tags & Pesquisa CSAT */}
+    tags_csat: (
       <Card className="bg-card shadow-sm border-border overflow-hidden">
         <CardHeader className="p-3 border-b border-border/60 bg-muted/30 flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-[11px] font-bold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider">
@@ -857,8 +935,9 @@ export default function ClientInfoCard({
           </div>
         </CardContent>
       </Card>
+    ),
 
-      {/* Status da Fibra / ONT ao vivo (SmartOLT) */}
+    smartolt: (
       <ClientOntStatusCard
         clientId={clientId}
         savedOnuId={savedOnuId}
@@ -867,8 +946,9 @@ export default function ClientInfoCard({
         onSendMessage={onSendMessage}
         onOntResolved={onOntResolved}
       />
+    ),
 
-      {/* Dados do Assinante ISPFY */}
+    ispfy_client: (
       <Card className="bg-card shadow-sm border-border overflow-hidden">
         <CardHeader className="p-3 border-b border-border/60 bg-muted/30 flex flex-row items-center justify-between space-y-0 gap-1">
           <CardTitle className="text-[11px] font-bold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider truncate">
@@ -913,7 +993,9 @@ export default function ClientInfoCard({
               variant="ghost"
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
               onClick={() => setShowManualSearch((prev) => !prev)}
-              title={ispfyData ? 'Trocar cliente vinculado no ISPFY' : 'Buscar e vincular cliente ISPFY'}
+              title={
+                ispfyData ? 'Trocar cliente vinculado no ISPFY' : 'Buscar e vincular cliente ISPFY'
+              }
             >
               {showManualSearch ? <X className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
             </Button>
@@ -921,15 +1003,17 @@ export default function ClientInfoCard({
               size="icon"
               variant="ghost"
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              onClick={() => setRefreshTick((t) => t + 1)}
+              onClick={() => {
+                client360Cache.delete(clientId);
+                setRefreshTick((t) => t + 1);
+              }}
               title="Recarregar dados do ISPFY"
             >
-              <RefreshCw className="w-3 h-3" />
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </CardHeader>
         <CardContent className="p-3 space-y-3">
-          {/* Busca Manual Inline para Vincular/Trocar Cliente ISPFY */}
           {showManualSearch && (
             <div className="p-2.5 rounded-xl bg-secondary/50 border border-border/80 space-y-2">
               <form onSubmit={handleManualSearchSubmit} className="flex gap-1.5">
@@ -979,274 +1063,49 @@ export default function ClientInfoCard({
             </div>
           )}
 
-          {ispfyData ? (
-            <>
-              <div className="space-y-2">
-                <div className="flex items-start gap-2">
-                  <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-foreground truncate">
-                      {getClientDisplayName(ispfyData)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground font-mono">
-                      ID: {ispfyData.id}
-                      {getClientDoc(ispfyData) ? ` • ${getClientDoc(ispfyData)}` : ''}
-                    </p>
-                  </div>
-                </div>
-
-                {(() => {
-                  const addr = getClientAddressLine(ispfyData);
-                  if (!addr.line1 && !addr.line2) return null;
-                  return (
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        {addr.line1}
-                        {addr.line1 && addr.line2 ? <br /> : null}
-                        {addr.line2}
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Contratos e Pontos Ao Vivo */}
-              <div className="pt-2 border-t border-border/60 space-y-2">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight flex items-center gap-1.5">
-                  <FileText className="w-3 h-3" />
-                  Contratos &amp; Conexão
-                </p>
-                {contracts.length > 0 ? (
-                  contracts.map((c) => {
-                    const matchingPoint = livePoints.find(
-                      (p) => String(p.idContrato) === String(c.id)
-                    );
-                    const matchingLogin =
-                      logins.find((l) => String(l.id_contrato || '') === String(c.id)) ||
-                      logins[0];
-                    const statusStr = String(c.status_contrato || c.status || '').toLowerCase();
-                    const isAtivo =
-                      statusStr === 'ativo' ||
-                      statusStr === 'a' ||
-                      (String(c.ativo || c.contrato_ativo || '').toLowerCase() === 's' &&
-                        !statusStr.includes('bloq') &&
-                        !statusStr.includes('canc'));
-                    const isBlocked =
-                      statusStr.includes('bloq') ||
-                      Boolean(matchingPoint?.isBlocked) ||
-                      (!isAtivo && !statusStr.includes('canc'));
-                    const planTitle =
-                      c.descricao ||
-                      c.contrato ||
-                      matchingPoint?.planoNome ||
-                      `Contrato #${c.id}`;
-                    const pppoeLogin =
-                      matchingLogin?.usuario ||
-                      matchingLogin?.login ||
-                      c.login ||
-                      matchingPoint?.nomePonto ||
-                      'N/A';
-
-                    return (
-                      <div
-                        key={c.id}
-                        className="p-2 bg-primary/5 rounded-lg border border-primary/15 space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold text-foreground truncate flex-1">
-                            {planTitle}
-                          </span>
-                          <Badge
-                            variant={isBlocked ? 'destructive' : 'secondary'}
-                            className="text-[9px] h-4 px-1.5"
-                          >
-                            {isBlocked ? 'Bloqueado' : isAtivo ? 'Ativo' : statusStr || 'Inativo'}
-                          </Badge>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          Login: {pppoeLogin}
-                        </p>
-
-                        {isBlocked && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full h-6 text-[9px] border-amber-500/40 text-amber-600 dark:text-amber-300 hover:bg-amber-500/10 font-bold gap-1.5"
-                            onClick={async () => {
-                              toast.loading('Realizando desbloqueio...', { id: 'unlock-task' });
-                              const res = await ispfyService.unlockContract(c.id!);
-                              if (res.success) {
-                                toast.success(res.message, { id: 'unlock-task' });
-                                if (onSendMessage) {
-                                  onSendMessage(
-                                    '✅ *Aviso:* Sua conexão foi liberada em confiança! Por favor, reinicie seu equipamento em alguns minutos.'
-                                  );
-                                }
-                              } else {
-                                toast.error(res.message, { id: 'unlock-task' });
-                              }
-                            }}
-                          >
-                            <Clock className="w-3 h-3" />
-                            DESBLOQUEIO EM CONFIANÇA
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-[10px] text-muted-foreground italic">
-                    Nenhum contrato encontrado.
+          {loading ? (
+            <div className="py-5 flex flex-col items-center justify-center">
+              <Loader2 className="w-6 h-6 text-primary animate-spin mb-1.5" />
+              <p className="text-[11px] text-muted-foreground font-medium">
+                Buscando dados no ISPFY...
+              </p>
+            </div>
+          ) : ispfyData ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground truncate">
+                    {getClientDisplayName(ispfyData)}
                   </p>
-                )}
-
-                {livePoints.length > 0 && (
-                  <div className="pt-1 space-y-1.5">
-                    {livePoints.map((pt) => {
-                      const usage = usageByPoint[pt.idPonto];
-                      return (
-                        <div
-                          key={pt.idPonto}
-                          className="p-2 rounded-lg border border-border bg-muted/30 space-y-1.5"
-                        >
-                          <div className="flex items-center justify-between gap-1.5">
-                            <div className="flex items-center gap-1.5 text-[10px] font-bold min-w-0">
-                              {pt.conexaoStatus === 'online' ? (
-                                <Wifi className="w-3 h-3 text-emerald-500 shrink-0" />
-                              ) : (
-                                <WifiOff className="w-3 h-3 text-rose-500 shrink-0" />
-                              )}
-                              <span
-                                className={
-                                  pt.conexaoStatus === 'online'
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : 'text-rose-600 dark:text-rose-400'
-                                }
-                              >
-                                {pt.conexaoStatus.toUpperCase()}
-                              </span>
-                              {pt.ipWan && (
-                                <span className="text-muted-foreground font-mono truncate">
-                                  {pt.ipWan}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-1.5 text-[9px] text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 font-bold gap-0.5"
-                                disabled={loadingUsageId === pt.idPonto}
-                                onClick={() => handleLoadPointUsage(pt.idPonto)}
-                                title="Consultar consumo real 30 dias no ISPFY"
-                              >
-                                {loadingUsageId === pt.idPonto ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <BarChart3 className="w-3 h-3" />
-                                )}
-                                30D
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-1.5 text-[9px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/20 font-bold gap-0.5"
-                                onClick={() => handleActivateQuickTurbo(pt.idPonto)}
-                                title="Aplicar Turbo de Velocidade por 7 dias no ISPFY"
-                              >
-                                <Rocket className="w-3 h-3" />
-                                TURBO
-                              </Button>
-                            </div>
-                          </div>
-
-                          {usage && (
-                            <div className="text-[10px] text-muted-foreground bg-background/80 px-2 py-1 rounded border border-border/60 flex items-center justify-between">
-                              <span>
-                                ↓ <strong>{usage.downloadGb.toFixed(1)} GB</strong> • ↑{' '}
-                                <strong>{usage.uploadGb.toFixed(1)} GB</strong>
-                              </span>
-                              <span className="font-mono text-[9px]">30 dias</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    ID: {ispfyData.id}
+                    {getClientDoc(ispfyData) ? ` • ${getClientDoc(ispfyData)}` : ''}
+                  </p>
+                </div>
               </div>
 
-              {/* Financeiro */}
-              <div className="pt-2 border-t border-border/60 space-y-2">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight flex items-center gap-1.5">
-                  <CreditCard className="w-3 h-3" />
-                  Financeiro (Pendentes)
-                </p>
-                {invoices.length > 0 ? (
-                  invoices.map((f) => (
-                    <div
-                      key={f.id}
-                      className="p-2 bg-rose-500/5 rounded-lg border border-rose-500/20 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-3 h-3 text-rose-500" />
-                          <span className="text-[10px] font-medium text-rose-600 dark:text-rose-300">
-                            Venc: {f.data_vencimento}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">
-                          R$ {f.valor}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-1 text-[9px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 font-bold gap-0.5"
-                          onClick={() => handleSendPix(f, true)}
-                          title="Enviar Botão Copiar PIX via Z-API"
-                        >
-                          <Zap className="w-3 h-3" />
-                          BT PIX
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-1 text-[9px] bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-bold gap-0.5"
-                          onClick={() => handleSendPix(f, false)}
-                          title="Enviar PIX Copia e Cola em texto"
-                        >
-                          <CreditCard className="w-3 h-3" />
-                          TEXTO
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-1 text-[9px] bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 font-bold gap-0.5"
-                          onClick={() => handleSendBoletoPdf(f)}
-                          title="Enviar PDF ou link do boleto"
-                        >
-                          <FileDown className="w-3 h-3" />
-                          PDF
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span className="text-[10px] font-bold">Financeiro em dia</span>
+              {(() => {
+                const addr = getClientAddressLine(ispfyData);
+                if (!addr.line1 && !addr.line2) return null;
+                return (
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {addr.line1}
+                      {addr.line1 && addr.line2 ? <br /> : null}
+                      {addr.line2}
+                    </p>
                   </div>
-                )}
-              </div>
-            </>
+                );
+              })()}
+            </div>
           ) : (
-            <div className="py-3 text-center space-y-2.5">
-              <AlertCircle className="w-7 h-7 text-amber-500/70 mx-auto" />
+            <div className="py-2 text-center space-y-2.5">
+              <AlertCircle className="w-6 h-6 text-amber-500/70 mx-auto" />
               <p className="text-xs text-muted-foreground px-2">
-                Número <span className="font-mono font-semibold">{destinationPhone}</span> não encontrado automaticamente no ISPFY.
+                Número <span className="font-mono font-semibold">{destinationPhone}</span> não
+                encontrado automaticamente no ISPFY.
               </p>
               {!showManualSearch && (
                 <div className="px-2">
@@ -1265,6 +1124,375 @@ export default function ClientInfoCard({
           )}
         </CardContent>
       </Card>
+    ),
+
+    ispfy_contracts: (
+      <Card className="bg-card shadow-sm border-border overflow-hidden">
+        <CardHeader className="p-3 border-b border-border/60 bg-muted/30 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-[11px] font-bold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider">
+            <FileText className="w-3.5 h-3.5" />
+            Contratos &amp; Conexão
+          </CardTitle>
+          {contracts.length > 0 && (
+            <Badge variant="secondary" className="text-[9px] h-4 px-1.5">
+              {contracts.length}
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="p-3 space-y-2">
+          {loading ? (
+            <div className="py-3 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+              Carregando contratos...
+            </div>
+          ) : !ispfyData ? (
+            <p className="text-[11px] text-muted-foreground italic">
+              Vincule o assinante no card ISPFY para ver contratos e PPPoE.
+            </p>
+          ) : (
+            <>
+              {contracts.length > 0 ? (
+                contracts.map((c) => {
+                  const matchingPoint = livePoints.find(
+                    (p) => String(p.idContrato) === String(c.id)
+                  );
+                  const matchingLogin =
+                    logins.find((l) => String(l.id_contrato || '') === String(c.id)) || logins[0];
+                  const statusStr = String(c.status_contrato || c.status || '').toLowerCase();
+                  const isAtivo =
+                    statusStr === 'ativo' ||
+                    statusStr === 'a' ||
+                    (String(c.ativo || c.contrato_ativo || '').toLowerCase() === 's' &&
+                      !statusStr.includes('bloq') &&
+                      !statusStr.includes('canc'));
+                  const isBlocked =
+                    statusStr.includes('bloq') ||
+                    Boolean(matchingPoint?.isBlocked) ||
+                    (!isAtivo && !statusStr.includes('canc'));
+                  const planTitle =
+                    c.descricao ||
+                    c.contrato ||
+                    matchingPoint?.planoNome ||
+                    `Contrato #${c.id}`;
+                  const pppoeLogin =
+                    matchingLogin?.usuario ||
+                    matchingLogin?.login ||
+                    c.login ||
+                    matchingPoint?.nomePonto ||
+                    'N/A';
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="p-2 bg-primary/5 rounded-lg border border-primary/15 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-foreground truncate flex-1">
+                          {planTitle}
+                        </span>
+                        <Badge
+                          variant={isBlocked ? 'destructive' : 'secondary'}
+                          className="text-[9px] h-4 px-1.5"
+                        >
+                          {isBlocked ? 'Bloqueado' : isAtivo ? 'Ativo' : statusStr || 'Inativo'}
+                        </Badge>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate">
+                        Login: {pppoeLogin}
+                      </p>
+
+                      {isBlocked && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full h-6 text-[9px] border-amber-500/40 text-amber-600 dark:text-amber-300 hover:bg-amber-500/10 font-bold gap-1.5"
+                          onClick={async () => {
+                            toast.loading('Realizando desbloqueio...', { id: 'unlock-task' });
+                            const res = await ispfyService.unlockContract(c.id!);
+                            if (res.success) {
+                              toast.success(res.message, { id: 'unlock-task' });
+                              if (onSendMessage) {
+                                onSendMessage(
+                                  '✅ *Aviso:* Sua conexão foi liberada em confiança! Por favor, reinicie seu equipamento em alguns minutos.'
+                                );
+                              }
+                            } else {
+                              toast.error(res.message, { id: 'unlock-task' });
+                            }
+                          }}
+                        >
+                          <Clock className="w-3 h-3" />
+                          DESBLOQUEIO EM CONFIANÇA
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-[10px] text-muted-foreground italic">
+                  Nenhum contrato encontrado.
+                </p>
+              )}
+
+              {livePoints.length > 0 && (
+                <div className="pt-1 space-y-1.5">
+                  {livePoints.map((pt) => {
+                    const usage = usageByPoint[pt.idPonto];
+                    return (
+                      <div
+                        key={pt.idPonto}
+                        className="p-2 rounded-lg border border-border bg-muted/30 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold min-w-0">
+                            {pt.conexaoStatus === 'online' ? (
+                              <Wifi className="w-3 h-3 text-emerald-500 shrink-0" />
+                            ) : (
+                              <WifiOff className="w-3 h-3 text-rose-500 shrink-0" />
+                            )}
+                            <span
+                              className={
+                                pt.conexaoStatus === 'online'
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }
+                            >
+                              {pt.conexaoStatus.toUpperCase()}
+                            </span>
+                            {pt.ipWan && (
+                              <span className="text-muted-foreground font-mono truncate">
+                                {pt.ipWan}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-1.5 text-[9px] text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 font-bold gap-0.5"
+                              disabled={loadingUsageId === pt.idPonto}
+                              onClick={() => handleLoadPointUsage(pt.idPonto)}
+                              title="Consultar consumo real 30 dias no ISPFY"
+                            >
+                              {loadingUsageId === pt.idPonto ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <BarChart3 className="w-3 h-3" />
+                              )}
+                              30D
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-1.5 text-[9px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/20 font-bold gap-0.5"
+                              onClick={() => handleActivateQuickTurbo(pt.idPonto)}
+                              title="Aplicar Turbo de Velocidade por 7 dias no ISPFY"
+                            >
+                              <Rocket className="w-3 h-3" />
+                              TURBO
+                            </Button>
+                          </div>
+                        </div>
+
+                        {usage && (
+                          <div className="text-[10px] text-muted-foreground bg-background/80 px-2 py-1 rounded border border-border/60 flex items-center justify-between">
+                            <span>
+                              ↓ <strong>{usage.downloadGb.toFixed(1)} GB</strong> • ↑{' '}
+                              <strong>{usage.uploadGb.toFixed(1)} GB</strong>
+                            </span>
+                            <span className="font-mono text-[9px]">30 dias</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    ),
+
+    ispfy_finance: (
+      <Card className="bg-card shadow-sm border-border overflow-hidden">
+        <CardHeader className="p-3 border-b border-border/60 bg-muted/30 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-[11px] font-bold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider">
+            <CreditCard className="w-3.5 h-3.5" />
+            Financeiro &amp; PIX
+          </CardTitle>
+          {invoices.length > 0 && (
+            <Badge variant="destructive" className="text-[9px] h-4 px-1.5">
+              {invoices.length} em aberto
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="p-3 space-y-2">
+          {loading ? (
+            <div className="py-3 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+              Verificando faturas...
+            </div>
+          ) : !ispfyData ? (
+            <p className="text-[11px] text-muted-foreground italic">
+              Vincule o assinante no card ISPFY para gerar PIX e boletos.
+            </p>
+          ) : invoices.length > 0 ? (
+            invoices.map((f) => (
+              <div
+                key={f.id}
+                className="p-2 bg-rose-500/5 rounded-lg border border-rose-500/20 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3 h-3 text-rose-500" />
+                    <span className="text-[10px] font-medium text-rose-600 dark:text-rose-300">
+                      Venc: {f.data_vencimento}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">
+                    R$ {f.valor}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1 text-[9px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 font-bold gap-0.5"
+                    onClick={() => handleSendPix(f, true)}
+                    title="Enviar Botão Copiar PIX via Z-API"
+                  >
+                    <Zap className="w-3 h-3" />
+                    BT PIX
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1 text-[9px] bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-bold gap-0.5"
+                    onClick={() => handleSendPix(f, false)}
+                    title="Enviar PIX Copia e Cola em texto"
+                  >
+                    <CreditCard className="w-3 h-3" />
+                    TEXTO
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1 text-[9px] bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 font-bold gap-0.5"
+                    onClick={() => handleSendBoletoPdf(f)}
+                    title="Enviar PDF ou link do boleto"
+                  >
+                    <FileDown className="w-3 h-3" />
+                    PDF
+                  </Button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+              <CheckCircle2 className="w-3 h-3" />
+              <span className="text-[10px] font-bold">Financeiro em dia</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    ),
+
+    attendant: attendantSlot ?? null,
+    quick_replies: quickRepliesSlot ?? null,
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Barra superior do Painel 360° com botão Organizar (arrastar e soltar) */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+          {isEditingLayout ? 'Arraste para organizar' : 'Painel 360°'}
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {isEditingLayout ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  resetLayout();
+                  toast.success('Ordem padrão do painel restaurada!');
+                }}
+                className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                title="Restaurar ordem padrão dos blocos"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Padrão
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setIsEditingLayout(false)}
+                className="h-6 px-2.5 text-[10px] gap-1 font-bold"
+              >
+                <Check className="w-3 h-3" />
+                Concluir
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIsEditingLayout(true)}
+              className="h-6 px-2 text-[10px] gap-1 border-border/80 text-muted-foreground hover:text-foreground"
+              title="Reorganizar ou ocultar blocos arrastando e soltando"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              Organizar
+            </Button>
+          )}
+          {onCloseMobile && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="xl:hidden h-6 w-6 rounded-md"
+              onClick={onCloseMobile}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isEditingLayout && (
+        <p className="text-[11px] text-muted-foreground bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 leading-snug">
+          Arraste os blocos para definir sua ordem preferida ou toque no ícone do olho para ocultar o que não usa. Sua organização é salva automaticamente.
+        </p>
+      )}
+
+      <Reorder.Group
+        axis="y"
+        values={sidebarOrder}
+        onReorder={setSidebarOrder}
+        className="flex flex-col gap-3 m-0 p-0"
+      >
+        {sidebarOrder.map((widgetId, idx) => (
+          <SortableSidebarCard
+            key={widgetId}
+            id={widgetId}
+            index={idx}
+            totalCount={sidebarOrder.length}
+            isEditing={isEditingLayout}
+            isHidden={hiddenSet.has(widgetId)}
+            onMove={moveWidget}
+            onToggleHidden={toggleWidgetVisibility}
+          >
+            {widgetNodes[widgetId]}
+          </SortableSidebarCard>
+        ))}
+      </Reorder.Group>
     </div>
   );
 }
+
+const ClientInfoCard = React.memo(ClientInfoCardInner);
+export default ClientInfoCard;

@@ -25,6 +25,14 @@ interface DeleteUserResponse {
   deletedUid: string;
 }
 
+export interface VerifyPinResponse {
+  success: boolean;
+  valid: boolean;
+  hasPin: boolean;
+  remainingAttempts?: number;
+  lockedUntilMs?: number;
+}
+
 export interface CreatePanelUserInput {
   name: string;
   email: string;
@@ -34,6 +42,7 @@ export interface CreatePanelUserInput {
   allowedRoutes: string[];
   photoUrl?: string;
   jobTitle?: string;
+  pin?: string;
   syncToAttendants?: boolean;
 }
 
@@ -46,6 +55,8 @@ export interface UpdatePanelUserInput {
   active?: boolean;
   allowedRoutes?: string[];
   password?: string;
+  pin?: string;
+  clearPin?: boolean;
 }
 
 const managePanelUsersCallable = httpsCallable<Record<string, unknown>, unknown>(
@@ -57,6 +68,11 @@ export const panelUsersService = {
   async syncSelf(): Promise<SyncSelfResponse> {
     const res = await managePanelUsersCallable({ action: 'syncSelf' });
     return res.data as SyncSelfResponse;
+  },
+
+  async verifyPin(pin: string): Promise<VerifyPinResponse> {
+    const res = await managePanelUsersCallable({ action: 'verifyPin', pin });
+    return res.data as VerifyPinResponse;
   },
 
   async listUsers(): Promise<PanelUserProfile[]> {

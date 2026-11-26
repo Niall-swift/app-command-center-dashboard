@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Lock, LogOut, ShieldAlert, ArrowRight, RefreshCw } from 'lucide-react';
@@ -8,24 +8,39 @@ import { Ps5UserSplashScreen } from './Ps5UserSplashScreen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getScreenLabelByPath } from '@/config/permissions';
+import { panelUsersService } from '@/services/panelUsersService';
 import { readCachedSplashUser } from '@/utils/userSplashCache';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
-const PS5_WELCOME_SPLASH_MS = 2300;
+const WELCOME_SPLASH_MS = 1800;
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, panelProfile, loading, profileLoading, logout, refreshPanelProfile } = useAuth();
+  const {
+    user,
+    panelProfile,
+    loading,
+    profileLoading,
+    pinUnlocked,
+    unlockPinSession,
+    logout,
+    refreshPanelProfile,
+  } = useAuth();
   const [cachedSplashUser] = useState(() => readCachedSplashUser());
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const welcomedUidRef = useRef<string | null>(null);
   const welcomeTimerRef = useRef<number | null>(null);
 
+  const needsPinEntry = Boolean(
+    user && panelProfile && panelProfile.active && panelProfile.hasPin && !pinUnlocked
+  );
+
+  // Para usuários sem PIN configurado, exibe brevemente a tela minimalista de boas-vindas
   useEffect(() => {
-    if (!user) {
-      welcomedUidRef.current = null;
+    if (!user || needsPinEntry) {
+      if (!user) welcomedUidRef.current = null;
       setShowWelcomeSplash(false);
       if (welcomeTimerRef.current !== null) {
         window.clearTimeout(welcomeTimerRef.current);
@@ -34,7 +49,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       return;
     }
 
-    if (panelProfile && panelProfile.active && welcomedUidRef.current !== user.uid) {
+    if (
+      panelProfile &&
+      panelProfile.active &&
+      !panelProfile.hasPin &&
+      welcomedUidRef.current !== user.uid
+    ) {
       welcomedUidRef.current = user.uid;
       setShowWelcomeSplash(true);
 
@@ -44,9 +64,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       welcomeTimerRef.current = window.setTimeout(() => {
         setShowWelcomeSplash(false);
         welcomeTimerRef.current = null;
-      }, PS5_WELCOME_SPLASH_MS);
+      }, WELCOME_SPLASH_MS);
     }
-  }, [user, panelProfile]);
+  }, [user, panelProfile, needsPinEntry]);
 
   useEffect(() => {
     return () => {
@@ -56,15 +76,29 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     };
   }, []);
 
-  const dismissWelcomeSplash = () => {
+  const dismissWelcomeSplash = useCallback(() => {
     if (welcomeTimerRef.current !== null) {
       window.clearTimeout(welcomeTimerRef.current);
       welcomeTimerRef.current = null;
     }
     setShowWelcomeSplash(false);
-  };
+  }, []);
 
-  if (loading || (user && profileLoading && !panelProfile)) {
+  const handleVerifyPin = useCallback((pin: string) => panelUsersService.verifyPin(pin), []);
+
+  const handlePinVerified = useCallback(() => {
+    if (user?.uid) {
+      welcomedUidRef.current = user.uid;
+    }
+    unlockPinSession();
+  }, [user?.uid, unlockPinSession]);
+
+  const handleSwitchAccount = useCallback(() => {
+    void logout();
+  }, [logout]);
+
+  // Aguarda verificação inicial do Firebase Auth e do perfil (incluindo hasPin) antes de expor o painel
+  if (loading || (user && profileLoading && !pinUnlocked)) {
     const bootSplashUser = panelProfile
       ? {
           name: panelProfile.name,
@@ -86,8 +120,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     return (
       <Ps5UserSplashScreen
         user={bootSplashUser}
-        eyebrowText={bootSplashUser ? 'INICIANDO SESSÃO' : 'AVL TELECOM • NOC'}
-        statusText="Verificando credenciais e permissões..."
+        statusText="Verificando credenciais..."
       />
     );
   }
@@ -174,6 +207,25 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
+  // Tela de entrada bloqueada exigindo a senha numérica de 6 dígitos do usuário
+  if (needsPinEntry) {
+    return (
+      <Ps5UserSplashScreen
+        user={{
+          name: panelProfile.name || user.displayName || user.email,
+          email: panelProfile.email || user.email,
+          photoUrl: panelProfile.photoUrl || user.photoURL || '',
+          role: panelProfile.role,
+          jobTitle: panelProfile.jobTitle,
+        }}
+        requirePin
+        onVerifyPin={handleVerifyPin}
+        onPinVerified={handlePinVerified}
+        onSwitchAccount={handleSwitchAccount}
+      />
+    );
+  }
+
   return (
     <>
       {children}
@@ -187,8 +239,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
               role: panelProfile.role,
               jobTitle: panelProfile.jobTitle,
             }}
-            eyebrowText="AVL TELECOM • NOC"
-            statusText="Carregando seu Command Center..."
+            statusText="Entrando no Command Center..."
             dismissible
             onDismiss={dismissWelcomeSplash}
           />

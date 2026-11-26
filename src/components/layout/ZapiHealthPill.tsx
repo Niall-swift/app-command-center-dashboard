@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import {
   CheckCircle2,
@@ -35,28 +35,16 @@ interface ZapiHealthDoc {
 const ZAPI_STATUS_WEBHOOK_URL =
   'https://us-central1-avl-telecom.cloudfunctions.net/zapiStatusWebhook';
 
-export function ZapiHealthPill() {
+const ZapiHealthPillComponent: React.FC = () => {
   const [health, setHealth] = useState<ZapiHealthDoc | null>(null);
   const [open, setOpen] = useState(false);
   const [checking, setChecking] = useState(false);
   const [loadingQr, setLoadingQr] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const hasAutoCheckedRef = useRef(false);
 
-  useEffect(() => {
-    const unsub = onSnapshot(
-      doc(db, 'settings', 'zapi_health'),
-      (snap) => {
-        if (snap.exists()) {
-          setHealth(snap.data() as ZapiHealthDoc);
-        }
-      },
-      () => undefined
-    );
-    return () => unsub();
-  }, []);
-
-  const handleRefreshStatus = async (silent = false) => {
+  const handleRefreshStatus = useCallback(async (silent = false) => {
     setChecking(true);
     try {
       const res = await whapiService.getInstanceStatus();
@@ -80,15 +68,29 @@ export function ZapiHealthPill() {
     } finally {
       setChecking(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // Valida silenciosamente se ainda não há leitura recente (> 10 min)
-    if (!health?.checkedAtMs || Date.now() - health.checkedAtMs > 10 * 60 * 1000) {
-      handleRefreshStatus(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'zapi_health'),
+      (snap) => {
+        const data = snap.exists() ? (snap.data() as ZapiHealthDoc) : null;
+        if (data) {
+          setHealth(data);
+        }
+        // Só consulta Z-API ao vivo na carga se o cache no Firestore não existir ou tiver > 10 min
+        if (!hasAutoCheckedRef.current) {
+          hasAutoCheckedRef.current = true;
+          const isStale = !data?.checkedAtMs || Date.now() - data.checkedAtMs > 10 * 60 * 1000;
+          if (isStale) {
+            handleRefreshStatus(true);
+          }
+        }
+      },
+      () => undefined
+    );
+    return () => unsub();
+  }, [handleRefreshStatus]);
 
   const handleFetchQr = async () => {
     setLoadingQr(true);
@@ -295,4 +297,6 @@ export function ZapiHealthPill() {
       </Dialog>
     </>
   );
-}
+};
+
+export const ZapiHealthPill = React.memo(ZapiHealthPillComponent);

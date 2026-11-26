@@ -51,6 +51,9 @@ interface AuthContextType {
   profileLoading: boolean;
   isCreator: boolean;
   isAdmin: boolean;
+  pinUnlocked: boolean;
+  unlockPinSession: () => void;
+  lockScreen: () => void;
   canAccessRoute: (pathname: string) => boolean;
   firstAllowedRoute: string;
   refreshPanelProfile: () => Promise<void>;
@@ -73,17 +76,17 @@ export const useAuth = () => {
 
 function buildCreatorFallbackProfile(user: User): PanelUserProfile {
   const cached = readCachedSplashUser();
-  const cachedPhoto =
-    cached && cached.email.toLowerCase() === CREATOR_EMAIL ? cached.photoUrl || '' : '';
+  const isSameCached = Boolean(cached && cached.email.toLowerCase() === CREATOR_EMAIL);
   return {
     uid: user.uid,
-    name: user.displayName || cached?.name || 'Niall (Criador)',
+    name: user.displayName || (isSameCached ? cached?.name : '') || 'Niall (Criador)',
     email: CREATOR_EMAIL,
     role: 'creator',
     active: true,
     allowedRoutes: ALL_ROUTE_PATHS,
-    photoUrl: user.photoURL || cachedPhoto,
+    photoUrl: user.photoURL || (isSameCached ? cached?.photoUrl || '' : ''),
     jobTitle: 'Criador & Administrador Master',
+    hasPin: isSameCached ? Boolean(cached?.hasPin) : false,
   };
 }
 
@@ -93,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [panelProfile, setPanelProfile] = useState<PanelUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [pinUnlockedUid, setPinUnlockedUid] = useState<string | null>(null);
   const [showSessionExpired, setShowSessionExpired] = useState(false);
 
   const syncCurrentUserProfile = useCallback(async (firebaseUser: User) => {
@@ -165,6 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('firebase_user_expiry');
         setUserData(null);
         setPanelProfile(null);
+        setPinUnlockedUid(null);
         setProfileLoading(false);
       }
 
@@ -268,7 +273,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearCachedSplashUser();
     setUserData(null);
     setPanelProfile(null);
+    setPinUnlockedUid(null);
   };
+
+  const unlockPinSession = useCallback(() => {
+    if (user?.uid) {
+      setPinUnlockedUid(user.uid);
+    }
+  }, [user?.uid]);
+
+  const lockScreen = useCallback(() => {
+    setPinUnlockedUid(null);
+  }, []);
 
   const handleSessionExpiredClose = () => {
     setShowSessionExpired(false);
@@ -282,7 +298,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   }, [panelProfile, user]);
 
-  // Mantém o cache da foto e nome do usuário logado para a Splash Screen PS5 carregar em 0ms
+  // Se o perfil terminou de carregar sem PIN configurado, libera a sessão atual
+  // (evita travar o admin imediatamente no instante em que ele cadastra o próprio PIN)
+  useEffect(() => {
+    if (user && !profileLoading && effectiveProfile?.active && !effectiveProfile.hasPin) {
+      setPinUnlockedUid((prev) => (prev === user.uid ? prev : user.uid));
+    }
+  }, [user, profileLoading, effectiveProfile]);
+
+  // Mantém o cache da foto, nome e status do PIN para a tela de entrada 0ms
   useEffect(() => {
     if (user && effectiveProfile && effectiveProfile.active) {
       writeCachedSplashUser({
@@ -292,6 +316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: effectiveProfile.role,
         photoUrl: effectiveProfile.photoUrl || user.photoURL || '',
         jobTitle: effectiveProfile.jobTitle || '',
+        hasPin: Boolean(effectiveProfile.hasPin),
       });
     }
   }, [user, effectiveProfile]);
@@ -300,6 +325,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     effectiveProfile?.role === 'creator' || (user && isCreatorEmail(user.email))
   );
   const isAdmin = Boolean(effectiveProfile?.active && isAdminRole(effectiveProfile.role));
+  const pinUnlocked = Boolean(user && pinUnlockedUid === user.uid);
 
   const canAccessRoute = useCallback(
     (pathname: string) => canProfileAccessRoute(effectiveProfile, pathname),
@@ -320,6 +346,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profileLoading,
       isCreator,
       isAdmin,
+      pinUnlocked,
+      unlockPinSession,
+      lockScreen,
       canAccessRoute,
       firstAllowedRoute,
       refreshPanelProfile,
@@ -336,6 +365,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profileLoading,
       isCreator,
       isAdmin,
+      pinUnlocked,
+      unlockPinSession,
+      lockScreen,
       canAccessRoute,
       firstAllowedRoute,
       refreshPanelProfile,

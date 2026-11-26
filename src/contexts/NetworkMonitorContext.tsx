@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import {
@@ -208,8 +209,20 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
   const dadosInadimplenciaRef = useRef<ISPFYOverdueAnalyticsResult | null>(null);
   const consultaConexaoEmAndamentoRef = useRef<boolean>(false);
   const consultaInadimplenciaEmAndamentoRef = useRef<boolean>(false);
+  const ultimaAtualizacaoMsRef = useRef<number>(0);
   const somAtivoRef = useRef<boolean>(somAtivo);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const { canAccessRoute } = useAuth();
+
+  const deveMonitorarInadimplencia = useMemo(
+    () =>
+      canAccessRoute('/') ||
+      canAccessRoute('/ispfy/financeiro') ||
+      canAccessRoute('/ispfy/regiao') ||
+      canAccessRoute('/ispfy/inteligencia') ||
+      canAccessRoute('/ispfy/auditoria'),
+    [canAccessRoute]
+  );
 
   useEffect(() => {
     dadosRegiaoRef.current = dadosRegiao;
@@ -227,13 +240,15 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
     sireneSilenciadaRef.current = sireneSilenciada;
   }, [sireneSilenciada]);
 
-  // Libera AudioContext na primeira interação do usuário para evitar bloqueio de autoplay
+  // Libera AudioContext na primeira interação do usuário (executa apenas 1x para zero overhead de digitação)
   useEffect(() => {
     const liberarAudio = () => {
       obterOuCriarAudioContext(audioCtxRef);
+      window.removeEventListener('pointerdown', liberarAudio);
+      window.removeEventListener('keydown', liberarAudio);
     };
-    window.addEventListener('pointerdown', liberarAudio, { passive: true });
-    window.addEventListener('keydown', liberarAudio, { passive: true });
+    window.addEventListener('pointerdown', liberarAudio, { passive: true, once: true });
+    window.addEventListener('keydown', liberarAudio, { passive: true, once: true });
     return () => {
       window.removeEventListener('pointerdown', liberarAudio);
       window.removeEventListener('keydown', liberarAudio);
@@ -516,6 +531,7 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       }
 
       dadosRegiaoRef.current = proximoSnapshot;
+      ultimaAtualizacaoMsRef.current = Date.now();
       setDadosRegiao(proximoSnapshot);
       setUltimaAtualizacaoEm(new Date());
       setErro(null);
@@ -664,38 +680,64 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
     []
   );
 
-  // Carga inicial única + polling global contínuo
+  // Carga inicial escalonada para não competir com o boot da rota ativa (ex: Chat)
   useEffect(() => {
     let componenteMontado = true;
-    const inicializarMonitoramento = async () => {
+    let timerInadimplencia: ReturnType<typeof setTimeout> | null = null;
+
+    const timerConexoes = window.setTimeout(async () => {
+      if (!componenteMontado) return;
       await atualizarConexoes(false);
-      if (componenteMontado) {
-        await atualizarInadimplencia(false);
+      if (componenteMontado && deveMonitorarInadimplencia) {
+        timerInadimplencia = setTimeout(() => {
+          if (componenteMontado) {
+            atualizarInadimplencia(false);
+          }
+        }, 3000);
       }
-    };
-    inicializarMonitoramento();
+    }, 900);
 
     return () => {
       componenteMontado = false;
+      window.clearTimeout(timerConexoes);
+      if (timerInadimplencia) clearTimeout(timerInadimplencia);
     };
-  }, [atualizarConexoes, atualizarInadimplencia]);
+  }, [atualizarConexoes, atualizarInadimplencia, deveMonitorarInadimplencia]);
 
+  // Polling global contínuo com pausa automática quando a aba está em segundo plano
   useEffect(() => {
     if (!monitorAtivo) return;
 
     const temporizadorConexoes = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       atualizarConexoes(false);
     }, INTERVALO_CONSULTA_MS);
 
-    const temporizadorInadimplencia = window.setInterval(() => {
-      atualizarInadimplencia(false);
-    }, INTERVALO_INADIMPLENCIA_MS);
+    const temporizadorInadimplencia = deveMonitorarInadimplencia
+      ? window.setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return;
+          atualizarInadimplencia(false);
+        }, INTERVALO_INADIMPLENCIA_MS)
+      : null;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      const elapsed = Date.now() - ultimaAtualizacaoMsRef.current;
+      if (elapsed >= INTERVALO_CONSULTA_MS) {
+        atualizarConexoes(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.clearInterval(temporizadorConexoes);
-      window.clearInterval(temporizadorInadimplencia);
+      if (temporizadorInadimplencia !== null) {
+        window.clearInterval(temporizadorInadimplencia);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [monitorAtivo, atualizarConexoes, atualizarInadimplencia]);
+  }, [monitorAtivo, deveMonitorarInadimplencia, atualizarConexoes, atualizarInadimplencia]);
 
   const confirmarAlertas = useCallback(() => {
     setQuedasNaoLidas(0);
@@ -1096,45 +1138,82 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
     []
   );
 
+  const contextValue = useMemo<ContextoMonitorRede>(
+    () => ({
+      dadosRegiao,
+      dadosInadimplencia,
+      carregandoRegiao,
+      carregandoInadimplencia,
+      verificandoAgora,
+      erro,
+      ultimaAtualizacaoEm,
+      eventosRecentes,
+      quedasNaoLidas,
+      somAtivo,
+      sireneAtiva,
+      sireneSilenciada,
+      monitorAtivo,
+      intervaloVerificacaoSeg: INTERVALO_CONSULTA_MS / 1000,
+      permissaoNotificacao,
+      outageConfig,
+      rompimentosEmMassa,
+      rompimentosConfirmados,
+      outagesMonitorados,
+      solicitarPermissaoNotificacao,
+      atualizarConexoes,
+      atualizarInadimplencia,
+      atualizarTudo,
+      revalidarPontoAoVivo,
+      confirmarAlertas,
+      limparEventos,
+      alternarSom,
+      alternarMonitor,
+      tocarSomAlertaQueda,
+      tocarSireneRompimento,
+      pararSirene,
+      ativarAlertaRompimentoRegiao,
+      resolverRompimentoRegiao,
+      enviarAlertaRompimentoGrupo,
+    }),
+    [
+      dadosRegiao,
+      dadosInadimplencia,
+      carregandoRegiao,
+      carregandoInadimplencia,
+      verificandoAgora,
+      erro,
+      ultimaAtualizacaoEm,
+      eventosRecentes,
+      quedasNaoLidas,
+      somAtivo,
+      sireneAtiva,
+      sireneSilenciada,
+      monitorAtivo,
+      permissaoNotificacao,
+      outageConfig,
+      rompimentosEmMassa,
+      rompimentosConfirmados,
+      outagesMonitorados,
+      solicitarPermissaoNotificacao,
+      atualizarConexoes,
+      atualizarInadimplencia,
+      atualizarTudo,
+      revalidarPontoAoVivo,
+      confirmarAlertas,
+      limparEventos,
+      alternarSom,
+      alternarMonitor,
+      tocarSomAlertaQueda,
+      tocarSireneRompimento,
+      pararSirene,
+      ativarAlertaRompimentoRegiao,
+      resolverRompimentoRegiao,
+      enviarAlertaRompimentoGrupo,
+    ]
+  );
+
   return (
-    <ContextoMonitorRedeReact.Provider
-      value={{
-        dadosRegiao,
-        dadosInadimplencia,
-        carregandoRegiao,
-        carregandoInadimplencia,
-        verificandoAgora,
-        erro,
-        ultimaAtualizacaoEm,
-        eventosRecentes,
-        quedasNaoLidas,
-        somAtivo,
-        sireneAtiva,
-        sireneSilenciada,
-        monitorAtivo,
-        intervaloVerificacaoSeg: INTERVALO_CONSULTA_MS / 1000,
-        permissaoNotificacao,
-        outageConfig,
-        rompimentosEmMassa,
-        rompimentosConfirmados,
-        outagesMonitorados,
-        solicitarPermissaoNotificacao,
-        atualizarConexoes,
-        atualizarInadimplencia,
-        atualizarTudo,
-        revalidarPontoAoVivo,
-        confirmarAlertas,
-        limparEventos,
-        alternarSom,
-        alternarMonitor,
-        tocarSomAlertaQueda,
-        tocarSireneRompimento,
-        pararSirene,
-        ativarAlertaRompimentoRegiao,
-        resolverRompimentoRegiao,
-        enviarAlertaRompimentoGrupo,
-      }}
-    >
+    <ContextoMonitorRedeReact.Provider value={contextValue}>
       {children}
     </ContextoMonitorRedeReact.Provider>
   );

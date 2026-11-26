@@ -170,7 +170,7 @@ function buildDiagnosticWhatsAppMessage(onu: SmartOltOnu): string {
   );
 }
 
-export function ClientOntStatusCard({
+export const ClientOntStatusCard = React.memo(function ClientOntStatusCard({
   clientId,
   savedOnuId,
   pppoeLogins,
@@ -856,4 +856,4 @@ export function ClientOntStatusCard({
       </CardContent>
     </Card>
   );
-}
+});

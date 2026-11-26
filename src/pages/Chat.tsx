@@ -1,34 +1,22 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
-  Send,
   Search,
   Bell,
   Bug,
-  Mic,
-  Camera,
-  Paperclip,
   Phone,
   X,
   MessageSquare,
   Bot,
-  Lock,
-  Unlock,
   Zap,
-  Sparkles,
   Loader2,
   ArrowLeft,
   PanelRight,
   PanelRightClose,
-  Film,
-  FileText,
-  Music,
-  Smile,
-  Trash2,
   Plus,
   Download,
   ExternalLink,
@@ -36,7 +24,6 @@ import {
   ChevronUp,
   ChevronDown,
   ArrowDown,
-  Reply,
   MailWarning,
   ClipboardList,
 } from 'lucide-react';
@@ -47,12 +34,11 @@ import ClientInfoCard from '@/components/ClientInfoCard';
 import PageTransition from '@/components/PageTransition';
 import NotificationSettings from '@/components/NotificationSettings';
 import DebugPanel from '@/components/DebugPanel';
-import { ChatMessageContent } from '@/components/chat/ChatMessageContent';
+import { ChatConversationItem } from '@/components/chat/ChatConversationItem';
+import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble';
+import { ChatComposer, type ChatComposerHandle } from '@/components/chat/ChatComposer';
 import { getOntStatusMeta } from '@/utils/smartOltUi';
-import {
-  ChatMediaStagingBar,
-  type StagedMediaFile,
-} from '@/components/chat/ChatMediaStagingBar';
+import type { StagedMediaFile } from '@/components/chat/ChatMediaStagingBar';
 import { useToast } from '@/hooks/use-toast';
 import { useNotifications } from '@/hooks/use-notifications';
 import type { Message, Client, ChatMediaPayload, ReplyToSnapshot } from '@/types/dashboard';
@@ -72,8 +58,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { format, isToday, isYesterday, isSameDay } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { isSameDay } from 'date-fns';
 import { aiService } from '@/services/ai/aiService';
 import { whapiService } from '@/services/whapi/whapiService';
 import { ispfyService } from '@/services/ispfy/ispfyService';
@@ -81,58 +66,6 @@ import { useActiveChatClient } from '@/contexts/ActiveChatClientContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { obterNomeClienteISPFY } from '@/utils/ispfyFormatters';
 import { compressImage } from '@/utils/compressImage';
-
-const SLASH_MACROS = [
-  {
-    cmd: '/pix',
-    label: 'Solicitar CPF p/ PIX',
-    text: 'Olá! Para agilizar o envio da sua 2ª via PIX, poderia me confirmar seu CPF ou CNPJ, por favor? 💠',
-  },
-  {
-    cmd: '/reiniciar',
-    label: 'Teste de reinício ONT/Roteador',
-    text: 'Por gentileza, desligue o roteador e a caixinha da fibra da tomada por 30 segundos e ligue novamente. Me avise se a luz PON/Internet ficou verde fixa! 📶',
-  },
-  {
-    cmd: '/rompimento',
-    label: 'Aviso de rompimento/manutenção',
-    text: 'Identificamos uma instabilidade técnica na sua região. Nossa equipe de campo já está atuando no local para restabelecer o sinal o mais rápido possível! 🙏',
-  },
-  {
-    cmd: '/desbloqueio',
-    label: 'Confirmar desbloqueio em confiança',
-    text: '✅ Liberação em confiança realizada com sucesso! Reinicie o equipamento em alguns instantes para retomar a navegação.',
-  },
-  {
-    cmd: '/agendamento',
-    label: 'Confirmar visita técnica',
-    text: '🚗 Sua visita técnica está programada! Por favor, mantenha um responsável no local para receber nossa equipe.',
-  },
-  {
-    cmd: '/avaliacao',
-    label: 'Pedir avaliação do atendimento',
-    text: 'Fico feliz em ajudar! Se precisar de qualquer outra coisa, estamos sempre à disposição aqui na AVL Telecom. 💙',
-  },
-] as const;
-
-const QUICK_EMOJIS = [
-  '😊',
-  '👋',
-  '🙏',
-  '✅',
-  '💙',
-  '👍',
-  '💠',
-  '📄',
-  '📶',
-  '⚡',
-  '🔧',
-  '🚗',
-  '📍',
-  '🎉',
-  '⚠️',
-  '🕐',
-] as const;
 
 const MAX_IMAGE_AUDIO_BYTES = 16 * 1024 * 1024; // 16MB
 const MAX_VIDEO_DOC_BYTES = 64 * 1024 * 1024; // 64MB
@@ -152,30 +85,6 @@ function detectMediaTypeFromFile(
     return 'audio';
   }
   return 'document';
-}
-
-function getBestAudioRecorderMime(): { mimeType: string; ext: string } {
-  if (typeof MediaRecorder === 'undefined') {
-    return { mimeType: 'audio/webm', ext: 'webm' };
-  }
-  const candidates = [
-    { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' },
-    { mimeType: 'audio/mp4', ext: 'm4a' },
-    { mimeType: 'audio/webm;codecs=opus', ext: 'webm' },
-    { mimeType: 'audio/webm', ext: 'webm' },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mimeType)) {
-      return c;
-    }
-  }
-  return { mimeType: '', ext: 'webm' };
-}
-
-function formatDaySeparator(date: Date): string {
-  if (isToday(date)) return 'Hoje';
-  if (isYesterday(date)) return 'Ontem';
-  return format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
 }
 
 function formatLastMessageLabel(text: string, media?: ChatMediaPayload, isPrivate?: boolean): string {
@@ -217,12 +126,9 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({});
   const [messageLimit, setMessageLimit] = useState(30);
-  const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
@@ -232,25 +138,12 @@ export default function Chat() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  // Gravação de áudio com proteção contra envio cancelado + medidor de volume
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [audioLevels, setAudioLevels] = useState<number[]>([20, 35, 25, 40, 30, 20, 35, 25]);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingTimerRef = useRef<number | null>(null);
-  const recordingDurationRef = useRef<number>(0);
-  const cancelRecordingRef = useRef<boolean>(false);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRafRef = useRef<number | null>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-
   // Nova conversa WhatsApp
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [newChatPhone, setNewChatPhone] = useState('');
   const [newChatName, setNewChatName] = useState('');
 
   // Estados de atendimento / UI
-  const [isPrivateMode, setIsPrivateMode] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ReplyToSnapshot | null>(null);
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
@@ -389,18 +282,24 @@ export default function Chat() {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ChatComposerHandle>(null);
   const hasAutoSelectedRef = useRef(false);
   const fetchedAvatarsRef = useRef<Set<string>>(new Set());
   const previousClientsRef = useRef<Client[]>([]);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastMarkedReadRef = useRef<Record<string, string>>({});
   const manualUnreadRef = useRef<Set<string>>(new Set());
+  const lastScrolledClientRef = useRef<string | null>(null);
 
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
+  // Refs sincronizadas para manter callbacks 100% estáveis (evita re-renderizar bolhas e ClientInfoCard)
+  const selectedClientRef = useRef<Client | null>(selectedClient);
+  selectedClientRef.current = selectedClient;
+  const stagedMediaRef = useRef<StagedMediaFile | null>(stagedMedia);
+  stagedMediaRef.current = stagedMedia;
+  const replyingToRef = useRef<ReplyToSnapshot | null>(replyingTo);
+  replyingToRef.current = replyingTo;
+  const clientMessagesRef = useRef<Record<string, Message[]>>(clientMessages);
+  clientMessagesRef.current = clientMessages;
 
   const {
     isSupported,
@@ -665,30 +564,33 @@ export default function Chat() {
     []
   );
 
-  // Envio unificado de Texto + Foto + Vídeo + Áudio + Documento (sincroniza 100% com WhatsApp)
-  const handleSendMessage = useCallback(
-    async (textOverride?: string, mediaOverride?: ChatMediaPayload) => {
-      if (!selectedClient) return;
+  // Envio unificado de Texto + Foto + Vídeo + Áudio + Documento (estável via refs)
+  const sendMessageCore = useCallback(
+    async (
+      text: string,
+      options?: { isPrivate?: boolean; mediaOverride?: ChatMediaPayload; targetClientId?: string }
+    ): Promise<boolean> => {
+      const targetId = options?.targetClientId || selectedClientRef.current?.id;
+      if (!targetId) return false;
 
-      const captionText = (textOverride !== undefined ? textOverride : newMessage).trim();
+      const captionText = text.trim();
+      const isPrivate = Boolean(options?.isPrivate);
 
-      // Se houver mídia preparada no staging e nenhuma mediaOverride explícita, faz upload primeiro
-      let finalMedia = mediaOverride;
-      if (!finalMedia && stagedMedia) {
+      let finalMedia = options?.mediaOverride;
+      const currentStaged = stagedMediaRef.current;
+      if (!finalMedia && currentStaged) {
         setUploadingMedia(true);
         setUploadProgress(5);
         try {
-          const url = await uploadFileToStorage(
-            selectedClient.id,
-            stagedMedia.file,
-            (pct) => setUploadProgress(pct)
+          const url = await uploadFileToStorage(targetId, currentStaged.file, (pct) =>
+            setUploadProgress(pct)
           );
           finalMedia = {
-            type: stagedMedia.type,
+            type: currentStaged.type,
             url,
-            name: stagedMedia.file.name,
-            mimeType: stagedMedia.file.type || undefined,
-            size: stagedMedia.file.size,
+            name: currentStaged.file.name,
+            mimeType: currentStaged.file.type || undefined,
+            size: currentStaged.file.size,
           };
           setStagedMedia(null);
         } catch {
@@ -699,27 +601,27 @@ export default function Chat() {
           });
           setUploadingMedia(false);
           setUploadProgress(0);
-          return;
+          return false;
         } finally {
           setUploadingMedia(false);
           setUploadProgress(0);
         }
       }
 
-      if (!captionText && !finalMedia) return;
+      if (!captionText && !finalMedia) return false;
 
-      const lastLabel = formatLastMessageLabel(captionText, finalMedia, isPrivateMode);
+      const lastLabel = formatLastMessageLabel(captionText, finalMedia, isPrivate);
       const contentToSave =
         captionText ||
         (finalMedia?.type === 'image'
           ? '📎 Foto'
           : finalMedia?.type === 'video'
-          ? '🎥 Vídeo'
-          : finalMedia?.type === 'audio'
-          ? '🎵 Áudio'
-          : finalMedia?.type === 'document'
-          ? `📄 ${finalMedia.name || 'Documento'}`
-          : '');
+            ? '🎥 Vídeo'
+            : finalMedia?.type === 'audio'
+              ? '🎵 Áudio'
+              : finalMedia?.type === 'document'
+                ? `📄 ${finalMedia.name || 'Documento'}`
+                : '');
 
       try {
         const messageDoc: Record<string, unknown> = {
@@ -728,8 +630,8 @@ export default function Chat() {
           timestamp: new Date(),
           isAdmin: true,
           source: 'app',
-          isPrivate: isPrivateMode,
-          ...(isPrivateMode ? {} : { deliveryStatus: 'SENDING' }),
+          isPrivate,
+          ...(isPrivate ? {} : { deliveryStatus: 'SENDING' }),
         };
 
         if (finalMedia) {
@@ -741,13 +643,14 @@ export default function Chat() {
           if (finalMedia.duration) messageDoc.mediaDuration = finalMedia.duration;
         }
 
-        if (replyingTo && !isPrivateMode) {
-          messageDoc.replyTo = replyingTo;
+        const currentReply = replyingToRef.current;
+        if (currentReply && !isPrivate) {
+          messageDoc.replyTo = currentReply;
         }
 
-        await addDoc(collection(db, 'chat', selectedClient.id, 'mensagens'), messageDoc);
+        await addDoc(collection(db, 'chat', targetId, 'mensagens'), messageDoc);
         await setDoc(
-          doc(db, 'chat', selectedClient.id),
+          doc(db, 'chat', targetId),
           {
             lastMessage: lastLabel,
             lastMessageTime: new Date(),
@@ -756,26 +659,62 @@ export default function Chat() {
           { merge: true }
         );
 
-        if (textOverride === undefined) {
-          setNewMessage('');
-          if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-          }
-        }
         setReplyingTo(null);
-        setShowEmojiPicker(false);
-        if (isPrivateMode) setIsPrivateMode(false);
+        return true;
       } catch {
         toast({ title: 'Erro ao enviar mensagem', variant: 'destructive' });
+        return false;
       }
     },
-    [selectedClient, newMessage, stagedMedia, isPrivateMode, replyingTo, uploadFileToStorage, toast]
+    [uploadFileToStorage, toast]
   );
 
-  // Preparar arquivo selecionado/arrastado/colado (com compressão automática de fotos p/ economia de Storage)
+  // Wrapper compatível com ClientInfoCard e AttendantCard (100% estável)
+  const handleSendMessage = useCallback(
+    async (textOverride?: string, mediaOverride?: ChatMediaPayload) => {
+      await sendMessageCore(textOverride ?? '', { isPrivate: false, mediaOverride });
+    },
+    [sendMessageCore]
+  );
+
+  const handleUploadRecordedAudio = useCallback(
+    async (targetClientId: string, file: File, durationSec: number, mimeType: string) => {
+      setUploadingMedia(true);
+      setUploadProgress(10);
+      try {
+        const url = await uploadFileToStorage(targetClientId, file, (pct) =>
+          setUploadProgress(pct)
+        );
+        await sendMessageCore('', {
+          targetClientId,
+          isPrivate: false,
+          mediaOverride: {
+            type: 'audio',
+            url,
+            name: file.name,
+            mimeType,
+            size: file.size,
+            duration: durationSec,
+          },
+        });
+      } catch {
+        toast({
+          title: 'Erro ao enviar áudio',
+          description: 'Não foi possível subir o áudio gravado.',
+          variant: 'destructive',
+        });
+      } finally {
+        setUploadingMedia(false);
+        setUploadProgress(0);
+      }
+    },
+    [uploadFileToStorage, sendMessageCore, toast]
+  );
+
+  // Preparar arquivo selecionado/arrastado/colado (com compressão automática de fotos)
   const stageFileForSend = useCallback(
     async (file: File, forcedType?: 'image' | 'video' | 'audio' | 'document') => {
-      if (!selectedClient) {
+      if (!selectedClientRef.current) {
         toast({
           title: 'Selecione uma conversa primeiro',
           variant: 'destructive',
@@ -793,9 +732,8 @@ export default function Chat() {
         const limitMb = Math.round(maxSize / (1024 * 1024));
         toast({
           title: 'Arquivo excede o limite do WhatsApp',
-          description: `Tamanho máximo para ${
-            type === 'video' ? 'vídeos' : type === 'document' ? 'documentos' : 'este formato'
-          }: ${limitMb} MB.`,
+          description: `Tamanho máximo para ${type === 'video' ? 'vídeos' : type === 'document' ? 'documentos' : 'este formato'
+            }: ${limitMb} MB.`,
           variant: 'destructive',
         });
         return;
@@ -824,37 +762,10 @@ export default function Chat() {
 
       const previewUrl = URL.createObjectURL(readyFile);
       setStagedMedia({ file: readyFile, type, previewUrl });
-      setShowAttachMenu(false);
-      setTimeout(() => textareaRef.current?.focus(), 60);
+      setTimeout(() => composerRef.current?.focus(), 60);
     },
-    [selectedClient, toast]
+    [toast]
   );
-
-  const handleFileInputChange = (
-    event: React.ChangeEvent<HTMLInputElement>,
-    forcedType?: 'image' | 'video' | 'audio' | 'document'
-  ) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file) stageFileForSend(file, forcedType);
-  };
-
-  // Suporte a Ctrl+V de imagens/arquivos direto na caixa de texto
-  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file) {
-          event.preventDefault();
-          stageFileForSend(file);
-          return;
-        }
-      }
-    }
-  };
 
   // Drag & Drop de arquivos na área de conversa
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -874,173 +785,35 @@ export default function Chat() {
     event.preventDefault();
     setIsDraggingFile(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) stageFileForSend(file);
+    if (file) void stageFileForSend(file);
   };
 
-  // Gravação de Áudio WhatsApp com waveform em tempo real e cancelamento seguro
-  const cleanupRecordingResources = () => {
-    if (recordingTimerRef.current) {
-      window.clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-    if (analyserRafRef.current) {
-      cancelAnimationFrame(analyserRafRef.current);
-      analyserRafRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => undefined);
-      audioCtxRef.current = null;
-    }
-    if (recordingStreamRef.current) {
-      recordingStreamRef.current.getTracks().forEach((t) => t.stop());
-      recordingStreamRef.current = null;
-    }
-    mediaRecorderRef.current = null;
-  };
+  const handleMicError = useCallback(() => {
+    toast({
+      title: 'Permissão de microfone negada',
+      description: 'Autorize o microfone no navegador para gravar áudios.',
+      variant: 'destructive',
+    });
+  }, [toast]);
 
-  useEffect(() => {
-    return () => {
-      cancelRecordingRef.current = true;
-      cleanupRecordingResources();
-    };
+  const handleCancelReply = useCallback(() => {
+    setReplyingTo(null);
   }, []);
 
-  const startRecording = async () => {
-    if (!selectedClient) return;
-    setShowAttachMenu(false);
+  const handleRemoveStagedMedia = useCallback(() => {
+    setStagedMedia(null);
+  }, []);
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordingStreamRef.current = stream;
-      cancelRecordingRef.current = false;
-      recordingDurationRef.current = 0;
+  const handleSelectPredefinedMessage = useCallback((msg: string) => {
+    composerRef.current?.setDraft(msg);
+  }, []);
 
-      const { mimeType, ext } = getBestAudioRecorderMime();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
-      // Visualizador de nível do microfone
-      try {
-        const AudioCtx =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext })
-            .webkitAudioContext;
-        if (AudioCtx) {
-          const ctx = new AudioCtx();
-          audioCtxRef.current = ctx;
-          const source = ctx.createMediaStreamSource(stream);
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 32;
-          source.connect(analyser);
-          const dataArr = new Uint8Array(analyser.frequencyBinCount);
-
-          const updateBars = () => {
-            analyser.getByteFrequencyData(dataArr);
-            const bars = Array.from({ length: 10 }, (_, idx) => {
-              const raw = dataArr[idx % dataArr.length] || 0;
-              return Math.max(18, Math.min(100, Math.round((raw / 255) * 100)));
-            });
-            setAudioLevels(bars);
-            analyserRafRef.current = requestAnimationFrame(updateBars);
-          };
-          analyserRafRef.current = requestAnimationFrame(updateBars);
-        }
-      } catch {
-        // Sem medidor visual se o navegador bloquear AudioContext
-      }
-
-      const targetClientId = selectedClient.id;
-      recorder.onstop = async () => {
-        const wasCancelled = cancelRecordingRef.current;
-        const durationSec = Math.max(1, recordingDurationRef.current);
-        cleanupRecordingResources();
-
-        if (wasCancelled || chunks.length === 0) {
-          return;
-        }
-
-        const resolvedMime = mimeType || recorder.mimeType || 'audio/webm';
-        const blob = new Blob(chunks, { type: resolvedMime });
-        const fileName = `audio_${Date.now()}.${ext}`;
-        const file = new File([blob], fileName, { type: resolvedMime });
-
-        setUploadingMedia(true);
-        setUploadProgress(10);
-        try {
-          const url = await uploadFileToStorage(targetClientId, file, (pct) =>
-            setUploadProgress(pct)
-          );
-          await handleSendMessage('', {
-            type: 'audio',
-            url,
-            name: fileName,
-            mimeType: resolvedMime,
-            size: file.size,
-            duration: durationSec,
-          });
-        } catch {
-          toast({
-            title: 'Erro ao enviar áudio',
-            description: 'Não foi possível subir o áudio gravado.',
-            variant: 'destructive',
-          });
-        } finally {
-          setUploadingMedia(false);
-          setUploadProgress(0);
-        }
-      };
-
-      recorder.start(250);
-      setIsRecording(true);
-      setRecordingTime(0);
-      recordingTimerRef.current = window.setInterval(() => {
-        recordingDurationRef.current += 1;
-        setRecordingTime(recordingDurationRef.current);
-      }, 1000);
-    } catch {
-      cleanupRecordingResources();
-      toast({
-        title: 'Permissão de microfone negada',
-        description: 'Autorize o microfone no navegador para gravar áudios.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const cancelRecording = () => {
-    cancelRecordingRef.current = true;
-    setIsRecording(false);
-    setRecordingTime(0);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    } else {
-      cleanupRecordingResources();
-    }
-  };
-
-  const finishAndSendRecording = () => {
-    cancelRecordingRef.current = false;
-    setIsRecording(false);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-  };
-
-  const handleClientSelect = (client: Client) => {
+  const handleClientSelect = useCallback((client: Client) => {
     manualUnreadRef.current.delete(client.id);
     setSelectedClient(client);
     setMessageLimit(30);
     setStagedMedia(null);
     setReplyingTo(null);
-    setShowAttachMenu(false);
-    setShowEmojiPicker(false);
     setShowMessageSearch(false);
     setMessageSearchQuery('');
     setShowScrollBottom(false);
@@ -1049,7 +822,7 @@ export default function Chat() {
         () => undefined
       );
     }
-  };
+  }, []);
 
   const handleMarkChatUnread = async () => {
     if (!selectedClient) return;
@@ -1067,173 +840,189 @@ export default function Chat() {
     });
   };
 
-  const handleRetryMessage = async (msg: Message) => {
-    if (!selectedClient) return;
-    await handleSendMessage(
-      msg.content,
-      msg.mediaUrl && msg.mediaType
-        ? {
-            type: msg.mediaType,
-            url: msg.mediaUrl,
-            name: msg.mediaName,
-            mimeType: msg.mediaMimeType,
-            size: msg.mediaSize,
-            duration: msg.mediaDuration,
-          }
-        : undefined
-    );
-  };
-
-  const handleReactMessage = async (msg: Message, emoji: string) => {
-    if (!selectedClient || !msg.zapiMessageId) return;
-    const phone = selectedClient.phone || selectedClient.id;
-    const res = await whapiService.sendReaction(phone, msg.zapiMessageId, emoji);
-    if (res.sent) {
-      updateDoc(doc(db, 'chat', selectedClient.id, 'mensagens', msg.id), {
-        reaction: emoji,
-      }).catch(() => undefined);
-    } else {
-      toast({
-        title: 'Não foi possível reagir',
-        description: res.error || 'Tente novamente em instantes.',
-        variant: 'destructive',
+  const handleRetryMessage = useCallback(
+    async (msg: Message) => {
+      if (!selectedClientRef.current) return;
+      await sendMessageCore(msg.content, {
+        isPrivate: Boolean(msg.isPrivate),
+        mediaOverride:
+          msg.mediaUrl && msg.mediaType
+            ? {
+              type: msg.mediaType,
+              url: msg.mediaUrl,
+              name: msg.mediaName,
+              mimeType: msg.mediaMimeType,
+              size: msg.mediaSize,
+              duration: msg.mediaDuration,
+            }
+            : undefined,
       });
-    }
-  };
+    },
+    [sendMessageCore]
+  );
 
-  const handleEditMessage = async (msg: Message, newText: string): Promise<boolean> => {
-    if (!selectedClient) return false;
-    const trimmed = newText.trim();
-    if (!trimmed) return false;
-
-    if (!msg.isPrivate) {
-      if (!msg.zapiMessageId) {
+  const handleReactMessage = useCallback(
+    async (msg: Message, emoji: string) => {
+      const current = selectedClientRef.current;
+      if (!current || !msg.zapiMessageId) return;
+      const phone = current.phone || current.id;
+      const res = await whapiService.sendReaction(phone, msg.zapiMessageId, emoji);
+      if (res.sent) {
+        updateDoc(doc(db, 'chat', current.id, 'mensagens', msg.id), {
+          reaction: emoji,
+        }).catch(() => undefined);
+      } else {
         toast({
-          title: 'Edição indisponível',
-          description: 'Esta mensagem não possui ID da Z-API para edição no WhatsApp.',
+          title: 'Não foi possível reagir',
+          description: res.error || 'Tente novamente em instantes.',
           variant: 'destructive',
         });
-        return false;
       }
-      const phone = selectedClient.phone || selectedClient.id;
-      const res = await whapiService.editMessage(phone, msg.zapiMessageId, trimmed);
-      if (!res.sent) {
-        toast({
-          title: 'Não foi possível editar no WhatsApp',
-          description:
-            res.error || 'O WhatsApp permite editar apenas até 15 minutos após o envio.',
-          variant: 'destructive',
+    },
+    [toast]
+  );
+
+  const handleEditMessage = useCallback(
+    async (msg: Message, newText: string): Promise<boolean> => {
+      const current = selectedClientRef.current;
+      if (!current) return false;
+      const trimmed = newText.trim();
+      if (!trimmed) return false;
+
+      if (!msg.isPrivate) {
+        if (!msg.zapiMessageId) {
+          toast({
+            title: 'Edição indisponível',
+            description: 'Esta mensagem não possui ID da Z-API para edição no WhatsApp.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+        const phone = current.phone || current.id;
+        const res = await whapiService.editMessage(phone, msg.zapiMessageId, trimmed);
+        if (!res.sent) {
+          toast({
+            title: 'Não foi possível editar no WhatsApp',
+            description:
+              res.error || 'O WhatsApp permite editar apenas até 15 minutos após o envio.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+      }
+
+      try {
+        await updateDoc(doc(db, 'chat', current.id, 'mensagens', msg.id), {
+          content: trimmed,
+          edited: true,
+          editedAt: new Date(),
         });
-        return false;
-      }
-    }
 
-    try {
-      await updateDoc(doc(db, 'chat', selectedClient.id, 'mensagens', msg.id), {
-        content: trimmed,
-        edited: true,
-        editedAt: new Date(),
-      });
+        const msgs = clientMessagesRef.current[current.id] || [];
+        if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+          await setDoc(
+            doc(db, 'chat', current.id),
+            { lastMessage: msg.isPrivate ? `📝 Nota: ${trimmed}` : trimmed },
+            { merge: true }
+          ).catch(() => undefined);
+        }
 
-      const msgs = clientMessages[selectedClient.id] || [];
-      if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
-        await setDoc(
-          doc(db, 'chat', selectedClient.id),
-          { lastMessage: msg.isPrivate ? `📝 Nota: ${trimmed}` : trimmed },
-          { merge: true }
-        ).catch(() => undefined);
-      }
-
-      toast({
-        title: msg.isPrivate ? 'Nota editada' : 'Mensagem editada no WhatsApp',
-      });
-      return true;
-    } catch {
-      toast({ title: 'Erro ao salvar edição', variant: 'destructive' });
-      return false;
-    }
-  };
-
-  const handleDeleteForEveryone = async (msg: Message): Promise<boolean> => {
-    if (!selectedClient) return false;
-
-    if (!msg.isPrivate) {
-      if (!msg.zapiMessageId) {
         toast({
-          title: 'Exclusão indisponível no WhatsApp',
-          description: 'Esta mensagem não possui ID da Z-API para apagar para todos.',
-          variant: 'destructive',
+          title: msg.isPrivate ? 'Nota editada' : 'Mensagem editada no WhatsApp',
         });
+        return true;
+      } catch {
+        toast({ title: 'Erro ao salvar edição', variant: 'destructive' });
         return false;
       }
-      const phone = selectedClient.phone || selectedClient.id;
-      const res = await whapiService.deleteMessage(phone, msg.zapiMessageId, {
-        owner: true,
-        deleteForMe: false,
-      });
-      if (!res.sent) {
+    },
+    [toast]
+  );
+
+  const handleDeleteForEveryone = useCallback(
+    async (msg: Message): Promise<boolean> => {
+      const current = selectedClientRef.current;
+      if (!current) return false;
+
+      if (!msg.isPrivate) {
+        if (!msg.zapiMessageId) {
+          toast({
+            title: 'Exclusão indisponível no WhatsApp',
+            description: 'Esta mensagem não possui ID da Z-API para apagar para todos.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+        const phone = current.phone || current.id;
+        const res = await whapiService.deleteMessage(phone, msg.zapiMessageId, {
+          owner: true,
+          deleteForMe: false,
+        });
+        if (!res.sent) {
+          toast({
+            title: 'Não foi possível apagar para todos',
+            description: res.error || 'Verifique a conexão Z-API ou o prazo do WhatsApp.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+      }
+
+      try {
+        await updateDoc(doc(db, 'chat', current.id, 'mensagens', msg.id), {
+          deletedForEveryone: true,
+          content: '🚫 Você apagou esta mensagem',
+          mediaUrl: null,
+          mediaType: null,
+          mediaName: null,
+          deletedAt: new Date(),
+        });
+
+        const msgs = clientMessagesRef.current[current.id] || [];
+        if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+          await setDoc(
+            doc(db, 'chat', current.id),
+            { lastMessage: '🚫 Mensagem apagada' },
+            { merge: true }
+          ).catch(() => undefined);
+        }
+
         toast({
-          title: 'Não foi possível apagar para todos',
-          description: res.error || 'Verifique a conexão Z-API ou o prazo do WhatsApp.',
-          variant: 'destructive',
+          title: msg.isPrivate ? 'Nota apagada' : 'Mensagem apagada para todos no WhatsApp',
         });
+        return true;
+      } catch {
+        toast({ title: 'Erro ao atualizar exclusão', variant: 'destructive' });
         return false;
       }
-    }
+    },
+    [toast]
+  );
 
-    try {
-      await updateDoc(doc(db, 'chat', selectedClient.id, 'mensagens', msg.id), {
-        deletedForEveryone: true,
-        content: '🚫 Você apagou esta mensagem',
-        mediaUrl: null,
-        mediaType: null,
-        mediaName: null,
-        deletedAt: new Date(),
-      });
-
-      const msgs = clientMessages[selectedClient.id] || [];
-      if (msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
-        await setDoc(
-          doc(db, 'chat', selectedClient.id),
-          { lastMessage: '🚫 Mensagem apagada' },
-          { merge: true }
-        ).catch(() => undefined);
-      }
-
-      toast({
-        title: msg.isPrivate ? 'Nota apagada' : 'Mensagem apagada para todos no WhatsApp',
-      });
-      return true;
-    } catch {
-      toast({ title: 'Erro ao atualizar exclusão', variant: 'destructive' });
-      return false;
-    }
-  };
-
-  const handleReplyMessage = (msg: Message) => {
+  const handleReplyMessage = useCallback((msg: Message) => {
     const snippet =
       msg.content?.trim() ||
       (msg.mediaType === 'image'
         ? '📎 Foto'
         : msg.mediaType === 'video'
-        ? '🎥 Vídeo'
-        : msg.mediaType === 'audio'
-        ? '🎵 Áudio'
-        : msg.mediaType === 'document'
-        ? `📄 ${msg.mediaName || 'Documento'}`
-        : '');
+          ? '🎥 Vídeo'
+          : msg.mediaType === 'audio'
+            ? '🎵 Áudio'
+            : msg.mediaType === 'document'
+              ? `📄 ${msg.mediaName || 'Documento'}`
+              : '');
     setReplyingTo({
       id: msg.id,
       zapiMessageId: msg.zapiMessageId || null,
-      user: msg.fromMe ? 'Você' : selectedClient?.name || msg.user,
+      user: msg.fromMe ? 'Você' : selectedClientRef.current?.name || msg.user,
       content: snippet.slice(0, 140),
       mediaType: msg.mediaType,
     });
-    if (isPrivateMode) setIsPrivateMode(false);
-    setTimeout(() => textareaRef.current?.focus(), 40);
-  };
+    composerRef.current?.exitPrivateMode();
+    setTimeout(() => composerRef.current?.focus(), 40);
+  }, []);
 
-  const scrollToMessage = (messageId: string) => {
+  const scrollToMessage = useCallback((messageId: string) => {
     const el = messagesScrollRef.current?.querySelector<HTMLElement>(
       `[data-msg-id="${messageId}"]`
     );
@@ -1243,14 +1032,14 @@ export default function Chat() {
     window.setTimeout(() => {
       setHighlightedMsgId((prev) => (prev === messageId ? null : prev));
     }, 1800);
-  };
+  }, []);
 
-  const handleMessagesScroll = () => {
+  const handleMessagesScroll = useCallback(() => {
     const el = messagesScrollRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollBottom(distanceFromBottom > 220);
-  };
+    const shouldShow = el.scrollHeight - el.scrollTop - el.clientHeight > 220;
+    setShowScrollBottom((prev) => (prev === shouldShow ? prev : shouldShow));
+  }, []);
 
   const handleStartNewConversation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1331,8 +1120,8 @@ export default function Chat() {
     const newProtocol = `${now.getFullYear()}${(now.getMonth() + 1)
       .toString()
       .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}${Math.floor(
-      1000 + Math.random() * 9000
-    )}`;
+        1000 + Math.random() * 9000
+      )}`;
 
     try {
       await setDoc(
@@ -1348,65 +1137,66 @@ export default function Chat() {
     }
   };
 
-  const handleSuggestAiReply = async () => {
-    if (!selectedClient) return;
+  const handleSuggestAiReply = useCallback(async (): Promise<string | null> => {
+    const current = selectedClientRef.current;
+    if (!current) return null;
     setSuggestingAi(true);
     try {
-      const msgs = clientMessages[selectedClient.id] || [];
-      const suggestion = await aiService.generateResponse(
-        msgs.slice(-10),
-        selectedClient.name
-      );
+      const msgs = clientMessagesRef.current[current.id] || [];
+      const suggestion = await aiService.generateResponse(msgs.slice(-10), current.name);
       if (suggestion?.trim()) {
-        setNewMessage(suggestion.trim());
         toast({
           title: 'Sugestão IA pronta',
           description: 'Revise o texto e aperte Enter para enviar.',
         });
+        return suggestion.trim();
       }
+      return null;
     } catch {
       toast({
         title: 'Não foi possível gerar sugestão agora',
         variant: 'destructive',
       });
+      return null;
     } finally {
       setSuggestingAi(false);
     }
-  };
+  }, [toast]);
 
-  const expandImage = (url: string) => {
+  const expandImage = useCallback((url: string) => {
     setSelectedImageUrl(url);
     setShowImageModal(true);
-  };
+  }, []);
 
-  const filteredClients = clients.filter((c) => {
+  const unreadChatsCount = useMemo(
+    () => clients.reduce((acc, c) => (c.unreadCount > 0 ? acc + 1 : acc), 0),
+    [clients]
+  );
+
+  const filteredClients = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const matchesSearch =
-      !q ||
-      c.name.toLowerCase().includes(q) ||
-      c.id.toLowerCase().includes(q) ||
-      (c.phone || '').toLowerCase().includes(q) ||
-      (c.protocol || '').toLowerCase().includes(q);
-    if (!matchesSearch) return false;
-    if (chatFilter === 'unread') return c.unreadCount > 0;
-    if (chatFilter === 'ai') return Boolean(c.aiEnabled);
-    if (
-      chatFilter === 'urgente' ||
-      chatFilter === 'suporte' ||
-      chatFilter === 'financeiro'
-    ) {
-      return Boolean(c.tags?.includes(chatFilter));
-    }
-    return true;
-  });
+    return clients.filter((c) => {
+      const matchesSearch =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q) ||
+        (c.protocol || '').toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+      if (chatFilter === 'unread') return c.unreadCount > 0;
+      if (chatFilter === 'ai') return Boolean(c.aiEnabled);
+      if (
+        chatFilter === 'urgente' ||
+        chatFilter === 'suporte' ||
+        chatFilter === 'financeiro'
+      ) {
+        return Boolean(c.tags?.includes(chatFilter));
+      }
+      return true;
+    });
+  }, [clients, searchTerm, chatFilter]);
 
-  const activeSlashMacros = newMessage.startsWith('/')
-    ? SLASH_MACROS.filter((m) =>
-        m.cmd.toLowerCase().startsWith(newMessage.trim().toLowerCase())
-      )
-    : [];
-
-  const currentMessages = React.useMemo(
+  const currentMessages = useMemo(
     () => (selectedClient ? clientMessages[selectedClient.id] || [] : []),
     [selectedClient, clientMessages]
   );
@@ -1469,53 +1259,41 @@ export default function Chat() {
     scrollToMessage(searchMatches[wrapped].id);
   };
 
+  // Scroll instantâneo ao trocar de conversa e suave apenas ao receber nova mensagem na conversa aberta
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!selectedClientId) return;
+    const isSameChat = lastScrolledClientRef.current === selectedClientId;
+    lastScrolledClientRef.current = selectedClientId;
+    messagesEndRef.current?.scrollIntoView({ behavior: isSameChat ? 'smooth' : 'auto' });
   }, [currentMessages.length, selectedClientId]);
 
-  const canSend = Boolean(newMessage.trim() || stagedMedia) && !uploadingMedia;
+  const handleCloseClientInfo = useCallback(() => {
+    setShowClientInfo(false);
+  }, []);
+
+  const attendantSlot = useMemo(
+    () => <AttendantCard onSendMessage={handleSendMessage} />,
+    [handleSendMessage]
+  );
+
+  const quickRepliesSlot = useMemo(
+    () =>
+      selectedClient ? (
+        <PredefinedMessages
+          client={selectedClient}
+          onSelectMessage={handleSelectPredefinedMessage}
+        />
+      ) : null,
+    [selectedClient, handleSelectPredefinedMessage]
+  );
 
   return (
     <PageTransition>
-      {/* Inputs de arquivo ocultos para todos os formatos do WhatsApp */}
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        onChange={(e) => handleFileInputChange(e, 'image')}
-        className="hidden"
-      />
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/mp4,video/quicktime,video/webm,video/*"
-        onChange={(e) => handleFileInputChange(e, 'video')}
-        className="hidden"
-      />
-      <input
-        ref={audioInputRef}
-        type="file"
-        accept="audio/*"
-        onChange={(e) => handleFileInputChange(e, 'audio')}
-        className="hidden"
-      />
-      <input
-        ref={docInputRef}
-        type="file"
-        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.xml,.json"
-        onChange={(e) => handleFileInputChange(e, 'document')}
-        className="hidden"
-      />
-
       <div className="flex h-[calc(100vh-148px)] md:h-[calc(100vh-112px)] overflow-hidden gap-3 relative">
         {/* Coluna Esquerda — Lista de Conversas WhatsApp */}
-        <motion.div
-          initial={{ x: -12, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.16 }}
-          className={`w-full lg:w-80 shrink-0 ${
-            selectedClient ? 'hidden lg:flex' : 'flex'
-          } flex-col bg-card rounded-2xl shadow-sm border border-border/80 overflow-hidden`}
+        <div
+          className={`w-full lg:w-80 shrink-0 ${selectedClient ? 'hidden lg:flex' : 'flex'
+            } flex-col bg-card rounded-2xl shadow-sm border border-border/80 overflow-hidden`}
         >
           <div className="p-4 border-b border-border/60 space-y-3">
             <div className="flex items-center justify-between">
@@ -1525,7 +1303,7 @@ export default function Chat() {
                   variant="secondary"
                   className="bg-primary/10 text-primary border-none px-1.5 h-5 text-[10px] font-semibold"
                 >
-                  {clients.filter((c) => c.unreadCount > 0).length} novas
+                  {unreadChatsCount} novas
                 </Badge>
               </h2>
               <div className="flex gap-1">
@@ -1542,11 +1320,10 @@ export default function Chat() {
                   variant="ghost"
                   size="icon"
                   title={`IA Global: ${globalAiEnabled ? 'ON' : 'OFF'}`}
-                  className={`h-8 w-8 rounded-full transition-colors ${
-                    globalAiEnabled
+                  className={`h-8 w-8 rounded-full transition-colors ${globalAiEnabled
                       ? 'text-primary bg-primary/10 hover:bg-primary/20'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                  }`}
+                    }`}
                   onClick={() => setGlobalAiEnabled(!globalAiEnabled)}
                 >
                   <Bot className="w-4 h-4" />
@@ -1597,11 +1374,10 @@ export default function Chat() {
                   key={f.id}
                   type="button"
                   onClick={() => setChatFilter(f.id)}
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors border ${
-                    chatFilter === f.id
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors border ${chatFilter === f.id
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-secondary/50 text-muted-foreground border-border/60 hover:text-foreground'
-                  }`}
+                    }`}
                 >
                   {f.label}
                 </button>
@@ -1620,104 +1396,14 @@ export default function Chat() {
                 Nenhuma conversa encontrada.
               </div>
             ) : (
-              filteredClients.map((client) => {
-                const isSelected = selectedClient?.id === client.id;
-                return (
-                <div
+              filteredClients.map((client) => (
+                <ChatConversationItem
                   key={client.id}
-                  onClick={() => handleClientSelect(client)}
-                  className={`p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden ${
-                    isSelected
-                      ? 'bg-primary/12 border border-primary/35 shadow-sm'
-                      : 'hover:bg-secondary/60 border border-transparent'
-                  }`}
-                >
-                  {isSelected && (
-                    <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full bg-primary" />
-                  )}
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <Avatar className="h-11 w-11 border-2 border-border shadow-sm">
-                        {isAvatarImageUrl(client.avatar) && (
-                          <AvatarImage src={client.avatar} alt={client.name} />
-                        )}
-                        <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
-                          {client.name.substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      {client.isOnline && (
-                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-card rounded-full" />
-                      )}
-                      {client.aiEnabled && (
-                        <div
-                          className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded-full border border-card shadow-sm"
-                          title="IA Ativa"
-                        >
-                          <Bot className="w-2.5 h-2.5" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5 gap-1">
-                        <h4 className="font-bold text-sm text-foreground truncate flex items-center gap-1.5">
-                          {client.name}
-                          {client.source === 'whatsapp' && (
-                            <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-none text-[9px] h-3.5 px-1 font-bold">
-                              WA
-                            </Badge>
-                          )}
-                        </h4>
-                        <span
-                          className={`text-[10px] shrink-0 font-mono ${
-                            client.unreadCount > 0
-                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                              : 'text-muted-foreground'
-                          }`}
-                        >
-                          {format(client.lastMessageTime, 'HH:mm')}
-                        </span>
-                      </div>
-                      <p
-                        className={`text-xs truncate leading-relaxed ${
-                          client.unreadCount > 0
-                            ? 'text-foreground font-medium'
-                            : 'text-muted-foreground'
-                        }`}
-                      >
-                        {client.lastMessage}
-                      </p>
-                      {client.tags && client.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1.5">
-                          {client.tags.map((tagId) => (
-                            <div
-                              key={tagId}
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                tagId === 'suporte'
-                                  ? 'bg-blue-400'
-                                  : tagId === 'financeiro'
-                                  ? 'bg-amber-400'
-                                  : tagId === 'vendas'
-                                  ? 'bg-emerald-400'
-                                  : tagId === 'urgente'
-                                  ? 'bg-rose-500'
-                                  : 'bg-muted-foreground'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {client.unreadCount > 0 && (
-                      <Badge className="bg-emerald-600 text-white border-none h-5 min-w-[20px] justify-center px-1.5 text-[10px] font-bold shadow-sm">
-                        {client.unreadCount > 99 ? '99+' : client.unreadCount}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                );
-              })
+                  client={client}
+                  isSelected={selectedClient?.id === client.id}
+                  onSelect={handleClientSelect}
+                />
+              ))
             )}
             {!loading && clients.length >= clientLimit - 5 && (
               <div className="pt-2 pb-1 flex justify-center">
@@ -1733,17 +1419,15 @@ export default function Chat() {
               </div>
             )}
           </div>
-        </motion.div>
+        </div>
 
         {/* Coluna Central — Conversa WhatsApp com Drag & Drop */}
-        <motion.div
-          layout
+        <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`${
-            selectedClient ? 'flex' : 'hidden lg:flex'
-          } flex-1 min-w-0 flex-col bg-card rounded-2xl shadow-sm border border-border/80 overflow-hidden relative`}
+          className={`${selectedClient ? 'flex' : 'hidden lg:flex'
+            } flex-1 min-w-0 flex-col bg-card rounded-2xl shadow-sm border border-border/80 overflow-hidden relative`}
         >
           {/* Overlay de Drag & Drop de arquivos */}
           <AnimatePresence>
@@ -1795,11 +1479,10 @@ export default function Chat() {
                     </h3>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`text-[10px] font-medium ${
-                          selectedClient.isOnline
+                        className={`text-[10px] font-medium ${selectedClient.isOnline
                             ? 'text-emerald-500'
                             : 'text-muted-foreground'
-                        }`}
+                          }`}
                       >
                         {selectedClient.isOnline ? 'Online' : 'WhatsApp'}
                       </span>
@@ -1849,8 +1532,8 @@ export default function Chat() {
                         activeIspfyClient
                           ? `Abrir Nova O.S. para ${obterNomeClienteISPFY(activeIspfyClient)}`
                           : resolvingIspfy
-                          ? 'Localizando cliente no ISPFY para abrir O.S...'
-                          : 'Abrir Nova O.S. para este contato'
+                            ? 'Localizando cliente no ISPFY para abrir O.S...'
+                            : 'Abrir Nova O.S. para este contato'
                       }
                     >
                       {resolvingIspfy && !activeIspfyClient ? (
@@ -1880,11 +1563,10 @@ export default function Chat() {
                       setMessageSearchQuery('');
                       setActiveSearchIndex(0);
                     }}
-                    className={`h-9 w-9 rounded-xl transition-colors ${
-                      showMessageSearch
+                    className={`h-9 w-9 rounded-xl transition-colors ${showMessageSearch
                         ? 'text-primary bg-primary/10'
                         : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                      }`}
                     title="Buscar mensagens nesta conversa"
                   >
                     <Search className="w-4 h-4" />
@@ -1911,11 +1593,10 @@ export default function Chat() {
                     variant={showClientInfo ? 'secondary' : 'ghost'}
                     size="icon"
                     onClick={() => setShowClientInfo((prev) => !prev)}
-                    className={`h-9 w-9 rounded-xl transition-colors ${
-                      showClientInfo
+                    className={`h-9 w-9 rounded-xl transition-colors ${showClientInfo
                         ? 'text-primary bg-primary/10 hover:bg-primary/15'
                         : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                      }`}
                     title={
                       showClientInfo
                         ? 'Ocultar ficha 360° do cliente'
@@ -2043,65 +1724,24 @@ export default function Chat() {
                       !prevMsg!.isPrivate &&
                       Boolean(prevMsg!.fromMe) === Boolean(message.fromMe) &&
                       message.timestamp.getTime() - prevMsg!.timestamp.getTime() <
-                        3 * 60 * 1000;
-                    const isHighlighted = highlightedMsgId === message.id;
+                      3 * 60 * 1000;
 
                     return (
-                      <div key={message.id || index}>
-                        {showDayDivider && (
-                          <div className="flex justify-center my-3">
-                            <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-card/95 border border-border/70 text-muted-foreground shadow-sm">
-                              {formatDaySeparator(message.timestamp)}
-                            </span>
-                          </div>
-                        )}
-
-                        <div
-                          data-msg-id={message.id}
-                          className={`flex ${
-                            message.fromMe ? 'justify-end' : 'justify-start'
-                          } ${
-                            message.isPrivate
-                              ? 'my-2.5'
-                              : isGroupedWithPrev
-                              ? 'mt-1'
-                              : 'mt-3'
-                          } ${message.reaction ? 'mb-4' : ''}`}
-                        >
-                          <motion.div
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.14 }}
-                            className={`max-w-[84%] sm:max-w-[74%] rounded-2xl px-3.5 py-2.5 shadow-sm relative transition-all ${
-                              isHighlighted
-                                ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-background'
-                                : ''
-                            } ${
-                              message.isPrivate
-                                ? 'bg-amber-500/15 border-2 border-amber-500/30 text-amber-600 dark:text-amber-200 rounded-xl mx-auto w-full max-w-[90%] shadow-md'
-                                : message.fromMe
-                                ? `bg-primary text-primary-foreground shadow-md shadow-primary/20 ${
-                                    isGroupedWithPrev ? 'rounded-2xl' : 'rounded-tr-none'
-                                  }`
-                                : `bg-card text-card-foreground border border-border/80 ${
-                                    isGroupedWithPrev ? 'rounded-2xl' : 'rounded-tl-none'
-                                  }`
-                            }`}
-                          >
-                            <ChatMessageContent
-                              message={message}
-                              highlightQuery={showMessageSearch ? messageSearchQuery : undefined}
-                              onExpandImage={expandImage}
-                              onRetryMessage={handleRetryMessage}
-                              onReactMessage={handleReactMessage}
-                              onReplyMessage={handleReplyMessage}
-                              onEditMessage={handleEditMessage}
-                              onDeleteForEveryone={handleDeleteForEveryone}
-                              onScrollToMessage={scrollToMessage}
-                            />
-                          </motion.div>
-                        </div>
-                      </div>
+                      <ChatMessageBubble
+                        key={message.id || index}
+                        message={message}
+                        showDayDivider={showDayDivider}
+                        isGroupedWithPrev={isGroupedWithPrev}
+                        isHighlighted={highlightedMsgId === message.id}
+                        highlightQuery={showMessageSearch ? messageSearchQuery : undefined}
+                        onExpandImage={expandImage}
+                        onRetryMessage={handleRetryMessage}
+                        onReactMessage={handleReactMessage}
+                        onReplyMessage={handleReplyMessage}
+                        onEditMessage={handleEditMessage}
+                        onDeleteForEveryone={handleDeleteForEveryone}
+                        onScrollToMessage={scrollToMessage}
+                      />
                     );
                   })}
                   <div ref={messagesEndRef} />
@@ -2127,365 +1767,24 @@ export default function Chat() {
                 </AnimatePresence>
               </div>
 
-              {/* Barra de Composição (Texto + Anexos + Áudio + Emojis + IA) */}
-              <div className="p-3 sm:p-4 bg-card border-t border-border/60 relative">
-                {/* Atalhos / (Slash Macros) */}
-                {activeSlashMacros.length > 0 && (
-                  <div className="absolute bottom-full left-4 right-4 mb-2 bg-popover border border-border rounded-xl shadow-xl p-1.5 z-20 max-h-52 overflow-y-auto">
-                    <p className="text-[10px] font-bold uppercase text-muted-foreground px-2 py-1">
-                      Respostas Rápidas (clique para inserir)
-                    </p>
-                    {activeSlashMacros.map((macro) => (
-                      <button
-                        key={macro.cmd}
-                        type="button"
-                        onClick={() => setNewMessage(macro.text)}
-                        className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-secondary text-xs flex items-center justify-between gap-2 transition-colors"
-                      >
-                        <span className="font-mono font-bold text-primary">
-                          {macro.cmd}
-                        </span>
-                        <span className="text-muted-foreground truncate flex-1">
-                          {macro.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Menu Rápido de Anexos WhatsApp (Foto, Vídeo, Documento, Áudio) */}
-                <AnimatePresence>
-                  {showAttachMenu && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                      transition={{ duration: 0.14 }}
-                      className="absolute bottom-full left-4 mb-2 bg-popover border border-border rounded-2xl shadow-2xl p-2 z-30 w-56 space-y-1"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => imageInputRef.current?.click()}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary text-xs font-semibold text-foreground transition-colors"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-blue-500/15 text-blue-500 flex items-center justify-center">
-                          <Camera className="w-4 h-4" />
-                        </span>
-                        <span>Foto / Imagem</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => videoInputRef.current?.click()}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary text-xs font-semibold text-foreground transition-colors"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-violet-500/15 text-violet-500 flex items-center justify-center">
-                          <Film className="w-4 h-4" />
-                        </span>
-                        <span>Vídeo (MP4 / MOV)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => docInputRef.current?.click()}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary text-xs font-semibold text-foreground transition-colors"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center">
-                          <FileText className="w-4 h-4" />
-                        </span>
-                        <span>Documento (PDF, DOC, XLS)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => audioInputRef.current?.click()}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary text-xs font-semibold text-foreground transition-colors"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-500 flex items-center justify-center">
-                          <Music className="w-4 h-4" />
-                        </span>
-                        <span>Arquivo de Áudio</span>
-                      </button>
-                      <div className="h-px bg-border/70 my-1" />
-                      <button
-                        type="button"
-                        onClick={startRecording}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-rose-500/10 text-xs font-semibold text-rose-500 transition-colors"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-rose-500/15 text-rose-500 flex items-center justify-center">
-                          <Mic className="w-4 h-4" />
-                        </span>
-                        <span>Gravar Áudio agora</span>
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Popover de Emojis rápidos */}
-                <AnimatePresence>
-                  {showEmojiPicker && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                      transition={{ duration: 0.14 }}
-                      className="absolute bottom-full left-16 mb-2 bg-popover border border-border rounded-2xl shadow-xl p-2 z-30 grid grid-cols-8 gap-1"
-                    >
-                      {QUICK_EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => {
-                            setNewMessage((prev) => prev + emoji);
-                            textareaRef.current?.focus();
-                          }}
-                          className="w-8 h-8 rounded-lg hover:bg-secondary flex items-center justify-center text-base transition-transform hover:scale-110"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Barra de Resposta / Citação ativa (estilo WhatsApp) */}
-                <AnimatePresence>
-                  {replyingTo && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 6 }}
-                      transition={{ duration: 0.14 }}
-                      className="mb-2 px-3 py-2 rounded-xl bg-secondary/75 border border-border border-l-4 border-l-primary flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-primary flex items-center gap-1.5">
-                          <Reply className="w-3 h-3 shrink-0" />
-                          Respondendo a {replyingTo.user}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {replyingTo.content}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setReplyingTo(null)}
-                        className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
-                        title="Cancelar resposta (Esc)"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Barra de Pré-visualização de Mídia Staged */}
-                {stagedMedia && (
-                  <ChatMediaStagingBar
-                    staged={stagedMedia}
-                    uploading={uploadingMedia}
-                    uploadProgress={uploadProgress}
-                    onRemove={() => setStagedMedia(null)}
-                  />
-                )}
-
-                {/* Modo Gravação de Áudio Inline (estilo WhatsApp) */}
-                {isRecording ? (
-                  <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/30 p-2.5 rounded-2xl">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center animate-pulse shrink-0">
-                        <Mic className="w-4 h-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-rose-500">
-                            Gravando áudio...
-                          </span>
-                          <span className="text-xs font-mono font-bold text-foreground">
-                            {Math.floor(recordingTime / 60)}:
-                            {(recordingTime % 60).toString().padStart(2, '0')}
-                          </span>
-                        </div>
-                        <div className="flex items-end gap-1 h-4 mt-1">
-                          {audioLevels.map((lvl, idx) => (
-                            <span
-                              key={idx}
-                              className="w-1 rounded-full bg-rose-500 transition-[height] duration-75"
-                              style={{ height: `${Math.max(20, lvl)}%` }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={cancelRecording}
-                        title="Descartar gravação"
-                        className="h-10 w-10 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={finishAndSendRecording}
-                        className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs gap-1.5 shadow-md"
-                      >
-                        <Send className="w-4 h-4" />
-                        Enviar Áudio
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-end gap-1.5 sm:gap-2 bg-secondary/40 p-2 rounded-2xl border border-border focus-within:border-primary/50 focus-within:bg-secondary/60 transition-all shadow-inner">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={`h-10 w-10 rounded-xl shrink-0 transition-colors ${
-                        isPrivateMode
-                          ? 'text-amber-500 bg-amber-500/15 hover:bg-amber-500/20'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => setIsPrivateMode(!isPrivateMode)}
-                      title={
-                        isPrivateMode
-                          ? 'Modo Nota Interna Ativo (não vai para o WhatsApp)'
-                          : 'Alternar para Nota Interna da equipe'
-                      }
-                    >
-                      {isPrivateMode ? (
-                        <Lock className="w-4 h-4" />
-                      ) : (
-                        <Unlock className="w-4 h-4" />
-                      )}
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={uploadingMedia}
-                      className={`h-10 w-10 rounded-xl shrink-0 transition-colors ${
-                        showAttachMenu
-                          ? 'text-primary bg-primary/10'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => {
-                        setShowAttachMenu((prev) => !prev);
-                        setShowEmojiPicker(false);
-                      }}
-                      title="Anexar foto, vídeo, documento ou áudio"
-                    >
-                      <Paperclip className="w-4 h-4" />
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={`hidden sm:inline-flex h-10 w-10 rounded-xl shrink-0 transition-colors ${
-                        showEmojiPicker
-                          ? 'text-primary bg-primary/10'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => {
-                        setShowEmojiPicker((prev) => !prev);
-                        setShowAttachMenu(false);
-                      }}
-                      title="Inserir emoji"
-                    >
-                      <Smile className="w-4 h-4" />
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={suggestingAi || uploadingMedia}
-                      className="h-10 w-10 rounded-xl shrink-0 text-indigo-500 hover:bg-indigo-500/10"
-                      onClick={handleSuggestAiReply}
-                      title="Copiloto IA: sugerir resposta com base na conversa"
-                    >
-                      {suggestingAi ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4" />
-                      )}
-                    </Button>
-
-                    <textarea
-                      ref={textareaRef}
-                      placeholder={
-                        isPrivateMode
-                          ? 'Escreva uma nota interna (não vai para o cliente)...'
-                          : stagedMedia
-                          ? 'Adicione uma legenda opcional...'
-                          : 'Mensagem, /atalhos ou cole uma foto (Ctrl+V)...'
-                      }
-                      className={`flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-sm py-2.5 resize-none max-h-32 transition-colors text-foreground placeholder:text-muted-foreground ${
-                        isPrivateMode
-                          ? 'placeholder:text-amber-500/70 text-amber-600 dark:text-amber-300'
-                          : ''
-                      }`}
-                      rows={1}
-                      value={newMessage}
-                      onPaste={handlePaste}
-                      onChange={(e) => {
-                        setNewMessage(e.target.value);
-                        e.target.style.height = 'auto';
-                        e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`;
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          if (canSend) handleSendMessage();
-                        } else if (e.key === 'Escape') {
-                          setReplyingTo(null);
-                          setShowAttachMenu(false);
-                          setShowEmojiPicker(false);
-                        }
-                      }}
-                    />
-
-                    {canSend ? (
-                      <Button
-                        type="button"
-                        className={`h-10 w-10 rounded-xl shrink-0 shadow-md transition-all active:scale-95 ${
-                          isPrivateMode
-                            ? 'bg-amber-500 hover:bg-amber-600'
-                            : 'bg-primary hover:bg-primary/90'
-                        } text-primary-foreground`}
-                        onClick={() => handleSendMessage()}
-                        disabled={uploadingMedia}
-                        title="Enviar"
-                      >
-                        {uploadingMedia ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        disabled={uploadingMedia}
-                        className="h-10 w-10 rounded-xl shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all active:scale-95"
-                        onClick={startRecording}
-                        title="Gravar mensagem de voz (WhatsApp)"
-                      >
-                        {uploadingMedia ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Mic className="w-4 h-4" />
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Barra de Composição Isolada (zero re-render nas bolhas e lista ao digitar) */}
+              <ChatComposer
+                ref={composerRef}
+                clientId={selectedClient.id}
+                clientName={selectedClient.name}
+                replyingTo={replyingTo}
+                onCancelReply={handleCancelReply}
+                stagedMedia={stagedMedia}
+                onRemoveStagedMedia={handleRemoveStagedMedia}
+                uploadingMedia={uploadingMedia}
+                uploadProgress={uploadProgress}
+                suggestingAi={suggestingAi}
+                onSend={sendMessageCore}
+                onUploadRecordedAudio={handleUploadRecordedAudio}
+                onStageFile={stageFileForSend}
+                onSuggestAiReply={handleSuggestAiReply}
+                onMicError={handleMicError}
+              />
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-12 avl-chat-pattern">
@@ -2500,34 +1799,16 @@ export default function Chat() {
               </div>
             </div>
           )}
-        </motion.div>
+        </div>
 
-        {/* Coluna Direita — Ficha 360° responsiva */}
+        {/* Coluna Direita — Painel 360° reorganizável por arrastar e soltar */}
         {selectedClient && showClientInfo && (
           <>
             <div
               className="xl:hidden fixed inset-0 bg-black/40 backdrop-blur-[2px] z-30"
               onClick={() => setShowClientInfo(false)}
             />
-            <motion.div
-              initial={{ x: 16, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ duration: 0.16 }}
-              className="fixed inset-y-4 right-4 z-40 w-[min(340px,calc(100vw-2rem))] bg-card/95 backdrop-blur-xl p-3 rounded-2xl border border-border shadow-2xl xl:static xl:z-auto xl:w-80 xl:shrink-0 xl:bg-transparent xl:backdrop-blur-none xl:p-0 xl:border-0 xl:shadow-none flex flex-col gap-3 overflow-y-auto pb-2"
-            >
-              <div className="xl:hidden flex items-center justify-between pb-1 border-b border-border/60">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Ficha 360° do Cliente
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-lg"
-                  onClick={() => setShowClientInfo(false)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
+            <div className="fixed inset-y-4 right-4 z-40 w-[min(340px,calc(100vw-2rem))] bg-card/95 backdrop-blur-xl p-3 rounded-2xl border border-border shadow-2xl xl:static xl:z-auto xl:w-80 xl:shrink-0 xl:bg-transparent xl:backdrop-blur-none xl:p-0 xl:border-0 xl:shadow-none flex flex-col gap-3 overflow-y-auto custom-scrollbar pb-2">
               <ClientInfoCard
                 clientId={selectedClient.id}
                 clientPhone={selectedClient.phone}
@@ -2535,15 +1816,11 @@ export default function Chat() {
                 onSendMessage={handleSendMessage}
                 onOntResolved={handleOntResolved}
                 onIspfyClientResolved={reportActiveChatIspfyClient}
+                onCloseMobile={handleCloseClientInfo}
+                attendantSlot={attendantSlot}
+                quickRepliesSlot={quickRepliesSlot}
               />
-              <AttendantCard
-                onSendMessage={(msg, media) => handleSendMessage(msg, media)}
-              />
-              <PredefinedMessages
-                client={selectedClient}
-                onSelectMessage={(msg) => setNewMessage(msg)}
-              />
-            </motion.div>
+            </div>
           </>
         )}
       </div>

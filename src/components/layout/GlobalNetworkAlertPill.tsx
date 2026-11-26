@@ -30,7 +30,7 @@ import { abrirConversaWhatsApp } from '@/lib/utils';
 import { formatarHorarioCurto } from '@/utils/date';
 
 /** Indicador global de status da rede e alertas em tempo real no cabeçalho. */
-export const GlobalNetworkAlertPill: React.FC = () => {
+const GlobalNetworkAlertPillComponent: React.FC = () => {
   const navegar = useNavigate();
   const [aberto, setAberto] = useState(false);
 
@@ -532,3 +532,5 @@ export const GlobalNetworkAlertPill: React.FC = () => {
     </div>
   );
 };
+
+export const GlobalNetworkAlertPill = React.memo(GlobalNetworkAlertPillComponent);

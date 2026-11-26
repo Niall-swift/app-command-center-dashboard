@@ -9,6 +9,7 @@ export interface CachedSplashUser {
   role: PanelUserRole;
   photoUrl?: string;
   jobTitle?: string;
+  hasPin?: boolean;
 }
 
 export function readCachedSplashUser(): CachedSplashUser | null {
@@ -27,6 +28,7 @@ export function readCachedSplashUser(): CachedSplashUser | null {
         parsed.role === 'creator' || parsed.role === 'admin' ? parsed.role : 'operador',
       photoUrl: typeof parsed.photoUrl === 'string' ? parsed.photoUrl : '',
       jobTitle: typeof parsed.jobTitle === 'string' ? parsed.jobTitle : '',
+      hasPin: Boolean(parsed.hasPin),
     };
   } catch {
     return null;

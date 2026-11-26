@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 import { verifyAuth } from "./config/auth";
 
 if (admin.apps.length === 0) {
@@ -17,14 +18,69 @@ export interface PanelUserDoc {
   allowedRoutes: string[];
   photoUrl?: string;
   jobTitle?: string;
+  hasPin?: boolean;
+  pinUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
   lastLoginAt?: string;
 }
 
+interface PanelUserPinDoc {
+  hash: string;
+  salt: string;
+  failedAttempts?: number;
+  lockedUntilMs?: number;
+  updatedAt: string;
+}
+
 const CREATOR_EMAIL = "niallswift@gmail.com";
 const COLLECTION = "panel_users";
+const PIN_COLLECTION = "panel_user_pins";
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCK_MS = 30 * 1000;
+
+function sanitizePinInput(raw: unknown): string {
+  return String(raw || "").trim();
+}
+
+function assertValidSixDigitPin(pin: string): void {
+  if (!/^\d{6}$/.test(pin)) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "A senha numérica de entrada (PIN) deve conter exatamente 6 dígitos numéricos."
+    );
+  }
+}
+
+function hashPin(pin: string, salt: string): string {
+  return crypto.scryptSync(pin, salt, 32).toString("hex");
+}
+
+async function saveUserPin(uid: string, pin: string): Promise<string> {
+  assertValidSixDigitPin(pin);
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = hashPin(pin, salt);
+  const now = new Date().toISOString();
+  const payload: PanelUserPinDoc = {
+    hash,
+    salt,
+    failedAttempts: 0,
+    lockedUntilMs: 0,
+    updatedAt: now,
+  };
+  await admin.firestore().collection(PIN_COLLECTION).doc(uid).set(payload);
+  return now;
+}
+
+async function clearUserPin(uid: string): Promise<void> {
+  await admin
+    .firestore()
+    .collection(PIN_COLLECTION)
+    .doc(uid)
+    .delete()
+    .catch(() => undefined);
+}
 
 const ALL_PANEL_ROUTES = [
   "/",
@@ -125,6 +181,8 @@ async function ensureCreatorProfile(
     allowedRoutes: ALL_PANEL_ROUTES,
     photoUrl: existing?.photoUrl || authPhotoUrl || "",
     jobTitle: existing?.jobTitle || "Criador & Administrador Master",
+    hasPin: Boolean(existing?.hasPin),
+    ...(existing?.pinUpdatedAt ? { pinUpdatedAt: existing.pinUpdatedAt } : {}),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     createdBy: existing?.createdBy || "system",
@@ -257,6 +315,65 @@ export const managePanelUsers = functions
       return { success: true, authorized: false, profile: null };
     }
 
+    // ─── 1b. verifyPin: valida a senha numérica de 6 dígitos do próprio usuário logado ───
+    if (action === "verifyPin") {
+      const uid = context.auth!.uid;
+      const pin = sanitizePinInput(data?.pin);
+      assertValidSixDigitPin(pin);
+
+      const pinRef = db.collection(PIN_COLLECTION).doc(uid);
+      const pinSnap = await pinRef.get();
+      if (!pinSnap.exists) {
+        await db.collection(COLLECTION).doc(uid).set({ hasPin: false }, { merge: true }).catch(() => undefined);
+        return { success: true, valid: true, hasPin: false };
+      }
+
+      const pinDoc = pinSnap.data() as PanelUserPinDoc;
+      const nowMs = Date.now();
+      if (pinDoc.lockedUntilMs && pinDoc.lockedUntilMs > nowMs) {
+        return {
+          success: true,
+          valid: false,
+          hasPin: true,
+          lockedUntilMs: pinDoc.lockedUntilMs,
+          remainingAttempts: 0,
+        };
+      }
+
+      const derived = hashPin(pin, pinDoc.salt);
+      const storedBuf = Buffer.from(pinDoc.hash, "hex");
+      const derivedBuf = Buffer.from(derived, "hex");
+      const isMatch =
+        storedBuf.length === derivedBuf.length &&
+        crypto.timingSafeEqual(storedBuf, derivedBuf);
+
+      if (isMatch) {
+        if ((pinDoc.failedAttempts || 0) > 0 || (pinDoc.lockedUntilMs || 0) > 0) {
+          await pinRef.set({ failedAttempts: 0, lockedUntilMs: 0 }, { merge: true });
+        }
+        return { success: true, valid: true, hasPin: true };
+      }
+
+      const nextAttempts = (pinDoc.failedAttempts || 0) + 1;
+      const shouldLock = nextAttempts >= MAX_PIN_ATTEMPTS;
+      const lockedUntilMs = shouldLock ? nowMs + PIN_LOCK_MS : 0;
+      await pinRef.set(
+        {
+          failedAttempts: shouldLock ? 0 : nextAttempts,
+          lockedUntilMs,
+        },
+        { merge: true }
+      );
+
+      return {
+        success: true,
+        valid: false,
+        hasPin: true,
+        remainingAttempts: shouldLock ? 0 : Math.max(0, MAX_PIN_ATTEMPTS - nextAttempts),
+        ...(shouldLock ? { lockedUntilMs } : {}),
+      };
+    }
+
     // Todas as ações administrativas exigem Criador ou Admin ativo
     const caller = await assertCallerIsAdmin(context);
 
@@ -279,6 +396,10 @@ export const managePanelUsers = functions
       const active = data?.active !== false;
       const jobTitle = String(data?.jobTitle || "").trim();
       const photoUrl = sanitizePhotoUrl(data?.photoUrl);
+      const rawPin = sanitizePinInput(data?.pin);
+      if (rawPin) {
+        assertValidSixDigitPin(rawPin);
+      }
       const syncToAttendants = Boolean(data?.syncToAttendants);
       const allowedRoutes =
         role === "admin" ? ALL_PANEL_ROUTES : sanitizeRoutes(data?.allowedRoutes);
@@ -369,6 +490,10 @@ export const managePanelUsers = functions
       });
 
       const now = new Date().toISOString();
+      let pinUpdatedAt: string | undefined;
+      if (rawPin) {
+        pinUpdatedAt = await saveUserPin(authUser.uid, rawPin);
+      }
       const newProfile: PanelUserDoc = {
         uid: authUser.uid,
         name,
@@ -378,6 +503,8 @@ export const managePanelUsers = functions
         allowedRoutes,
         photoUrl: photoUrl || authUser.photoURL || "",
         jobTitle: jobTitle || (role === "admin" ? "Administrador" : "Operador"),
+        hasPin: Boolean(rawPin),
+        ...(pinUpdatedAt ? { pinUpdatedAt } : {}),
         createdAt: now,
         updatedAt: now,
         createdBy: caller.email,
@@ -487,6 +614,12 @@ export const managePanelUsers = functions
         );
       }
 
+      const rawPin = sanitizePinInput(data?.pin);
+      const shouldClearPin = Boolean(data?.clearPin);
+      if (rawPin) {
+        assertValidSixDigitPin(rawPin);
+      }
+
       const authUpdate: admin.auth.UpdateRequest = {
         displayName: nextName,
         disabled: !nextActive,
@@ -517,6 +650,17 @@ export const managePanelUsers = functions
         await admin.auth().revokeRefreshTokens(targetUid).catch(() => undefined);
       }
 
+      let nextHasPin = Boolean(current.hasPin);
+      let nextPinUpdatedAt = current.pinUpdatedAt;
+      if (shouldClearPin) {
+        await clearUserPin(targetUid);
+        nextHasPin = false;
+        nextPinUpdatedAt = undefined;
+      } else if (rawPin) {
+        nextPinUpdatedAt = await saveUserPin(targetUid, rawPin);
+        nextHasPin = true;
+      }
+
       const updated: PanelUserDoc = {
         ...current,
         uid: targetUid,
@@ -526,10 +670,24 @@ export const managePanelUsers = functions
         role: nextRole,
         active: nextActive,
         allowedRoutes: nextRoutes,
+        hasPin: nextHasPin,
+        ...(nextPinUpdatedAt ? { pinUpdatedAt: nextPinUpdatedAt } : {}),
         updatedAt: new Date().toISOString(),
       };
 
-      await targetRef.set(updated, { merge: true });
+      if (shouldClearPin) {
+        delete updated.pinUpdatedAt;
+      }
+
+      await targetRef.set(
+        shouldClearPin
+          ? {
+              ...updated,
+              pinUpdatedAt: admin.firestore.FieldValue.delete(),
+            }
+          : updated,
+        { merge: true }
+      );
 
       // Se existir assinatura em attendants vinculada a este login, mantém foto e nome sincronizados
       if (hasPhotoUpdate || nextName !== current.name) {
@@ -596,6 +754,7 @@ export const managePanelUsers = functions
         });
 
       await targetRef.delete();
+      await clearUserPin(targetUid);
       return { success: true, deletedUid: targetUid };
     }
 

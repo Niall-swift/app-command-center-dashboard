@@ -137,6 +137,13 @@ class ISPFYService {
     allPontoPlanos: any[];
     allPlanos: ISPFYPlanoData[];
   } | null = null;
+  private static readonly RECENT_GET_CACHE_TTL_MS = 15_000;
+  private static readonly RECENT_GET_CACHE_MAX_SIZE = 150;
+  private inflightGetRequests = new Map<string, Promise<ISPFYApiResponse<unknown>>>();
+  private recentGetCache = new Map<
+    string,
+    { expiresAt: number; data: ISPFYApiResponse<unknown> }
+  >();
   private overdueCache: {
     fetchedAt: number;
     data: ISPFYOverdueAnalyticsResult;
@@ -159,12 +166,49 @@ class ISPFYService {
     // Token raw — a API ISPFY espera o header "Token" sem Base64
     this.token = token || '';
 
-    // Interceptor: injeta header Token em todas as requisições autenticadas
+    // Interceptor: injeta header Token e invalida micro-cache GET em qualquer escrita
     this.client.interceptors.request.use((config) => {
+      if (config.method && config.method.toLowerCase() !== 'get') {
+        this.recentGetCache.clear();
+      }
       if (this.token && config.headers) {
         config.headers['Token'] = this.token;
       }
       return config;
+    });
+  }
+
+  public clearRecentGetCache(): void {
+    this.recentGetCache.clear();
+  }
+
+  private buildGetCacheKey(endpoint: string, queryParams: ISPFYQueryParams): string {
+    const sortedEntries = Object.entries(queryParams)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `${endpoint}?${JSON.stringify(sortedEntries)}`;
+  }
+
+  private isVolatileEndpoint(endpoint: string): boolean {
+    const normalized = endpoint.toLowerCase();
+    return (
+      normalized.includes('conexao') ||
+      normalized.includes('radacct') ||
+      normalized.includes('radius') ||
+      normalized.includes('online')
+    );
+  }
+
+  private storeRecentGetCache(key: string, data: ISPFYApiResponse<unknown>): void {
+    if (this.recentGetCache.size >= ISPFYService.RECENT_GET_CACHE_MAX_SIZE) {
+      const oldestKey = this.recentGetCache.keys().next().value;
+      if (oldestKey) {
+        this.recentGetCache.delete(oldestKey);
+      }
+    }
+    this.recentGetCache.set(key, {
+      expiresAt: Date.now() + ISPFYService.RECENT_GET_CACHE_TTL_MS,
+      data,
     });
   }
 
@@ -253,51 +297,83 @@ class ISPFYService {
       ...params,
     };
 
-    for (let attempt = 1; attempt <= retries + 1; attempt++) {
-      try {
-        console.log(`[ISPFY Request] GET /api/object${endpoint}`, { params: queryParams });
-        const response = await this.client.get<ISPFYApiResponse<T>>(
-          `/api/object${endpoint}`,
-          { params: queryParams }
-        );
-        if (
-          typeof response.data === 'string' &&
-          (response.data as string).trim().startsWith('<')
-        ) {
-          if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
-            console.warn('[ISPFY Proxy] Resposta HTML recebida; alternando para Cloud Function ispfyProxy.');
-            this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
-            continue;
-          }
-          throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
-        }
-        return response.data;
-      } catch (error: any) {
-        if (error.response) {
-          console.error(`[ISPFY Error] Status: ${error.response.status} on GET /api/object${endpoint}`);
-          console.error('[ISPFY Error Data]:', error.response.data);
-        }
+    const cacheKey = this.buildGetCacheKey(endpoint, queryParams);
+    const volatile = this.isVolatileEndpoint(endpoint);
 
-        const isTimeout =
-          error.code === 'ECONNABORTED' ||
-          error.message?.toLowerCase().includes('timeout') ||
-          error.response?.status >= 500;
-
-        if (isTimeout && attempt <= retries) {
-          console.warn(
-            `⏳ [ISPFY] Tentativa ${attempt} falhou em ${endpoint}. Retentando em ${attempt * 1500}ms...`
-          );
-          await new Promise((r) => setTimeout(r, attempt * 1500));
-          continue;
+    if (!volatile) {
+      const cached = this.recentGetCache.get(cacheKey);
+      if (cached) {
+        if (cached.expiresAt > Date.now()) {
+          return cached.data as ISPFYApiResponse<T>;
         }
-
-        if (axios.isAxiosError(error)) {
-          throw new Error(`Erro na API ISPFY: ${error.message}`);
-        }
-        throw error;
+        this.recentGetCache.delete(cacheKey);
       }
     }
-    throw new Error('Falha na requisição ISPFY após retentativas.');
+
+    const existingInflight = this.inflightGetRequests.get(cacheKey);
+    if (existingInflight) {
+      return existingInflight as Promise<ISPFYApiResponse<T>>;
+    }
+
+    const requestPromise = (async (): Promise<ISPFYApiResponse<T>> => {
+      for (let attempt = 1; attempt <= retries + 1; attempt++) {
+        try {
+          if (import.meta.env.DEV) {
+            console.log(`[ISPFY Request] GET /api/object${endpoint}`, { params: queryParams });
+          }
+          const response = await this.client.get<ISPFYApiResponse<T>>(
+            `/api/object${endpoint}`,
+            { params: queryParams }
+          );
+          if (
+            typeof response.data === 'string' &&
+            (response.data as string).trim().startsWith('<')
+          ) {
+            if (this.client.defaults.baseURL !== ISPFYService.FALLBACK_PROXY_HOST) {
+              console.warn('[ISPFY Proxy] Resposta HTML recebida; alternando para Cloud Function ispfyProxy.');
+              this.client.defaults.baseURL = ISPFYService.FALLBACK_PROXY_HOST;
+              continue;
+            }
+            throw new Error('Proxy ISPFY retornou HTML em vez de JSON.');
+          }
+          if (!volatile) {
+            this.storeRecentGetCache(cacheKey, response.data as ISPFYApiResponse<unknown>);
+          }
+          return response.data;
+        } catch (error: any) {
+          if (error.response) {
+            console.error(`[ISPFY Error] Status: ${error.response.status} on GET /api/object${endpoint}`);
+            console.error('[ISPFY Error Data]:', error.response.data);
+          }
+
+          const isTimeout =
+            error.code === 'ECONNABORTED' ||
+            error.message?.toLowerCase().includes('timeout') ||
+            error.response?.status >= 500;
+
+          if (isTimeout && attempt <= retries) {
+            console.warn(
+              `⏳ [ISPFY] Tentativa ${attempt} falhou em ${endpoint}. Retentando em ${attempt * 1500}ms...`
+            );
+            await new Promise((r) => setTimeout(r, attempt * 1500));
+            continue;
+          }
+
+          if (axios.isAxiosError(error)) {
+            throw new Error(`Erro na API ISPFY: ${error.message}`);
+          }
+          throw error;
+        }
+      }
+      throw new Error('Falha na requisição ISPFY após retentativas.');
+    })();
+
+    this.inflightGetRequests.set(cacheKey, requestPromise as Promise<ISPFYApiResponse<unknown>>);
+    try {
+      return await requestPromise;
+    } finally {
+      this.inflightGetRequests.delete(cacheKey);
+    }
   }
 
   /**
