@@ -154,6 +154,54 @@ function notifyRequestBoundsSync() {
   mainWindow.webContents.send('ispfy:requestSync');
 }
 
+const MIN_ZOOM_FACTOR = 0.6;
+const MAX_ZOOM_FACTOR = 1.6;
+const ZOOM_STEP = 0.1;
+
+function adjustWebContentsZoom(wc, direction) {
+  if (!wc || wc.isDestroyed()) return 1;
+  if (direction === 0) {
+    wc.setZoomFactor(1);
+    return 1;
+  }
+  const current = wc.getZoomFactor() || 1;
+  const next = Math.min(
+    MAX_ZOOM_FACTOR,
+    Math.max(MIN_ZOOM_FACTOR, Math.round((current + direction * ZOOM_STEP) * 100) / 100)
+  );
+  wc.setZoomFactor(next);
+  return next;
+}
+
+function attachZoomShortcuts(wc) {
+  if (!wc || wc.isDestroyed()) return;
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const key = String(input.key || '');
+    const code = String(input.code || '');
+
+    const isZoomIn =
+      key === '+' || key === '=' || code === 'Equal' || code === 'NumpadAdd';
+    const isZoomOut =
+      key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract';
+    const isZoomReset = key === '0' || code === 'Digit0' || code === 'Numpad0';
+
+    if (isZoomIn) {
+      event.preventDefault();
+      adjustWebContentsZoom(wc, 1);
+      notifyRequestBoundsSync();
+    } else if (isZoomOut) {
+      event.preventDefault();
+      adjustWebContentsZoom(wc, -1);
+      notifyRequestBoundsSync();
+    } else if (isZoomReset) {
+      event.preventDefault();
+      adjustWebContentsZoom(wc, 0);
+      notifyRequestBoundsSync();
+    }
+  });
+}
+
 function createMainWindow() {
   const mainSession = session.fromPartition('persist:avl_main');
 
@@ -265,6 +313,17 @@ function createMainWindow() {
     mainWindow = null;
   });
 
+  // Garante ocultação imediata de qualquer view legada ao recarregar a janela
+  mainWindow.webContents.on('did-start-loading', () => {
+    if (ispfyView) {
+      ispfyView.setVisible(false);
+      ispfyVisible = false;
+    }
+  });
+
+  // Atalhos de zoom compatíveis com teclado ABNT2 (Ctrl+=, Ctrl++, Ctrl+-, Ctrl+0, Numpad)
+  attachZoomShortcuts(mainWindow.webContents);
+
   // Atalhos de recarga (F5, Ctrl+R, Ctrl+Shift+R) mesmo com a barra de menu oculta
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
@@ -303,6 +362,14 @@ function createMainWindow() {
     }
   });
 }
+
+ipcMain.handle('window:adjustZoom', (_event, direction) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return 1;
+  const dir = Number(direction) || 0;
+  const next = adjustWebContentsZoom(mainWindow.webContents, dir);
+  notifyRequestBoundsSync();
+  return next;
+});
 
 // IPC da ponte nativa ISPFY WebView
 ipcMain.handle('ispfy:show', (_event, bounds) => {
@@ -403,6 +470,7 @@ ipcMain.handle('ispfy:getState', () => {
 // Popups abertos de dentro do <webview> do ISPFY (boletos, PDFs, impressão) mantêm a mesma sessão logada
 app.on('web-contents-created', (_event, contents) => {
   if (contents.getType() !== 'webview') return;
+  attachZoomShortcuts(contents);
   contents.setWindowOpenHandler(({ url }) => {
     try {
       const parsed = new URL(url);

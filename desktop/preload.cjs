@@ -1,5 +1,17 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Suporte a Ctrl + Roda do Mouse para aumentar/diminuir zoom igual ao Chrome
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const direction = e.deltaY < 0 ? 1 : -1;
+    void ipcRenderer.invoke('window:adjustZoom', direction);
+  },
+  { passive: false }
+);
+
 contextBridge.exposeInMainWorld('avlDesktop', {
   isDesktop: true,
   supportsWebviewTag: true,
