@@ -68,6 +68,7 @@ import {
 } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { partitionCurrentAndFutureInvoices } from '@/utils/invoiceHelpers';
 
 interface ClientInfoCardProps {
   clientId: string;
@@ -311,11 +312,9 @@ function ClientInfoCardInner({
         clientIdStr ? ispfyService.getClientLivePointStatuses(clientIdStr).catch(() => []) : Promise.resolve([]),
       ]);
 
-      const openInvoices = clientInvoices.filter((f) => {
-        const st = String(f.status || '').trim().toLowerCase();
-        const paidDate = f.data_pagamento || f.pagamento_data;
-        return (st === 'aberto' || st === 'a' || st === 'vencido') && !paidDate;
-      });
+      const sortedOpenInvoices = partitionCurrentAndFutureInvoices(clientInvoices).allOpen.map(
+        (item) => item.invoice
+      );
 
       if (shouldPersistLink && clientId && clientIdStr) {
         const displayName = getClientDisplayName(client);
@@ -333,7 +332,7 @@ function ClientInfoCardInner({
       return {
         clientContracts,
         clientLogins,
-        openInvoices: openInvoices.slice(0, 4),
+        openInvoices: sortedOpenInvoices,
         pointsStatus,
       };
     },
@@ -842,6 +841,21 @@ function ClientInfoCardInner({
     }
   };
 
+  const [showFutureInvoices, setShowFutureInvoices] = useState(false);
+
+  useEffect(() => {
+    setShowFutureInvoices(false);
+  }, [clientId]);
+
+  const { current: currentInvoices, future: futureInvoices } = useMemo(
+    () => partitionCurrentAndFutureInvoices(invoices),
+    [invoices]
+  );
+
+  const visibleInvoices = showFutureInvoices
+    ? [...currentInvoices, ...futureInvoices]
+    : currentInvoices;
+
   const hiddenSet = useMemo(() => new Set(hiddenWidgetIds), [hiddenWidgetIds]);
 
   const widgetNodes: Record<ChatSidebarWidgetId, React.ReactNode> = {
@@ -1321,9 +1335,17 @@ function ClientInfoCardInner({
             <CreditCard className="w-3.5 h-3.5" />
             Financeiro &amp; PIX
           </CardTitle>
-          {invoices.length > 0 && (
-            <Badge variant="destructive" className="text-[9px] h-4 px-1.5">
-              {invoices.length} em aberto
+          {currentInvoices.length > 0 && (
+            <Badge
+              variant={
+                currentInvoices.some((item) => item.periodTag === 'overdue')
+                  ? 'destructive'
+                  : 'secondary'
+              }
+              className="text-[9px] h-4 px-1.5"
+            >
+              {currentInvoices.length}{' '}
+              {currentInvoices.length === 1 ? 'atual' : 'atuais'}
             </Badge>
           )}
         </CardHeader>
@@ -1337,57 +1359,103 @@ function ClientInfoCardInner({
             <p className="text-[11px] text-muted-foreground italic">
               Vincule o assinante no card ISPFY para gerar PIX e boletos.
             </p>
-          ) : invoices.length > 0 ? (
-            invoices.map((f) => (
-              <div
-                key={f.id}
-                className="p-2 bg-rose-500/5 rounded-lg border border-rose-500/20 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="w-3 h-3 text-rose-500" />
-                    <span className="text-[10px] font-medium text-rose-600 dark:text-rose-300">
-                      Venc: {f.data_vencimento}
-                    </span>
+          ) : visibleInvoices.length > 0 ? (
+            <>
+              {visibleInvoices.map(({ invoice: f, formattedDate, monthYearLabel, periodTag }) => {
+                const isOverdue = periodTag === 'overdue';
+                const isCurrentMonth = periodTag === 'current_month';
+                const boxClass = isOverdue
+                  ? 'bg-rose-500/8 border-rose-500/30'
+                  : isCurrentMonth
+                  ? 'bg-primary/5 border-primary/25'
+                  : 'bg-secondary/40 border-border/70';
+                const dateTextClass = isOverdue
+                  ? 'text-rose-600 dark:text-rose-300'
+                  : isCurrentMonth
+                  ? 'text-primary'
+                  : 'text-foreground';
+                const periodLabel = isOverdue
+                  ? 'Vencida'
+                  : isCurrentMonth
+                  ? 'Mês atual'
+                  : periodTag === 'next_month'
+                  ? 'Próx. mês'
+                  : monthYearLabel;
+                const badgeClass = isOverdue
+                  ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                  : isCurrentMonth
+                  ? 'bg-primary/15 text-primary border-primary/30'
+                  : 'bg-muted text-muted-foreground border-border/70';
+
+                return (
+                  <div
+                    key={f.id}
+                    className={`p-2 rounded-lg border space-y-2 ${boxClass}`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Clock className={`w-3 h-3 shrink-0 ${isOverdue ? 'text-rose-500' : isCurrentMonth ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <span className={`text-[10px] font-semibold truncate ${dateTextClass}`}>
+                          {formattedDate}
+                        </span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full border shrink-0 ${badgeClass}`}
+                        >
+                          {periodLabel}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-bold shrink-0 tabular-nums ${dateTextClass}`}>
+                        R$ {f.valor}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1 text-[9px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 font-bold gap-0.5"
+                        onClick={() => handleSendPix(f, true)}
+                        title="Enviar Botão Copiar PIX via Z-API"
+                      >
+                        <Zap className="w-3 h-3" />
+                        BT PIX
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1 text-[9px] bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-bold gap-0.5"
+                        onClick={() => handleSendPix(f, false)}
+                        title="Enviar PIX Copia e Cola em texto"
+                      >
+                        <CreditCard className="w-3 h-3" />
+                        TEXTO
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1 text-[9px] bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 font-bold gap-0.5"
+                        onClick={() => handleSendBoletoPdf(f)}
+                        title="Enviar PDF ou link do boleto"
+                      >
+                        <FileDown className="w-3 h-3" />
+                        PDF
+                      </Button>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">
-                    R$ {f.valor}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-1 text-[9px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 font-bold gap-0.5"
-                    onClick={() => handleSendPix(f, true)}
-                    title="Enviar Botão Copiar PIX via Z-API"
-                  >
-                    <Zap className="w-3 h-3" />
-                    BT PIX
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-1 text-[9px] bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-bold gap-0.5"
-                    onClick={() => handleSendPix(f, false)}
-                    title="Enviar PIX Copia e Cola em texto"
-                  >
-                    <CreditCard className="w-3 h-3" />
-                    TEXTO
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-1 text-[9px] bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 font-bold gap-0.5"
-                    onClick={() => handleSendBoletoPdf(f)}
-                    title="Enviar PDF ou link do boleto"
-                  >
-                    <FileDown className="w-3 h-3" />
-                    PDF
-                  </Button>
-                </div>
-              </div>
-            ))
+                );
+              })}
+
+              {futureInvoices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowFutureInvoices((prev) => !prev)}
+                  className="w-full py-1.5 px-2 rounded-lg text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary/60 border border-dashed border-border/70 transition-colors"
+                >
+                  {showFutureInvoices
+                    ? 'Ocultar parcelas futuras'
+                    : `Ver +${futureInvoices.length} parcela${futureInvoices.length === 1 ? '' : 's'} futura${futureInvoices.length === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </>
           ) : (
             <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
               <CheckCircle2 className="w-3 h-3" />

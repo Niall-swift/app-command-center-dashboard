@@ -13,6 +13,12 @@ import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useOptionalUiPreferences } from '@/contexts/UiPreferencesContext';
+import {
+  getSharedAudioContext,
+  playOutageSirenPreset,
+  type OutageSirenSoundId,
+} from '@/utils/soundEngine';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
 import {
@@ -198,7 +204,7 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
   const [sireneSilenciada, setSireneSilenciada] = useState<boolean>(false);
   const chavesAlertadasSessaoRef = useRef<Set<string>>(new Set());
   const sireneSilenciadaRef = useRef<boolean>(false);
-  const sireneOscsRef = useRef<OscillatorNode[]>([]);
+  const sireneStopRef = useRef<(() => void) | null>(null);
   const sireneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sireneLoopIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sincronizandoOutageRef = useRef<boolean>(false);
@@ -213,6 +219,17 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
   const somAtivoRef = useRef<boolean>(somAtivo);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const { canAccessRoute } = useAuth();
+  const uiPrefs = useOptionalUiPreferences();
+  const sirenSoundRef = useRef<OutageSirenSoundId>(
+    uiPrefs?.preferences.outageSirenSound ?? 'noc-classic'
+  );
+  const sirenVolumeRef = useRef<number>(uiPrefs?.preferences.sirenVolume ?? 90);
+
+  useEffect(() => {
+    if (!uiPrefs) return;
+    sirenSoundRef.current = uiPrefs.preferences.outageSirenSound;
+    sirenVolumeRef.current = uiPrefs.preferences.sirenVolume;
+  }, [uiPrefs, uiPrefs?.preferences.outageSirenSound, uiPrefs?.preferences.sirenVolume]);
 
   const deveMonitorarInadimplencia = useMemo(
     () =>
@@ -243,6 +260,7 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
   // Libera AudioContext na primeira interação do usuário (executa apenas 1x para zero overhead de digitação)
   useEffect(() => {
     const liberarAudio = () => {
+      getSharedAudioContext();
       obterOuCriarAudioContext(audioCtxRef);
       window.removeEventListener('pointerdown', liberarAudio);
       window.removeEventListener('keydown', liberarAudio);
@@ -260,15 +278,14 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
       clearTimeout(sireneTimeoutRef.current);
       sireneTimeoutRef.current = null;
     }
-    sireneOscsRef.current.forEach((osc) => {
+    if (sireneStopRef.current) {
       try {
-        osc.stop();
-        osc.disconnect();
+        sireneStopRef.current();
       } catch {
         // oscilador já encerrado
       }
-    });
-    sireneOscsRef.current = [];
+      sireneStopRef.current = null;
+    }
   }, []);
 
   const pararSirene = useCallback(
@@ -289,7 +306,9 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
 
   const tocarSomAlertaQueda = useCallback(() => {
     try {
-      const contextoAudio = obterOuCriarAudioContext(audioCtxRef);
+      const volScale = Math.max(0, Math.min(1, sirenVolumeRef.current / 100));
+      if (volScale <= 0.005) return;
+      const contextoAudio = getSharedAudioContext() || obterOuCriarAudioContext(audioCtxRef);
       if (!contextoAudio) return;
 
       const instanteAtual = contextoAudio.currentTime;
@@ -305,7 +324,7 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
         const duracao = 0.14;
         oscilador.frequency.setValueAtTime(frequencia, inicio);
         ganho.gain.setValueAtTime(0.001, inicio);
-        ganho.gain.linearRampToValueAtTime(0.45, inicio + 0.015);
+        ganho.gain.linearRampToValueAtTime(0.45 * volScale, inicio + 0.015);
         ganho.gain.exponentialRampToValueAtTime(0.001, inicio + duracao);
         oscilador.start(inicio);
         oscilador.stop(inicio + duracao);
@@ -316,76 +335,31 @@ export const NetworkMonitorProvider: React.FC<{ children: React.ReactNode }> = (
   }, []);
 
   /**
-   * Sirene sonora alta e contínua de emergência NOC para possíveis rompimentos em massa.
-   * Utiliza oscilador duplo (sawtooth + square) com compressor dinâmico para máxima clareza auditiva.
+   * Sirene sonora de emergência NOC configurável em Personalizar para rompimentos em massa.
    */
   const tocarSireneRompimento = useCallback(
     (cycles = 3) => {
       try {
-        const contextoAudio = obterOuCriarAudioContext(audioCtxRef);
-        if (!contextoAudio) return;
-
         pararNosOsciladoresSirene();
 
-        const qtdCiclos = Math.min(6, Math.max(1, cycles));
-        const duracaoCicloSeg = 1.25;
-        const duracaoTotalSeg = qtdCiclos * duracaoCicloSeg;
-        const agora = contextoAudio.currentTime;
+        const handle = playOutageSirenPreset(sirenSoundRef.current, {
+          cycles,
+          volumePercent: sirenVolumeRef.current,
+        });
 
-        const compressor = contextoAudio.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-16, agora);
-        compressor.knee.setValueAtTime(6, agora);
-        compressor.ratio.setValueAtTime(12, agora);
-        compressor.attack.setValueAtTime(0.003, agora);
-        compressor.release.setValueAtTime(0.15, agora);
-
-        const masterGain = contextoAudio.createGain();
-        masterGain.gain.setValueAtTime(0.001, agora);
-        masterGain.gain.linearRampToValueAtTime(0.92, agora + 0.06);
-        masterGain.gain.setValueAtTime(0.92, Math.max(agora + 0.08, agora + duracaoTotalSeg - 0.12));
-        masterGain.gain.exponentialRampToValueAtTime(0.001, agora + duracaoTotalSeg);
-
-        const oscPrincipal = contextoAudio.createOscillator();
-        const oscHarmonica = contextoAudio.createOscillator();
-        const subGain = contextoAudio.createGain();
-        subGain.gain.setValueAtTime(0.42, agora);
-
-        oscPrincipal.type = 'sawtooth';
-        oscHarmonica.type = 'square';
-
-        for (let c = 0; c < qtdCiclos; c++) {
-          const t0 = agora + c * duracaoCicloSeg;
-          const tMeio = t0 + duracaoCicloSeg * 0.52;
-          const tFim = t0 + duracaoCicloSeg;
-
-          oscPrincipal.frequency.setValueAtTime(620, t0);
-          oscPrincipal.frequency.linearRampToValueAtTime(1380, tMeio);
-          oscPrincipal.frequency.linearRampToValueAtTime(620, tFim);
-
-          oscHarmonica.frequency.setValueAtTime(930, t0);
-          oscHarmonica.frequency.linearRampToValueAtTime(690, tMeio);
-          oscHarmonica.frequency.linearRampToValueAtTime(930, tFim);
+        if (handle.durationMs <= 0) {
+          setSireneAtiva(false);
+          return;
         }
 
-        oscPrincipal.connect(compressor);
-        oscHarmonica.connect(subGain);
-        subGain.connect(compressor);
-        compressor.connect(masterGain);
-        masterGain.connect(contextoAudio.destination);
-
-        oscPrincipal.start(agora);
-        oscHarmonica.start(agora);
-        oscPrincipal.stop(agora + duracaoTotalSeg + 0.02);
-        oscHarmonica.stop(agora + duracaoTotalSeg + 0.02);
-
-        sireneOscsRef.current = [oscPrincipal, oscHarmonica];
+        sireneStopRef.current = handle.stop;
         setSireneAtiva(true);
 
         sireneTimeoutRef.current = setTimeout(() => {
-          sireneOscsRef.current = [];
+          sireneStopRef.current = null;
           sireneTimeoutRef.current = null;
           setSireneAtiva(false);
-        }, duracaoTotalSeg * 1000 + 80);
+        }, handle.durationMs);
       } catch (erroAudio) {
         console.warn('Não foi possível reproduzir sirene NOC:', erroAudio);
       }

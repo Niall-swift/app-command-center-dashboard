@@ -786,6 +786,118 @@ export const zapiToolActions = functions
         };
       }
 
+      if (action === "get_contact_info") {
+        const rawInput = String(data?.phone || "").trim();
+        const phone = rawInput.includes("@lid") ? rawInput : formatZapiPhone(rawInput);
+        if (!phone) {
+          return {
+            success: true,
+            name: null,
+            phoneBookName: null,
+            pushName: null,
+            pictureUrl: null,
+          };
+        }
+
+        const cleanNameCandidate = (val: unknown): string => {
+          const s = String(val || "").trim();
+          if (!s || s.includes("@lid") || s.includes("@c.us") || s.includes("@s.whatsapp.net")) {
+            return "";
+          }
+          if (/^[\d\s()+-]{6,}$/.test(s)) return "";
+          const lower = s.toLowerCase();
+          if (
+            lower === "cliente whatsapp" ||
+            lower === "cliente sem nome" ||
+            lower === "sem nome" ||
+            lower === "unknown"
+          ) {
+            return "";
+          }
+          return s;
+        };
+
+        const [contactResp, chatResp, picResp] = await Promise.all([
+          client.get(`/contacts/${encodeURIComponent(phone)}`, { timeout: 6000 }).catch(() => null),
+          client.get(`/chats/${encodeURIComponent(phone)}`, { timeout: 6000 }).catch(() => null),
+          !phone.includes("@lid")
+            ? client
+                .get(`/profile-picture?phone=${encodeURIComponent(phone)}`, { timeout: 6000 })
+                .catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        const cData = (contactResp?.data || {}) as Record<string, unknown>;
+        const chatData = (chatResp?.data || {}) as Record<string, unknown>;
+        const picData = (picResp?.data || {}) as Record<string, unknown>;
+
+        const phoneBookName =
+          cleanNameCandidate(cData.name) || cleanNameCandidate(cData.short) || "";
+        const pushName =
+          cleanNameCandidate(cData.notify) ||
+          cleanNameCandidate(cData.vname) ||
+          cleanNameCandidate(cData.pushname) ||
+          cleanNameCandidate(chatData.name) ||
+          cleanNameCandidate(chatData.contactName) ||
+          "";
+        const bestName = phoneBookName || pushName || null;
+        const pictureUrl =
+          String(picData.pictureUrl || picData.link || cData.imgUrl || chatData.profileThumbnail || "").trim() ||
+          null;
+
+        return {
+          success: true,
+          name: bestName,
+          phoneBookName: phoneBookName || null,
+          pushName: pushName || null,
+          pictureUrl,
+        };
+      }
+
+      if (action === "add_contact") {
+        const phone = formatZapiPhone(String(data?.phone || ""));
+        const fullName = String(data?.name || "").trim();
+        if (!phone || !fullName) {
+          throw new functions.https.HttpsError(
+            "invalid-argument",
+            "Informe telefone e nome do contato."
+          );
+        }
+        const parts = fullName.split(/\s+/).filter(Boolean);
+        const firstName = parts[0] || fullName;
+        const lastName = parts.slice(1).join(" ");
+
+        try {
+          const resp = await client.post(
+            "/contacts/add",
+            [
+              {
+                firstName,
+                ...(lastName ? { lastName } : {}),
+                phone,
+              },
+            ],
+            { timeout: 10000 }
+          );
+          return {
+            success: true,
+            syncedToWhatsApp: true,
+            raw: resp.data,
+          };
+        } catch (err: unknown) {
+          const reason = axios.isAxiosError(err)
+            ? err.response?.data?.message || err.message
+            : err instanceof Error
+            ? err.message
+            : "Não suportado nesta instância Z-API";
+          return {
+            success: true,
+            syncedToWhatsApp: false,
+            reason,
+          };
+        }
+      }
+
       throw new functions.https.HttpsError("invalid-argument", `Ação Z-API desconhecida: ${action}`);
     } catch (err: unknown) {
       if (err instanceof functions.https.HttpsError) throw err;

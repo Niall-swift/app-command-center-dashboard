@@ -2045,30 +2045,57 @@ async function logMessageToDashboard(
     const safeFirstName =
       firstName && !String(firstName).includes("@lid") ? String(firstName).trim() : "";
 
+    const isGenericContactName = (val: string): boolean => {
+      const t = val.trim();
+      if (!t || t.includes("@lid")) return true;
+      if (/^[\d\s()+-]{6,}$/.test(t)) return true;
+      const lower = t.toLowerCase();
+      return (
+        lower === "cliente whatsapp" ||
+        lower === "cliente sem nome" ||
+        lower === "sem nome" ||
+        lower === "cliente"
+      );
+    };
+
+    const existingChat = await chatRef.get();
+    const existingData = existingChat.exists ? (existingChat.data() || {}) : {};
+    const existingName = String(existingData.name || "").trim();
+    const hasLockedCustomName =
+      existingData.customNameLocked === true && Boolean(existingName) && !existingName.includes("@lid");
+
+    if (safeFirstName && !isGenericContactName(safeFirstName)) {
+      update.whatsappName = safeFirstName;
+    }
+
     if (!isAdmin) {
       update.unreadCount = admin.firestore.FieldValue.increment(1);
-      update.name =
-        safeFirstName ||
-        cliente?.razao ||
-        cliente?.nome_razao ||
-        cliente?.nome ||
-        "Cliente WhatsApp";
+      if (!hasLockedCustomName) {
+        const incomingName = !isGenericContactName(safeFirstName) ? safeFirstName : "";
+        const ispfyName = String(cliente?.razao || cliente?.nome_razao || cliente?.nome || "").trim();
+        const safeIspfyName = !isGenericContactName(ispfyName) ? ispfyName : "";
+        const safeExistingName = !isGenericContactName(existingName) ? existingName : "";
+        update.name =
+          incomingName ||
+          safeIspfyName ||
+          safeExistingName ||
+          safeFirstName ||
+          "Cliente WhatsApp";
+      }
       if (cliente?.id) {
         update.ispfy_id = String(cliente.id);
         update.ixc_id = String(cliente.id);
       }
       update.isOnline = true;
     } else if (source === "whatsapp_device") {
-      // Ao responder pelo celular, zera não-lidas no painel e só define nome se a conversa ainda for nova
+      // Ao responder pelo celular, zera não-lidas no painel e só define nome se a conversa ainda não tiver nome salvo
       if (mediaMeta?.clearUnread !== false) {
         update.unreadCount = 0;
       }
-      const existingChat = await chatRef.get();
-      const existingName = String(existingChat.data()?.name || "").trim();
-      if (!existingChat.exists || !existingName || existingName.includes("@lid")) {
+      if (!hasLockedCustomName && (!existingChat.exists || isGenericContactName(existingName))) {
         update.name = safeFirstName || "Cliente WhatsApp";
       }
-      if (mediaMeta?.avatarUrl && (!existingChat.exists || !existingChat.data()?.avatar)) {
+      if (mediaMeta?.avatarUrl && (!existingChat.exists || !existingData.avatar)) {
         update.avatar = mediaMeta.avatarUrl;
       }
     }

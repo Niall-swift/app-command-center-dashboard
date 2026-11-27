@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useOptionalUiPreferences } from "@/contexts/UiPreferencesContext";
+import {
+  getSharedAudioContext,
+  playNotificationPreset,
+  type NotificationSoundId,
+} from "@/utils/soundEngine";
 
 interface NotificationOptions {
   title: string;
@@ -10,12 +16,27 @@ interface NotificationOptions {
 }
 
 export const useNotifications = () => {
+  const uiPrefs = useOptionalUiPreferences();
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
   const [isSupported, setIsSupported] = useState(false);
   const [isEnabled, setIsEnabled] = useState(true);
   const [isPageVisible, setIsPageVisible] = useState(true);
-  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const soundIdRef = useRef<NotificationSoundId>(
+    uiPrefs?.preferences.notificationSound ?? "tri-chime"
+  );
+  const volumeRef = useRef<number>(uiPrefs?.preferences.notificationVolume ?? 75);
+
+  useEffect(() => {
+    if (!uiPrefs) return;
+    soundIdRef.current = uiPrefs.preferences.notificationSound;
+    volumeRef.current = uiPrefs.preferences.notificationVolume;
+  }, [
+    uiPrefs,
+    uiPrefs?.preferences.notificationSound,
+    uiPrefs?.preferences.notificationVolume,
+  ]);
 
   // Verificar se o navegador suporta notificações
   useEffect(() => {
@@ -37,12 +58,9 @@ export const useNotifications = () => {
     };
   }, []);
 
-  // Inicializar AudioContext
+  // Garantir inicialização do AudioContext compartilhado
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      audioContextRef.current = new (window.AudioContext ||
-        (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
-    }
+    getSharedAudioContext();
   }, []);
 
   // Solicitar permissão para notificações
@@ -62,55 +80,15 @@ export const useNotifications = () => {
     }
   };
 
-  // Tocar som de notificação profissional
-  const playNotificationSound = () => {
-    if (!isEnabled) return;
-
-    try {
-      // Garantir que o AudioContext esteja ativo
-      if (audioContextRef.current) {
-        if (audioContextRef.current.state === "suspended") {
-          audioContextRef.current.resume();
-        }
-
-        const audioContext = audioContextRef.current;
-        const now = audioContext.currentTime;
-
-        // Som de notificação mais profissional (3 tons)
-        const frequencies = [800, 1000, 1200];
-        const duration = 0.15;
-
-        frequencies.forEach((freq, index) => {
-          const osc = audioContext.createOscillator();
-          const gain = audioContext.createGain();
-
-          osc.connect(gain);
-          gain.connect(audioContext.destination);
-
-          osc.frequency.setValueAtTime(freq, now + index * duration);
-
-          gain.gain.setValueAtTime(0, now + index * duration);
-          gain.gain.linearRampToValueAtTime(
-            0.25, // Volume um pouco mais alto
-            now + index * duration + 0.01
-          );
-          gain.gain.exponentialRampToValueAtTime(
-            0.01,
-            now + index * duration + duration
-          );
-
-          osc.start(now + index * duration);
-          osc.stop(now + index * duration + duration);
-        });
-
-        console.log("Som de notificação reproduzido com sucesso");
-      } else {
-        console.warn("AudioContext não está disponível");
-      }
-    } catch (error) {
-      console.error("Erro ao reproduzir som de notificação:", error);
-    }
-  };
+  // Tocar som de notificação configurado pelo operador em Personalizar
+  const playNotificationSound = useCallback(
+    (overrideSound?: NotificationSoundId) => {
+      if (!isEnabled && !overrideSound) return;
+      const targetSound = overrideSound ?? soundIdRef.current;
+      playNotificationPreset(targetSound, volumeRef.current);
+    },
+    [isEnabled]
+  );
 
   // Mostrar notificação do navegador
   const showNotification = (options: NotificationOptions) => {
@@ -141,7 +119,7 @@ export const useNotifications = () => {
         badge: options.badge || "/favicon.ico",
         tag: options.tag || "chat-notification",
         requireInteraction: options.requireInteraction || false,
-        silent: false, // Permitir som do sistema
+        silent: soundIdRef.current === "none" || volumeRef.current === 0,
       });
 
       // Auto-fechar após 5 segundos

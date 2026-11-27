@@ -186,10 +186,10 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
-        <Toaster />
-        <Sonner position="top-right" richColors closeButton />
         <AuthProvider>
           <UiPreferencesProvider>
+            <Toaster />
+            <Sonner closeButton />
             <ChatNotificationProvider>
               <BrowserRouter>
                 <AppContent />

@@ -102,4 +102,6 @@ export interface Client {
   aiEnabled?: boolean;
   protocol?: string;
   rouletteEnabled?: boolean;
+  customNameLocked?: boolean;
+  whatsappName?: string;
 }

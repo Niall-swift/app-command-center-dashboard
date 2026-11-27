@@ -11,6 +11,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { useTheme } from 'next-themes';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import type { NotificationSoundId, OutageSirenSoundId } from '@/utils/soundEngine';
 
 export type AccentPresetId = 'blue' | 'emerald' | 'violet' | 'amber' | 'rose' | 'graphite';
 export type DarkSurfaceMode = 'default' | 'oled';
@@ -21,6 +22,8 @@ export type CanvasPatternMode = 'clean' | 'dots';
 export type SplashBgPreset = 'picsum' | 'obsidian' | 'accent' | 'custom';
 export type AutoLockMinutes = 0 | 2 | 5 | 10 | 15 | 30;
 export type WorkspaceMode = 'all' | 'atendimento' | 'noc' | 'financeiro';
+export type NotificationStyleMode = 'modern' | 'glass' | 'solid' | 'minimal' | 'pill';
+export type NotificationPositionMode = 'top-right' | 'top-center' | 'bottom-right' | 'bottom-center';
 
 export interface WorkspaceModeConfig {
   id: WorkspaceMode;
@@ -112,6 +115,12 @@ export interface UiPreferences {
   autoLockMinutes: AutoLockMinutes;
   splashBgPreset: SplashBgPreset;
   splashCustomBgUrl: string;
+  notificationSound: NotificationSoundId;
+  notificationVolume: number;
+  notificationStyle: NotificationStyleMode;
+  notificationPosition: NotificationPositionMode;
+  outageSirenSound: OutageSirenSoundId;
+  sirenVolume: number;
 }
 
 export interface AccentPresetConfig {
@@ -204,6 +213,12 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   autoLockMinutes: 10,
   splashBgPreset: 'picsum',
   splashCustomBgUrl: '',
+  notificationSound: 'tri-chime',
+  notificationVolume: 75,
+  notificationStyle: 'modern',
+  notificationPosition: 'top-right',
+  outageSirenSound: 'noc-classic',
+  sirenVolume: 90,
 };
 
 const STORAGE_PREFIX = 'avl_ui_preferences_v1_';
@@ -216,6 +231,42 @@ const VALID_PATTERNS = new Set<CanvasPatternMode>(['clean', 'dots']);
 const VALID_SPLASH_BGS = new Set<SplashBgPreset>(['picsum', 'obsidian', 'accent', 'custom']);
 const VALID_LOCKS = new Set<AutoLockMinutes>([0, 2, 5, 10, 15, 30]);
 const VALID_MODES = new Set<WorkspaceMode>(['all', 'atendimento', 'noc', 'financeiro']);
+const VALID_NOTIF_SOUNDS = new Set<NotificationSoundId>([
+  'tri-chime',
+  'glass-ping',
+  'whatsapp-pop',
+  'soft-bell',
+  'digital-ping',
+  'subtle-tap',
+  'none',
+]);
+const VALID_NOTIF_STYLES = new Set<NotificationStyleMode>([
+  'modern',
+  'glass',
+  'solid',
+  'minimal',
+  'pill',
+]);
+const VALID_NOTIF_POSITIONS = new Set<NotificationPositionMode>([
+  'top-right',
+  'top-center',
+  'bottom-right',
+  'bottom-center',
+]);
+const VALID_SIREN_SOUNDS = new Set<OutageSirenSoundId>([
+  'noc-classic',
+  'police-wail',
+  'radar-sonar',
+  'industrial-klaxon',
+  'chime-urgent',
+  'nuclear-pulse',
+  'none',
+]);
+
+function clampPercent(val: unknown, fallback: number): number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(val)));
+}
 
 function sanitizePreferences(raw: unknown): UiPreferences {
   if (!raw || typeof raw !== 'object') return DEFAULT_UI_PREFERENCES;
@@ -294,6 +345,31 @@ function sanitizePreferences(raw: unknown): UiPreferences {
         ? (obj.splashBgPreset as SplashBgPreset)
         : DEFAULT_UI_PREFERENCES.splashBgPreset,
     splashCustomBgUrl: safeCustomUrl,
+    notificationSound:
+      typeof obj.notificationSound === 'string' &&
+      VALID_NOTIF_SOUNDS.has(obj.notificationSound as NotificationSoundId)
+        ? (obj.notificationSound as NotificationSoundId)
+        : DEFAULT_UI_PREFERENCES.notificationSound,
+    notificationVolume: clampPercent(
+      obj.notificationVolume,
+      DEFAULT_UI_PREFERENCES.notificationVolume
+    ),
+    notificationStyle:
+      typeof obj.notificationStyle === 'string' &&
+      VALID_NOTIF_STYLES.has(obj.notificationStyle as NotificationStyleMode)
+        ? (obj.notificationStyle as NotificationStyleMode)
+        : DEFAULT_UI_PREFERENCES.notificationStyle,
+    notificationPosition:
+      typeof obj.notificationPosition === 'string' &&
+      VALID_NOTIF_POSITIONS.has(obj.notificationPosition as NotificationPositionMode)
+        ? (obj.notificationPosition as NotificationPositionMode)
+        : DEFAULT_UI_PREFERENCES.notificationPosition,
+    outageSirenSound:
+      typeof obj.outageSirenSound === 'string' &&
+      VALID_SIREN_SOUNDS.has(obj.outageSirenSound as OutageSirenSoundId)
+        ? (obj.outageSirenSound as OutageSirenSoundId)
+        : DEFAULT_UI_PREFERENCES.outageSirenSound,
+    sirenVolume: clampPercent(obj.sirenVolume, DEFAULT_UI_PREFERENCES.sirenVolume),
   };
 }
 
@@ -331,6 +407,11 @@ export function useUiPreferences(): UiPreferencesContextValue {
     throw new Error('useUiPreferences deve ser usado dentro de UiPreferencesProvider');
   }
   return ctx;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalUiPreferences(): UiPreferencesContextValue | undefined {
+  return useContext(UiPreferencesContext);
 }
 
 export const UiPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -395,6 +476,7 @@ export const UiPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({
     root.dataset.fontScale = preferences.fontScale;
     root.dataset.canvasPattern = preferences.canvasPattern;
     root.dataset.reducedMotion = preferences.reducedMotion ? 'true' : 'false';
+    root.dataset.notificationStyle = preferences.notificationStyle;
   }, [preferences, resolvedTheme]);
 
   // Bloqueio automático configurável por inatividade (usa o tempo escolhido pelo usuário no Estúdio)

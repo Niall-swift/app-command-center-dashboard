@@ -47,6 +47,7 @@ import type {
 } from '@/types/ispfy';
 import type { SmartOltOnu } from '@/types/smartOlt';
 import { getOntStatusMeta } from '@/utils/smartOltUi';
+import { partitionCurrentAndFutureInvoices } from '@/utils/invoiceHelpers';
 import { abrirConversaWhatsApp } from '@/lib/utils';
 import { prefetchRoute } from '@/config/routePrefetch';
 import {
@@ -200,13 +201,9 @@ export const QuickClientDrawerSheet: React.FC<QuickClientDrawerSheetProps> = ({
           ispfyService.getClientLivePointStatuses(targetId).catch(() => []),
         ]);
 
-        const openOnly = invoicesRes
-          .filter((f) => {
-            const st = String(f.status || '').trim().toLowerCase();
-            const paidDate = f.data_pagamento || f.pagamento_data;
-            return (st === 'aberto' || st === 'a' || st === 'vencido' || st === 'pendente') && !paidDate;
-          })
-          .slice(0, 5);
+        const openOnly = partitionCurrentAndFutureInvoices(invoicesRes).current.map(
+          (item) => item.invoice
+        );
 
         setClient(cliRes);
         setContracts(contractsRes);

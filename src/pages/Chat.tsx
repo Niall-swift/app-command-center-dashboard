@@ -26,6 +26,10 @@ import {
   ArrowDown,
   MailWarning,
   ClipboardList,
+  Pencil,
+  RefreshCw,
+  Check,
+  UserCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PredefinedMessages from '@/components/PredefinedMessages';
@@ -102,6 +106,19 @@ function isAvatarImageUrl(avatar?: string): boolean {
   return Boolean(avatar && /^https?:\/\//i.test(avatar.trim()));
 }
 
+function isGenericChatName(name?: string): boolean {
+  const trimmed = String(name || '').trim();
+  if (!trimmed || trimmed.includes('@lid')) return true;
+  if (/^[\d\s()+-]{6,}$/.test(trimmed)) return true;
+  const lower = trimmed.toLowerCase();
+  return (
+    lower === 'cliente sem nome' ||
+    lower === 'cliente whatsapp' ||
+    lower === 'sem nome' ||
+    lower === 'cliente'
+  );
+}
+
 export default function Chat() {
   const navigate = useNavigate();
   const { canAccessRoute } = useAuth();
@@ -117,11 +134,16 @@ export default function Chat() {
   const [clientLimit, setClientLimit] = useState(40);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedOnt, setSelectedOnt] = useState<SmartOltOnu | null>(null);
+  const [editingContactName, setEditingContactName] = useState(false);
+  const [contactNameDraft, setContactNameDraft] = useState('');
+  const [savingContactName, setSavingContactName] = useState(false);
+  const [syncingContactWa, setSyncingContactWa] = useState(false);
   const handleOntResolved = useCallback((onu: SmartOltOnu | null) => {
     setSelectedOnt(onu);
   }, []);
   useEffect(() => {
     setSelectedOnt(null);
+    setEditingContactName(false);
   }, [selectedClient?.id]);
   const [loading, setLoading] = useState(true);
   const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({});
@@ -350,6 +372,8 @@ export default function Chat() {
               tags: Array.isArray(data.tags) ? data.tags : [],
               aiEnabled: Boolean(data.aiEnabled),
               protocol: data.protocol || undefined,
+              customNameLocked: Boolean(data.customNameLocked),
+              whatsappName: data.whatsappName ? String(data.whatsappName) : undefined,
             };
           })
           .sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
@@ -372,7 +396,7 @@ export default function Chat() {
     return unsubscribe;
   }, [clientLimit]);
 
-  // Sincroniza metadados do selectedClient (aiEnabled, unreadCount, avatar, protocol, tags)
+  // Sincroniza metadados do selectedClient (aiEnabled, unreadCount, avatar, protocol, tags, nome)
   useEffect(() => {
     if (!selectedClient || clients.length === 0) return;
     const updated = clients.find((c) => c.id === selectedClient.id);
@@ -382,27 +406,40 @@ export default function Chat() {
         updated.unreadCount !== selectedClient.unreadCount ||
         updated.avatar !== selectedClient.avatar ||
         updated.protocol !== selectedClient.protocol ||
-        updated.name !== selectedClient.name)
+        updated.name !== selectedClient.name ||
+        updated.customNameLocked !== selectedClient.customNameLocked ||
+        updated.whatsappName !== selectedClient.whatsappName)
     ) {
       setSelectedClient(updated);
     }
   }, [clients, selectedClient]);
 
-  // Sincroniza foto de perfil do WhatsApp (Z-API) uma vez por sessão quando ausente
+  // Sincroniza nome e foto de perfil do WhatsApp (Z-API) uma vez por sessão quando ausentes/genéricos
   useEffect(() => {
     if (!selectedClient) return;
-    if (isAvatarImageUrl(selectedClient.avatar)) return;
+    const needsAvatar = !isAvatarImageUrl(selectedClient.avatar);
+    const needsName = !selectedClient.customNameLocked && isGenericChatName(selectedClient.name);
+    if (!needsAvatar && !needsName) return;
     if (fetchedAvatarsRef.current.has(selectedClient.id)) return;
     fetchedAvatarsRef.current.add(selectedClient.id);
 
-    const targetPhone = selectedClient.phone || selectedClient.id;
+    const chatId = selectedClient.id;
+    const targetPhone = selectedClient.phone || chatId;
     whapiService
-      .getContactProfilePicture(targetPhone)
-      .then((picUrl) => {
-        if (picUrl && /^https?:\/\//i.test(picUrl)) {
-          setDoc(doc(db, 'chat', selectedClient.id), { avatar: picUrl }, { merge: true }).catch(
-            () => undefined
-          );
+      .getContactInfo(targetPhone)
+      .then((info) => {
+        const patch: Record<string, unknown> = {};
+        if (needsAvatar && info.pictureUrl && /^https?:\/\//i.test(info.pictureUrl)) {
+          patch.avatar = info.pictureUrl;
+        }
+        if (info.name && !isGenericChatName(info.name)) {
+          patch.whatsappName = info.name;
+          if (needsName) {
+            patch.name = info.name;
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          setDoc(doc(db, 'chat', chatId), patch, { merge: true }).catch(() => undefined);
         }
       })
       .catch(() => undefined);
@@ -1079,7 +1116,8 @@ export default function Chat() {
       return;
     }
 
-    const displayName = newChatName.trim() || cleanPhone;
+    const customTypedName = newChatName.trim();
+    const displayName = customTypedName || cleanPhone;
 
     try {
       await setDoc(
@@ -1091,6 +1129,7 @@ export default function Chat() {
           lastMessage: 'Nova conversa iniciada',
           lastMessageTime: new Date(),
           unreadCount: 0,
+          customNameLocked: Boolean(customTypedName),
         },
         { merge: true }
       );
@@ -1104,6 +1143,7 @@ export default function Chat() {
         isOnline: false,
         phone: cleanPhone,
         source: 'whatsapp',
+        customNameLocked: Boolean(customTypedName),
       };
       setSelectedClient(newClient);
       setShowNewChatModal(false);
@@ -1111,6 +1151,135 @@ export default function Chat() {
       setNewChatName('');
     } catch {
       toast({ title: 'Erro ao iniciar conversa', variant: 'destructive' });
+    }
+  };
+
+  const handleStartEditContactName = () => {
+    if (!selectedClient) return;
+    const ispfyFallback = activeIspfyClient ? obterNomeClienteISPFY(activeIspfyClient).trim() : '';
+    const initialDraft = isGenericChatName(selectedClient.name)
+      ? ispfyFallback && !isGenericChatName(ispfyFallback)
+        ? ispfyFallback
+        : ''
+      : selectedClient.name;
+    setContactNameDraft(initialDraft);
+    setEditingContactName(true);
+  };
+
+  const handleSaveContactName = async (overrideName?: string) => {
+    if (!selectedClient) return;
+    const trimmed = (overrideName ?? contactNameDraft).trim();
+    if (!trimmed) {
+      toast({
+        title: 'Informe um nome',
+        description: 'Digite o nome do contato antes de salvar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const chatId = selectedClient.id;
+    const targetPhone = selectedClient.phone || chatId;
+    setSavingContactName(true);
+    try {
+      await setDoc(
+        doc(db, 'chat', chatId),
+        {
+          name: trimmed,
+          customNameLocked: true,
+          customNameUpdatedAt: new Date(),
+        },
+        { merge: true }
+      );
+      setSelectedClient((prev) =>
+        prev && prev.id === chatId ? { ...prev, name: trimmed, customNameLocked: true } : prev
+      );
+      setEditingContactName(false);
+
+      const waRes = await whapiService.saveContactToWhatsApp(targetPhone, trimmed);
+      if (waRes.syncedToWhatsApp) {
+        toast({
+          title: 'Contato salvo e sincronizado',
+          description: `"${trimmed}" salvo no painel e enviado para a agenda do WhatsApp.`,
+        });
+      } else {
+        toast({
+          title: 'Nome do contato salvo',
+          description: `"${trimmed}" salvo no painel (protegido contra sobrescrita automática).`,
+        });
+      }
+    } catch {
+      toast({
+        title: 'Erro ao salvar nome',
+        description: 'Não foi possível salvar o nome do contato.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingContactName(false);
+    }
+  };
+
+  const handleSyncContactFromWhatsApp = async () => {
+    if (!selectedClient || syncingContactWa) return;
+    const chatId = selectedClient.id;
+    const targetPhone = selectedClient.phone || chatId;
+    setSyncingContactWa(true);
+    try {
+      const info = await whapiService.getContactInfo(targetPhone);
+      const validName = info.name && !isGenericChatName(info.name) ? info.name.trim() : null;
+      const validPic =
+        info.pictureUrl && /^https?:\/\//i.test(info.pictureUrl) ? info.pictureUrl : null;
+
+      if (!validName && !validPic) {
+        toast({
+          title: 'Sem nome encontrado no WhatsApp',
+          description:
+            'Este número não retornou nome salvo na agenda ou perfil público no WhatsApp. Use o ícone de lápis para salvar manualmente.',
+        });
+        return;
+      }
+
+      const patch: Record<string, unknown> = {};
+      if (validName) {
+        patch.name = validName;
+        patch.whatsappName = validName;
+        patch.customNameLocked = false;
+      }
+      if (validPic) {
+        patch.avatar = validPic;
+      }
+
+      await setDoc(doc(db, 'chat', chatId), patch, { merge: true });
+      setSelectedClient((prev) =>
+        prev && prev.id === chatId
+          ? {
+              ...prev,
+              ...(validName ? { name: validName, whatsappName: validName, customNameLocked: false } : {}),
+              ...(validPic ? { avatar: validPic } : {}),
+            }
+          : prev
+      );
+
+      if (validName) {
+        toast({
+          title: 'Sincronizado direto do WhatsApp',
+          description: `Nome atualizado para "${validName}"${validPic ? ' e foto atualizada' : ''}.`,
+        });
+      } else {
+        toast({
+          title: 'Foto sincronizada do WhatsApp',
+          description:
+            'Foto atualizada, mas o WhatsApp não retornou nome público. Você pode salvar o nome manualmente pelo lápis.',
+        });
+      }
+    } catch {
+      toast({
+        title: 'Falha ao sincronizar do WhatsApp',
+        description: 'Verifique se a instância Z-API está conectada.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncingContactWa(false);
     }
   };
 
@@ -1474,9 +1643,93 @@ export default function Chat() {
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <h3 className="font-bold text-foreground text-sm truncate">
-                      {selectedClient.name}
-                    </h3>
+                    {editingContactName ? (
+                      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                        <Input
+                          value={contactNameDraft}
+                          onChange={(e) => setContactNameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleSaveContactName();
+                            } else if (e.key === 'Escape') {
+                              setEditingContactName(false);
+                            }
+                          }}
+                          placeholder="Nome do contato..."
+                          autoFocus
+                          disabled={savingContactName}
+                          className="h-7 text-xs px-2 py-0 w-44 sm:w-56 bg-background"
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="default"
+                          disabled={savingContactName}
+                          onClick={() => void handleSaveContactName()}
+                          className="h-7 w-7 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          title="Salvar nome do contato"
+                        >
+                          {savingContactName ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          disabled={savingContactName}
+                          onClick={() => setEditingContactName(false)}
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                          title="Cancelar edição"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                        {activeIspfyClient && (() => {
+                          const ispfyName = obterNomeClienteISPFY(activeIspfyClient).trim();
+                          if (!ispfyName || ispfyName === contactNameDraft.trim()) return null;
+                          return (
+                            <button
+                              type="button"
+                              disabled={savingContactName}
+                              onClick={() => void handleSaveContactName(ispfyName)}
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[10px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/25 hover:bg-indigo-500/20 transition-colors max-w-[180px] truncate"
+                              title={`Salvar nome do cadastro ISPFY: ${ispfyName}`}
+                            >
+                              <UserCheck className="w-3 h-3 shrink-0" />
+                              <span className="truncate">ISPFY: {ispfyName}</span>
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <h3 className="font-bold text-foreground text-sm truncate">
+                          {selectedClient.name}
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={handleStartEditContactName}
+                          className="p-1 rounded-md text-muted-foreground/75 hover:text-foreground hover:bg-muted/80 transition-colors shrink-0"
+                          title="Editar e salvar nome do contato"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleSyncContactFromWhatsApp()}
+                          disabled={syncingContactWa}
+                          className="p-1 rounded-md text-muted-foreground/75 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors shrink-0 disabled:opacity-50"
+                          title="Sincronizar nome e foto direto do WhatsApp"
+                        >
+                          <RefreshCw
+                            className={`w-3 h-3 ${syncingContactWa ? 'animate-spin text-emerald-500' : ''}`}
+                          />
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className={`text-[10px] font-medium ${selectedClient.isOnline

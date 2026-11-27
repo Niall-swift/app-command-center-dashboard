@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useTheme } from 'next-themes';
 import {
+  Bell,
   Check,
   Contrast,
   Home,
@@ -11,9 +12,14 @@ import {
   Monitor,
   Moon,
   Palette,
+  Play,
   RotateCcw,
+  Siren,
   Sparkles,
+  Square,
   Sun,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -40,10 +46,20 @@ import {
   type AutoLockMinutes,
   type DensityMode,
   type FontScaleMode,
+  type NotificationPositionMode,
+  type NotificationStyleMode,
   type RadiusMode,
   type SplashBgPreset,
   useUiPreferences,
 } from '@/contexts/UiPreferencesContext';
+import {
+  NOTIFICATION_SOUND_OPTIONS,
+  OUTAGE_SIREN_OPTIONS,
+  playNotificationPreset,
+  playOutageSirenPreset,
+  type NotificationSoundId,
+  type OutageSirenSoundId,
+} from '@/utils/soundEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { SCREEN_PERMISSIONS } from '@/config/permissions';
 import {
@@ -128,6 +144,28 @@ const AUTO_LOCK_OPTIONS: Array<{ value: AutoLockMinutes; label: string }> = [
   { value: 0, label: 'Off' },
 ];
 
+const NOTIFICATION_STYLE_OPTIONS: Array<{
+  id: NotificationStyleMode;
+  label: string;
+  subtitle: string;
+}> = [
+  { id: 'modern', label: 'Moderno', subtitle: 'Cores ricas padrão' },
+  { id: 'glass', label: 'Glass Apple', subtitle: 'Vidro translúcido blur' },
+  { id: 'solid', label: 'Alto Contraste', subtitle: 'Faixa lateral NOC' },
+  { id: 'minimal', label: 'Minimalista', subtitle: 'Compacto e discreto' },
+  { id: 'pill', label: 'Pílula', subtitle: 'Flutuante arredondado' },
+];
+
+const NOTIFICATION_POSITION_OPTIONS: Array<{
+  id: NotificationPositionMode;
+  label: string;
+}> = [
+  { id: 'top-right', label: 'Topo Dir.' },
+  { id: 'top-center', label: 'Topo Centro' },
+  { id: 'bottom-right', label: 'Base Dir.' },
+  { id: 'bottom-center', label: 'Base Centro' },
+];
+
 export const PersonalizeStudioSheet: React.FC<PersonalizeStudioSheetProps> = ({
   open,
   onOpenChange,
@@ -137,6 +175,66 @@ export const PersonalizeStudioSheet: React.FC<PersonalizeStudioSheetProps> = ({
   const { preferences, updatePreferences, resetPreferences } = useUiPreferences();
   const [customUrlDraft, setCustomUrlDraft] = useState(preferences.splashCustomBgUrl);
   const [showEntryPreview, setShowEntryPreview] = useState(false);
+  const [playingSirenPreview, setPlayingSirenPreview] = useState<OutageSirenSoundId | null>(null);
+  const sirenPreviewStopRef = useRef<(() => void) | null>(null);
+  const sirenPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopSirenPreview = useCallback(() => {
+    if (sirenPreviewTimerRef.current) {
+      clearTimeout(sirenPreviewTimerRef.current);
+      sirenPreviewTimerRef.current = null;
+    }
+    if (sirenPreviewStopRef.current) {
+      sirenPreviewStopRef.current();
+      sirenPreviewStopRef.current = null;
+    }
+    setPlayingSirenPreview(null);
+  }, []);
+
+  const previewSirenSound = useCallback(
+    (soundId: OutageSirenSoundId, cycles = 1) => {
+      stopSirenPreview();
+      if (soundId === 'none' || preferences.sirenVolume <= 0) return;
+      const handle = playOutageSirenPreset(soundId, {
+        cycles,
+        volumePercent: preferences.sirenVolume,
+      });
+      if (handle.durationMs <= 0) return;
+      sirenPreviewStopRef.current = handle.stop;
+      setPlayingSirenPreview(soundId);
+      sirenPreviewTimerRef.current = setTimeout(() => {
+        sirenPreviewStopRef.current = null;
+        sirenPreviewTimerRef.current = null;
+        setPlayingSirenPreview(null);
+      }, handle.durationMs);
+    },
+    [preferences.sirenVolume, stopSirenPreview]
+  );
+
+  useEffect(() => {
+    if (!open) {
+      stopSirenPreview();
+    }
+    return () => {
+      stopSirenPreview();
+    };
+  }, [open, stopSirenPreview]);
+
+  const handleTestNotificationSample = (
+    overrideStyle?: NotificationStyleMode,
+    overrideSound?: NotificationSoundId
+  ) => {
+    const soundId = overrideSound ?? preferences.notificationSound;
+    playNotificationPreset(soundId, preferences.notificationVolume);
+    const activeStyle =
+      NOTIFICATION_STYLE_OPTIONS.find(
+        (s) => s.id === (overrideStyle ?? preferences.notificationStyle)
+      )?.label || 'Moderno';
+    toast.info('Prévia de Notificação AVL', {
+      description: `Estilo "${activeStyle}" aplicado em tempo real.`,
+      duration: 3500,
+    });
+  };
 
   useEffect(() => {
     setCustomUrlDraft(preferences.splashCustomBgUrl);
@@ -439,6 +537,277 @@ export const PersonalizeStudioSheet: React.FC<PersonalizeStudioSheetProps> = ({
                       {opt.label}
                     </button>
                   ))}
+                </div>
+              </div>
+            </section>
+
+            {/* 4. Notificações, Sons & Sirene de Rompimento */}
+            <section className="space-y-4 pt-2 border-t border-border/60">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-primary" />
+                  Notificações, Sons &amp; Sirene
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleTestNotificationSample()}
+                  className="h-6 px-2 text-[11px] text-primary hover:bg-primary/10 gap-1"
+                >
+                  <Play className="w-3 h-3" />
+                  Testar aviso
+                </Button>
+              </div>
+
+              {/* Estilo visual da notificação */}
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-foreground">Estilo da notificação</span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {NOTIFICATION_STYLE_OPTIONS.map((opt) => {
+                    const active = preferences.notificationStyle === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          updatePreferences({ notificationStyle: opt.id });
+                          setTimeout(() => {
+                            toast.info(`Estilo ${opt.label}`, {
+                              description: opt.subtitle,
+                              duration: 2400,
+                            });
+                          }, 60);
+                        }}
+                        className={`p-2 rounded-xl border text-left transition-all ${
+                          active
+                            ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                            : 'border-border/70 bg-background/60 hover:border-primary/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-bold text-foreground">
+                            {opt.label}
+                          </span>
+                          {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                          {opt.subtitle}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Posição da notificação */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-medium text-foreground">Posição na tela</span>
+                <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-secondary/60 border border-border/60">
+                  {NOTIFICATION_POSITION_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => updatePreferences({ notificationPosition: opt.id })}
+                      className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition-all ${
+                        preferences.notificationPosition === opt.id
+                          ? 'bg-card text-foreground shadow-sm ring-1 ring-border'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Som da notificação + volume */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-foreground">
+                    Som de notificação (Chat e avisos)
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                    {preferences.notificationSound === 'none'
+                      ? 'Mudo'
+                      : `${preferences.notificationVolume}%`}
+                  </span>
+                </div>
+
+                {preferences.notificationSound !== 'none' && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-secondary/50 border border-border/50">
+                    {preferences.notificationVolume === 0 ? (
+                      <VolumeX className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    )}
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={preferences.notificationVolume}
+                      onChange={(e) =>
+                        updatePreferences({ notificationVolume: Number(e.target.value) })
+                      }
+                      onMouseUp={() =>
+                        playNotificationPreset(
+                          preferences.notificationSound,
+                          preferences.notificationVolume
+                        )
+                      }
+                      onTouchEnd={() =>
+                        playNotificationPreset(
+                          preferences.notificationSound,
+                          preferences.notificationVolume
+                        )
+                      }
+                      aria-label="Volume do som de notificação"
+                      className="w-full h-1.5 accent-primary cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {NOTIFICATION_SOUND_OPTIONS.map((opt) => {
+                    const active = preferences.notificationSound === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          updatePreferences({ notificationSound: opt.id });
+                          playNotificationPreset(opt.id, preferences.notificationVolume);
+                        }}
+                        className={`p-2 rounded-xl border text-left transition-all ${
+                          active
+                            ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                            : 'border-border/70 bg-background/60 hover:border-primary/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-bold text-foreground truncate">
+                            {opt.label}
+                          </span>
+                          {opt.id === 'none' ? (
+                            <VolumeX className="w-3 h-3 text-muted-foreground shrink-0" />
+                          ) : active ? (
+                            <Check className="w-3 h-3 text-primary shrink-0" />
+                          ) : (
+                            <Play className="w-2.5 h-2.5 text-muted-foreground/70 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                          {opt.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Som da Sirene de Rompimento */}
+              <div className="space-y-2 pt-3 border-t border-border/50">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Siren className="w-3.5 h-3.5 text-rose-500" />
+                    Sirene de Rompimento (NOC)
+                  </span>
+                  {playingSirenPreview ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={stopSirenPreview}
+                      className="h-6 px-2 text-[10px] gap-1"
+                    >
+                      <Square className="w-2.5 h-2.5 fill-current" />
+                      Parar
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        preferences.outageSirenSound === 'none' || preferences.sirenVolume === 0
+                      }
+                      onClick={() => previewSirenSound(preferences.outageSirenSound, 2)}
+                      className="h-6 px-2 text-[10px] text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 gap-1"
+                    >
+                      <Play className="w-2.5 h-2.5" />
+                      Testar sirene
+                    </Button>
+                  )}
+                </div>
+
+                {preferences.outageSirenSound !== 'none' && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-rose-500/5 border border-rose-500/20">
+                    {preferences.sirenVolume === 0 ? (
+                      <VolumeX className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    )}
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={preferences.sirenVolume}
+                      onChange={(e) => updatePreferences({ sirenVolume: Number(e.target.value) })}
+                      aria-label="Volume da sirene de rompimento"
+                      className="w-full h-1.5 accent-rose-500 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-8 text-right">
+                      {preferences.sirenVolume}%
+                    </span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {OUTAGE_SIREN_OPTIONS.map((opt) => {
+                    const active = preferences.outageSirenSound === opt.id;
+                    const isPlayingThis = playingSirenPreview === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          updatePreferences({ outageSirenSound: opt.id });
+                          if (isPlayingThis) {
+                            stopSirenPreview();
+                          } else if (opt.id === 'none') {
+                            stopSirenPreview();
+                          } else {
+                            previewSirenSound(opt.id, 1);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition-all ${
+                          active
+                            ? 'border-rose-500/70 bg-rose-500/10 ring-1 ring-rose-500/30'
+                            : 'border-border/70 bg-background/60 hover:border-rose-500/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-bold text-foreground truncate">
+                            {opt.label}
+                          </span>
+                          {opt.id === 'none' ? (
+                            <VolumeX className="w-3 h-3 text-muted-foreground shrink-0" />
+                          ) : isPlayingThis ? (
+                            <Square className="w-2.5 h-2.5 text-rose-500 fill-current shrink-0 animate-pulse" />
+                          ) : active ? (
+                            <Check className="w-3 h-3 text-rose-500 shrink-0" />
+                          ) : (
+                            <Play className="w-2.5 h-2.5 text-muted-foreground/70 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                          {opt.description}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </section>

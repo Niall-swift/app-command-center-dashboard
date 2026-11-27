@@ -637,6 +637,67 @@ export class WhapiService {
     }
   }
 
+  async getContactInfo(phone: string): Promise<{
+    name: string | null;
+    phoneBookName: string | null;
+    pushName: string | null;
+    pictureUrl: string | null;
+  }> {
+    try {
+      const contactId = phone.includes('@lid') ? phone.trim() : this.formatPhoneNumber(phone);
+      if (!contactId) {
+        return { name: null, phoneBookName: null, pushName: null, pictureUrl: null };
+      }
+      const res = await this.callZapiProxy<{
+        name?: string | null;
+        phoneBookName?: string | null;
+        pushName?: string | null;
+        pictureUrl?: string | null;
+      }>({
+        action: 'get_contact_info',
+        phone: contactId,
+      });
+      return {
+        name: res.name || null,
+        phoneBookName: res.phoneBookName || null,
+        pushName: res.pushName || null,
+        pictureUrl: res.pictureUrl || null,
+      };
+    } catch {
+      return { name: null, phoneBookName: null, pushName: null, pictureUrl: null };
+    }
+  }
+
+  async saveContactToWhatsApp(
+    phone: string,
+    name: string
+  ): Promise<{ syncedToWhatsApp: boolean; reason?: string }> {
+    try {
+      const contactId = this.formatPhoneNumber(phone);
+      const cleanName = name.trim();
+      if (!contactId || !cleanName) {
+        return { syncedToWhatsApp: false, reason: 'Telefone ou nome inválido' };
+      }
+      const res = await this.callZapiProxy<{
+        syncedToWhatsApp?: boolean;
+        reason?: string;
+      }>({
+        action: 'add_contact',
+        phone: contactId,
+        name: cleanName,
+      });
+      return {
+        syncedToWhatsApp: Boolean(res.syncedToWhatsApp),
+        reason: res.reason,
+      };
+    } catch (err) {
+      return {
+        syncedToWhatsApp: false,
+        reason: err instanceof Error ? err.message : 'Erro ao sincronizar agenda WhatsApp',
+      };
+    }
+  }
+
   async checkConnection(): Promise<boolean> {
     const status = await this.getInstanceStatus();
     return status.connected;
