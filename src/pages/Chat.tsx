@@ -119,7 +119,13 @@ function isGenericChatName(name?: string): boolean {
   );
 }
 
-export default function Chat() {
+const CHAT_SELECTED_STORAGE_KEY = 'avl_chat_last_selected_id';
+
+interface ChatProps {
+  isRouteActive?: boolean;
+}
+
+export default function Chat({ isRouteActive = true }: ChatProps = {}) {
   const navigate = useNavigate();
   const { canAccessRoute } = useAuth();
   const {
@@ -144,6 +150,13 @@ export default function Chat() {
   useEffect(() => {
     setSelectedOnt(null);
     setEditingContactName(false);
+    if (selectedClient?.id && typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(CHAT_SELECTED_STORAGE_KEY, selectedClient.id);
+      } catch {
+        // ignora quota de storage
+      }
+    }
   }, [selectedClient?.id]);
   const [loading, setLoading] = useState(true);
   const [clientMessages, setClientMessages] = useState<Record<string, Message[]>>({});
@@ -383,7 +396,19 @@ export default function Chat() {
 
         if (clientsData.length > 0 && !hasAutoSelectedRef.current) {
           hasAutoSelectedRef.current = true;
-          if (typeof window === 'undefined' || window.innerWidth >= 1024) {
+          let savedId: string | null = null;
+          try {
+            savedId =
+              typeof window !== 'undefined'
+                ? sessionStorage.getItem(CHAT_SELECTED_STORAGE_KEY)
+                : null;
+          } catch {
+            savedId = null;
+          }
+          const restored = savedId ? clientsData.find((c) => c.id === savedId) : null;
+          if (restored) {
+            setSelectedClient(restored);
+          } else if (typeof window === 'undefined' || window.innerWidth >= 1024) {
             setSelectedClient(clientsData[0]);
           }
         }
@@ -1372,7 +1397,7 @@ export default function Chat() {
 
   // Sincronização automática de visualização (✓✓ azul no WhatsApp do cliente + limpa não lida no celular)
   useEffect(() => {
-    if (!selectedClient || !isPageVisible) return;
+    if (!selectedClient || !isPageVisible || !isRouteActive) return;
     const chatId = selectedClient.id;
     if (manualUnreadRef.current.has(chatId)) return;
 
@@ -1408,7 +1433,7 @@ export default function Chat() {
     whapiService
       .markChatAsRead(phone, latestIncoming?.zapiMessageId || undefined)
       .catch(() => undefined);
-  }, [selectedClient, currentMessages, isPageVisible]);
+  }, [selectedClient, currentMessages, isPageVisible, isRouteActive]);
 
   const searchMatches = React.useMemo(() => {
     const q = messageSearchQuery.trim().toLowerCase();
@@ -1430,11 +1455,11 @@ export default function Chat() {
 
   // Scroll instantâneo ao trocar de conversa e suave apenas ao receber nova mensagem na conversa aberta
   useEffect(() => {
-    if (!selectedClientId) return;
+    if (!selectedClientId || !isRouteActive) return;
     const isSameChat = lastScrolledClientRef.current === selectedClientId;
     lastScrolledClientRef.current = selectedClientId;
     messagesEndRef.current?.scrollIntoView({ behavior: isSameChat ? 'smooth' : 'auto' });
-  }, [currentMessages.length, selectedClientId]);
+  }, [currentMessages.length, selectedClientId, isRouteActive]);
 
   const handleCloseClientInfo = useCallback(() => {
     setShowClientInfo(false);

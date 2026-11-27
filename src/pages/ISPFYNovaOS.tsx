@@ -1,18 +1,49 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search, Loader2, User, Phone, MapPin, Ticket, CheckCircle2,
-  AlertCircle, Send, X, Navigation, Copy, ClipboardList,
-  ChevronRight, Radio, Wifi, WifiOff, Zap, Wrench, HelpCircle,
-  Cable, Monitor, RotateCcw, Edit3, Sliders, Check, Key,
-  CheckCheck, PlusCircle, Calendar,
+  Search,
+  Loader2,
+  User,
+  Phone,
+  MapPin,
+  Ticket,
+  CheckCircle2,
+  AlertCircle,
+  Send,
+  X,
+  Navigation,
+  Copy,
+  ClipboardList,
+  ChevronRight,
+  Radio,
+  Wifi,
+  WifiOff,
+  Zap,
+  Wrench,
+  HelpCircle,
+  Cable,
+  Monitor,
+  RotateCcw,
+  Edit3,
+  Sliders,
+  Check,
+  Key,
+  CheckCheck,
+  PlusCircle,
+  Calendar,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Eye,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -33,9 +64,15 @@ import PageTransition from '@/components/PageTransition';
 import { IconeWhatsApp } from '@/components/icons/IconeWhatsApp';
 import { DailyOSModal } from '@/components/ispfy/DailyOSModal';
 import { useDailyOS } from '@/hooks/useDailyOS';
+import { usePinnedOsGroup } from '@/hooks/usePinnedOsGroup';
 import { ispfyService } from '@/services/ispfy/ispfyService';
 import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whapiService';
-import type { ISPFYClienteData, ISPFYLoginData, ISPFYContratoData, ISPFYPlanoData } from '@/types/ispfy';
+import type {
+  ISPFYClienteData,
+  ISPFYLoginData,
+  ISPFYContratoData,
+  ISPFYPlanoData,
+} from '@/types/ispfy';
 import type { WhapiGroup } from '@/types/whapi';
 import {
   ROTULOS_PRIORIDADE_OS,
@@ -51,27 +88,87 @@ import {
 const OPCOES_PROBLEMAS = [
   { id: 'instalacao', label: 'Nova Instalação', icon: PlusCircle, cor: 'emerald' },
   { id: 'sem_sinal', label: 'Sem Sinal / Internet', icon: WifiOff, cor: 'red' },
-  { id: 'lentidao', label: 'Lentidão / Queda de Velocidade', icon: Zap, cor: 'orange' },
+  { id: 'lentidao', label: 'Lentidão / Velocidade', icon: Zap, cor: 'orange' },
   { id: 'intermitencia', label: 'Conexão Intermitente', icon: Radio, cor: 'yellow' },
   { id: 'sem_wifi', label: 'Wi-Fi com Problema', icon: Wifi, cor: 'blue' },
   { id: 'roteador', label: 'Problema no Roteador', icon: Monitor, cor: 'purple' },
   { id: 'cabo', label: 'Cabo Danificado / Solto', icon: Cable, cor: 'pink' },
-  { id: 'tecnica', label: 'Visita Técnica Agendada', icon: Wrench, cor: 'green' },
-  { id: 'reinstalacao', label: 'Reinstalação / Mudança', icon: RotateCcw, cor: 'teal' },
+  { id: 'tecnica', label: 'Visita Técnica', icon: Wrench, cor: 'green' },
+  { id: 'reinstalacao', label: 'Mudança / Reinstalação', icon: RotateCcw, cor: 'teal' },
   { id: 'outro', label: 'Outro Problema', icon: HelpCircle, cor: 'gray' },
 ];
 
-const MAPA_CORES_PROBLEMAS: Record<string, { chip: string; chipSelecionado: string }> = {
-  emerald: { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelecionado: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
-  red:     { chip: 'border-red-500/20 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/15', chipSelecionado: 'border-red-500 text-red-700 dark:text-red-300 bg-red-500/20 shadow-red-500/20' },
-  orange:  { chip: 'border-orange-500/20 text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/15', chipSelecionado: 'border-orange-500 text-orange-700 dark:text-orange-300 bg-orange-500/20 shadow-orange-500/20' },
-  yellow:  { chip: 'border-amber-500/20 text-amber-600 dark:text-yellow-400 bg-amber-500/10 hover:bg-amber-500/15', chipSelecionado: 'border-amber-500 text-amber-700 dark:text-yellow-300 bg-amber-500/20 shadow-amber-500/20' },
-  blue:    { chip: 'border-blue-500/20 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/15', chipSelecionado: 'border-blue-500 text-blue-700 dark:text-blue-300 bg-blue-500/20 shadow-blue-500/20' },
-  purple:  { chip: 'border-purple-500/20 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/15', chipSelecionado: 'border-purple-500 text-purple-700 dark:text-purple-300 bg-purple-500/20 shadow-purple-500/20' },
-  pink:    { chip: 'border-pink-500/20 text-pink-600 dark:text-pink-400 bg-pink-500/10 hover:bg-pink-500/15', chipSelecionado: 'border-pink-500 text-pink-700 dark:text-pink-300 bg-pink-500/20 shadow-pink-500/20' },
-  green:   { chip: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15', chipSelecionado: 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/20 shadow-emerald-500/20' },
-  teal:    { chip: 'border-teal-500/20 text-teal-600 dark:text-teal-400 bg-teal-500/10 hover:bg-teal-500/15', chipSelecionado: 'border-teal-500 text-teal-700 dark:text-teal-300 bg-teal-500/20 shadow-teal-500/20' },
-  gray:    { chip: 'border-border text-muted-foreground bg-secondary/60 hover:bg-secondary', chipSelecionado: 'border-primary/50 text-foreground bg-secondary shadow-sm' },
+const MAPA_CORES_PROBLEMAS: Record<
+  string,
+  { chip: string; chipSelecionado: string; iconColor: string }
+> = {
+  emerald: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-emerald-500/40 hover:bg-emerald-500/[0.06]',
+    chipSelecionado:
+      'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/25',
+    iconColor: 'text-emerald-500',
+  },
+  red: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-red-500/40 hover:bg-red-500/[0.06]',
+    chipSelecionado:
+      'border-red-500 bg-red-500/15 text-red-700 dark:text-red-300 ring-1 ring-red-500/25',
+    iconColor: 'text-red-500',
+  },
+  orange: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-orange-500/40 hover:bg-orange-500/[0.06]',
+    chipSelecionado:
+      'border-orange-500 bg-orange-500/15 text-orange-700 dark:text-orange-300 ring-1 ring-orange-500/25',
+    iconColor: 'text-orange-500',
+  },
+  yellow: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-amber-500/40 hover:bg-amber-500/[0.06]',
+    chipSelecionado:
+      'border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25',
+    iconColor: 'text-amber-500',
+  },
+  blue: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-blue-500/40 hover:bg-blue-500/[0.06]',
+    chipSelecionado:
+      'border-blue-500 bg-blue-500/15 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/25',
+    iconColor: 'text-blue-500',
+  },
+  purple: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-purple-500/40 hover:bg-purple-500/[0.06]',
+    chipSelecionado:
+      'border-purple-500 bg-purple-500/15 text-purple-700 dark:text-purple-300 ring-1 ring-purple-500/25',
+    iconColor: 'text-purple-500',
+  },
+  pink: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-pink-500/40 hover:bg-pink-500/[0.06]',
+    chipSelecionado:
+      'border-pink-500 bg-pink-500/15 text-pink-700 dark:text-pink-300 ring-1 ring-pink-500/25',
+    iconColor: 'text-pink-500',
+  },
+  green: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-emerald-500/40 hover:bg-emerald-500/[0.06]',
+    chipSelecionado:
+      'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/25',
+    iconColor: 'text-emerald-500',
+  },
+  teal: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-teal-500/40 hover:bg-teal-500/[0.06]',
+    chipSelecionado:
+      'border-teal-500 bg-teal-500/15 text-teal-700 dark:text-teal-300 ring-1 ring-teal-500/25',
+    iconColor: 'text-teal-500',
+  },
+  gray: {
+    chip: 'border-border/70 bg-background/60 text-foreground hover:border-primary/40 hover:bg-secondary/70',
+    chipSelecionado:
+      'border-primary bg-primary/12 text-foreground ring-1 ring-primary/25',
+    iconColor: 'text-muted-foreground',
+  },
+};
+
+const PRIORIDADE_DOT: Record<string, string> = {
+  B: 'bg-sky-500',
+  N: 'bg-emerald-500',
+  A: 'bg-amber-500',
+  C: 'bg-rose-500',
 };
 
 // ─── Modelo Padrão da O.S. & Variáveis Dinâmicas ──────────────────────────────
@@ -142,6 +239,7 @@ const ISPFYNovaOS: React.FC = () => {
   );
   const preloadedKeyRef = useRef<string | null>(null);
   const preloadedBuscaRef = useRef<string | null>(null);
+  const grupoCardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     clienteSelecionadoRef.current = clienteSelecionado;
@@ -175,13 +273,55 @@ const ISPFYNovaOS: React.FC = () => {
     registerOS: registrarOS,
   } = useDailyOS();
 
-  // Estado dos Grupos WhatsApp
+  // ─── Grupo WhatsApp Fixo (persistido no Firestore + localStorage) ─────────
+  const {
+    pinnedGroupPhone,
+    pinnedGroupName,
+    autoSendToGroup,
+    savingPinnedGroup,
+    pinGroup,
+    clearPinnedGroup,
+    setAutoSendToGroup,
+  } = usePinnedOsGroup();
+
   const [gruposWhatsApp, setGruposWhatsApp] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
   const [carregandoGrupos, setCarregandoGrupos] = useState(false);
-  const [grupoSelecionadoPhone, setGrupoSelecionadoPhone] = useState('120363426874994471-group');
-  const [enviarGrupoAoCriar, setEnviarGrupoAoCriar] = useState(true);
+  const [grupoSelecionadoPhone, setGrupoSelecionadoPhone] = useState<string>(
+    () => pinnedGroupPhone || '120363426874994471-group'
+  );
+  const [enviarGrupoAoCriar, setEnviarGrupoAoCriar] = useState<boolean>(autoSendToGroup);
   const [enviandoParaGrupo, setEnviandoParaGrupo] = useState(false);
   const [grupoEnviadoComSucesso, setGrupoEnviadoComSucesso] = useState<string | null>(null);
+  const grupoAlteradoManualRef = useRef(false);
+
+  const gruposDisponiveis = useMemo(() => {
+    if (!pinnedGroupPhone) return gruposWhatsApp;
+    const exists = gruposWhatsApp.some((g) => g.phone === pinnedGroupPhone);
+    if (exists) return gruposWhatsApp;
+    return [
+      { phone: pinnedGroupPhone, name: pinnedGroupName || 'Grupo fixo salvo' },
+      ...gruposWhatsApp,
+    ];
+  }, [gruposWhatsApp, pinnedGroupPhone, pinnedGroupName]);
+
+  const grupoAtualSelecionado = useMemo(
+    () => gruposDisponiveis.find((g) => g.phone === grupoSelecionadoPhone) || null,
+    [gruposDisponiveis, grupoSelecionadoPhone]
+  );
+
+  const isGrupoAtualFixo = Boolean(
+    pinnedGroupPhone && grupoSelecionadoPhone === pinnedGroupPhone
+  );
+
+  useEffect(() => {
+    setEnviarGrupoAoCriar(autoSendToGroup);
+  }, [autoSendToGroup]);
+
+  useEffect(() => {
+    if (pinnedGroupPhone && !grupoAlteradoManualRef.current) {
+      setGrupoSelecionadoPhone(pinnedGroupPhone);
+    }
+  }, [pinnedGroupPhone]);
 
   // Customização da Estrutura / Template da O.S.
   const [modeloOS, setModeloOS] = useState<string>(
@@ -201,25 +341,37 @@ const ISPFYNovaOS: React.FC = () => {
     ? gerarLinksMapaCliente(clienteSelecionado)
     : { urlDireta: '', urlIncorporada: '' };
 
-  useEffect(() => {
-    setCarregandoGrupos(true);
-    whapiService
-      .getGroups()
-      .then((grupos) => {
+  const carregarGruposWhatsApp = useCallback(
+    async (silencioso = true) => {
+      setCarregandoGrupos(true);
+      try {
+        const grupos = await whapiService.getGroups();
         if (!grupos || grupos.length === 0) return;
         setGruposWhatsApp(grupos);
-        const padrao = selecionarGrupoWhatsAppPadrao(grupos);
-        if (padrao) {
-          setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
+        if (!pinnedGroupPhone && !grupoAlteradoManualRef.current) {
+          const padrao = selecionarGrupoWhatsAppPadrao(grupos);
+          if (padrao) {
+            setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
+          }
         }
-      })
-      .catch((erro) => {
+        if (!silencioso) {
+          toast.success(`${grupos.length} grupos carregados do WhatsApp.`);
+        }
+      } catch (erro) {
         console.error('Erro ao buscar grupos do WhatsApp:', erro);
-      })
-      .finally(() => {
+        if (!silencioso) {
+          toast.error('Não foi possível atualizar os grupos do WhatsApp.');
+        }
+      } finally {
         setCarregandoGrupos(false);
-      });
-  }, []);
+      }
+    },
+    [pinnedGroupPhone]
+  );
+
+  useEffect(() => {
+    void carregarGruposWhatsApp(true);
+  }, [carregarGruposWhatsApp]);
 
   useEffect(() => {
     setCarregandoAssuntos(true);
@@ -356,7 +508,8 @@ const ISPFYNovaOS: React.FC = () => {
 
   // ─── Pré-seleção automática via ?clienteId= ou state vindo do Chat / Inteligência ───
   useEffect(() => {
-    const targetId = clienteIdParam || (statePreselectedClient?.id ? String(statePreselectedClient.id) : '');
+    const targetId =
+      clienteIdParam || (statePreselectedClient?.id ? String(statePreselectedClient.id) : '');
     if (!targetId) return;
     if (preloadedKeyRef.current === targetId) return;
 
@@ -396,7 +549,7 @@ const ISPFYNovaOS: React.FC = () => {
     };
   }, [clienteIdParam, statePreselectedClient, aoSelecionarCliente]);
 
-  // ─── Pré-preenchimento de busca via ?busca= (quando chat ainda não tem vínculo ISPFY) ───
+  // ─── Pré-preenchimento de busca via ?busca= ───
   useEffect(() => {
     if (clienteIdParam || statePreselectedClient?.id || !buscaParam) return;
     if (preloadedBuscaRef.current === buscaParam) return;
@@ -446,7 +599,7 @@ const ISPFYNovaOS: React.FC = () => {
   const gerarTextoOS = useCallback(
     (idChamadoSobrescrito?: string, numeroDiarioSobrescrito?: string): string => {
       if (!clienteSelecionado) {
-        return 'Selecione um cliente para gerar o formato da O.S.';
+        return 'Selecione um cliente à esquerda para visualizar a mensagem da O.S. em tempo real.';
       }
 
       const idChamado = idChamadoSobrescrito || idChamadoCriado || 'PENDENTE';
@@ -491,7 +644,6 @@ const ISPFYNovaOS: React.FC = () => {
 
       let texto = modeloOS;
 
-      // Compatibilidade retroativa com modelos salvos sem {numero_diario}
       if (!texto.includes('{numero_diario}')) {
         texto = texto.replace(/{numero_os}/g, `${diarioFormatado} (ISPFY #${idChamado})`);
       } else {
@@ -560,6 +712,28 @@ const ISPFYNovaOS: React.FC = () => {
 
   const mensagemEfetiva = textoManualOS !== null ? textoManualOS : gerarTextoOS();
 
+  const handleTogglePinCurrentGroup = async () => {
+    if (!grupoSelecionadoPhone) {
+      toast.warning('Selecione um grupo primeiro.');
+      return;
+    }
+    if (isGrupoAtualFixo) {
+      await clearPinnedGroup();
+      toast.info('Grupo fixo removido.');
+      return;
+    }
+    const nome = grupoAtualSelecionado?.name || 'Grupo de Operação';
+    const ok = await pinGroup(grupoSelecionadoPhone, nome);
+    grupoAlteradoManualRef.current = false;
+    if (ok) {
+      toast.success(`Grupo fixo salvo: ${nome}`, {
+        description: 'Todas as próximas O.S. já abrirão apontando para este grupo.',
+      });
+    } else {
+      toast.success(`Grupo fixo salvo localmente: ${nome}`);
+    }
+  };
+
   const aoCriarOS = async () => {
     if (!clienteSelecionado?.id) {
       toast.warning('Selecione um cliente.');
@@ -591,8 +765,7 @@ const ISPFYNovaOS: React.FC = () => {
       const novoChamadoId = resultado.id ?? '';
       setIdChamadoCriado(novoChamadoId);
 
-      const gruposValidos = gruposWhatsApp.length > 0 ? gruposWhatsApp : DEFAULT_AVL_WHATSAPP_GROUPS;
-      const grupoDestino = gruposValidos.find((grupo) => grupo.phone === grupoSelecionadoPhone);
+      const grupoDestino = gruposDisponiveis.find((grupo) => grupo.phone === grupoSelecionadoPhone);
       const nomeGrupo = grupoDestino?.name || 'Grupo de Operação';
 
       const { formattedDailyNumber } = await registrarOS({
@@ -630,7 +803,7 @@ const ISPFYNovaOS: React.FC = () => {
           .then((resposta) => {
             if (resposta.sent) {
               setGrupoEnviadoComSucesso(nomeGrupo);
-              toast.success(`O.S. #${formattedDailyNumber} enviada para o grupo "${nomeGrupo}"!`);
+              toast.success(`O.S. #${formattedDailyNumber} enviada para "${nomeGrupo}"!`);
             } else {
               toast.error(`O.S. criada, mas falhou envio ao WhatsApp: ${resposta.error}`);
             }
@@ -653,8 +826,16 @@ const ISPFYNovaOS: React.FC = () => {
     }
     navigator.clipboard
       .writeText(mensagemEfetiva)
-      .then(() => toast.success('Informações da O.S. copiadas para a área de transferência!'))
+      .then(() => toast.success('O.S. copiada para a área de transferência!'))
       .catch(() => toast.error('Falha ao copiar informações.'));
+  };
+
+  const copiarValorRapido = (valor: string, rotulo: string) => {
+    if (!valor) return;
+    navigator.clipboard
+      .writeText(valor)
+      .then(() => toast.success(`${rotulo} copiado!`))
+      .catch(() => undefined);
   };
 
   const aoEnviarParaGrupo = async () => {
@@ -662,7 +843,7 @@ const ISPFYNovaOS: React.FC = () => {
       toast.warning('Selecione um grupo do WhatsApp de destino.');
       return;
     }
-    const grupoDestino = gruposWhatsApp.find((grupo) => grupo.phone === grupoSelecionadoPhone);
+    const grupoDestino = gruposDisponiveis.find((grupo) => grupo.phone === grupoSelecionadoPhone);
     const nomeGrupo = grupoDestino?.name || 'Grupo selecionado';
 
     setEnviandoParaGrupo(true);
@@ -670,7 +851,7 @@ const ISPFYNovaOS: React.FC = () => {
       const resposta = await whapiService.sendGroupMessage(grupoSelecionadoPhone, mensagemEfetiva);
       if (resposta.sent) {
         setGrupoEnviadoComSucesso(nomeGrupo);
-        toast.success(`O.S. enviada com sucesso para o grupo ${nomeGrupo}!`);
+        toast.success(`O.S. enviada para "${nomeGrupo}"!`);
       } else {
         toast.error(`Falha ao enviar para o grupo: ${resposta.error || 'Erro desconhecido'}`);
       }
@@ -698,7 +879,7 @@ const ISPFYNovaOS: React.FC = () => {
     clienteSelecionadoRef.current = null;
     setClienteSelecionado(null);
     setTermoBusca('');
-    setResultadosBusca([]);
+    setResultadosBusca(todosClientes);
     setAssuntoSelecionado('');
     setNomeAssunto('');
     setProblemasSelecionados([]);
@@ -716,6 +897,10 @@ const ISPFYNovaOS: React.FC = () => {
     setGrupoEnviadoComSucesso(null);
     setTextoManualOS(null);
     setEditandoMensagemAoVivo(false);
+    grupoAlteradoManualRef.current = false;
+    if (pinnedGroupPhone) {
+      setGrupoSelecionadoPhone(pinnedGroupPhone);
+    }
   };
 
   const aoAbrirModalModelo = () => {
@@ -727,7 +912,7 @@ const ISPFYNovaOS: React.FC = () => {
     setModeloOS(textoTemporarioModelo);
     localStorage.setItem(CHAVE_STORAGE_TEMPLATE, textoTemporarioModelo);
     setModalModeloAberto(false);
-    toast.success('Estrutura e modelo da O.S. salvos com sucesso!');
+    toast.success('Estrutura da O.S. salva com sucesso!');
   };
 
   const aoRestaurarModeloPadrao = () => {
@@ -755,217 +940,291 @@ const ISPFYNovaOS: React.FC = () => {
   const telefoneClienteSelecionado = obterTelefoneClienteISPFY(clienteSelecionado);
   const infoPrioridadeAtual = ROTULOS_PRIORIDADE_OS[prioridade] || ROTULOS_PRIORIDADE_OS.N;
 
+  const etapaClienteOk = Boolean(clienteSelecionado?.id);
+  const etapaProblemaOk = problemasSelecionados.length > 0 || observacao.trim().length > 0;
+  const etapaAssuntoOk = Boolean(assuntoSelecionado);
+  const etapaGrupoOk = !enviarGrupoAoCriar || Boolean(grupoSelecionadoPhone);
+  const formularioPronto = etapaClienteOk && etapaProblemaOk && etapaAssuntoOk;
+
+  const pendenciasEnvio: string[] = [];
+  if (!etapaClienteOk) pendenciasEnvio.push('Cliente');
+  if (!etapaProblemaOk) pendenciasEnvio.push('Problema ou observação');
+  if (!etapaAssuntoOk) pendenciasEnvio.push('Assunto');
+
   return (
     <PageTransition>
-      <div className="space-y-6 text-foreground">
-        {/* Header Premium */}
-        <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-card border border-border shadow-sm"
-        >
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 shadow-xl shadow-emerald-500/25 ring-1 ring-emerald-400/40">
-              <ClipboardList className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">Central de Abertura de O.S.</h1>
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold uppercase tracking-wider">
-                  ISPFY + Z-API
-                </Badge>
-                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 text-[11px] gap-1 px-2.5 py-0.5">
-                  <Calendar className="w-3 h-3 text-emerald-500" />
-                  Hoje: #{contagemDiaria} O.S. emitidas
-                </Badge>
-                <Badge variant="outline" className="bg-secondary/60 text-muted-foreground border-border text-[11px] px-2 py-0.5">
-                  Próxima do dia: #{proximoNumeroDiarioFormatado}
-                </Badge>
+      <div className="max-w-[1440px] mx-auto space-y-5 text-foreground">
+        {/* ─── Top Bar Minimalista ─── */}
+        <div className="rounded-2xl border border-border/75 bg-card/90 backdrop-blur-md px-4 sm:px-5 py-3.5 shadow-sm space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <ClipboardList className="w-5 h-5" />
               </div>
-              <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 font-medium">
-                Emissão inteligente com contagem diária segmentada (reinicia automaticamente à meia-noite).
-              </p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
+                    Abertura de O.S.
+                  </h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 border border-emerald-500/25 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
+                    <Calendar className="w-3 h-3" />
+                    Próxima #{proximoNumeroDiarioFormatado}
+                  </span>
+                  {pinnedGroupPhone ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        grupoCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }
+                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/25 px-2.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/15 transition-colors max-w-[240px]"
+                      title="Grupo fixo configurado para disparo das O.S."
+                    >
+                      <Pin className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Fixo: {pinnedGroupName || 'Salvo'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        grupoCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }
+                      className="inline-flex items-center gap-1 rounded-full bg-secondary/70 border border-border/70 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Pin className="w-3 h-3" />
+                      Definir grupo fixo
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Registro no ISPFY + despacho imediato no grupo do WhatsApp ({dataFormatada}).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setModalOrdensDoDiaAberto(true)}
+                className="h-9 px-3 rounded-xl text-xs font-semibold gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                O.S. de Hoje
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-md bg-emerald-500/20 text-[11px] font-bold tabular-nums">
+                  {contagemDiaria}
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={aoAbrirModalModelo}
+                className="h-9 px-3 rounded-xl text-xs font-medium gap-1.5 border-border/70 bg-background hover:bg-secondary"
+              >
+                <Sliders className="w-3.5 h-3.5 text-primary" />
+                Modelo
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={aoLimparFormulario}
+                className="h-9 px-3 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Limpar
+              </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-            <Button
-              variant="outline"
-              onClick={() => setModalOrdensDoDiaAberto(true)}
-              className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs h-10 gap-2 rounded-xl transition-all shadow-sm"
-            >
-              <ClipboardList className="w-4 h-4 text-emerald-500" />
-              <span>Ver O.S. de Hoje</span>
-              <Badge className="bg-emerald-500/25 text-emerald-700 dark:text-emerald-200 border-none text-[10px] px-1.5 py-0 h-5">
-                {contagemDiaria}
-              </Badge>
-            </Button>
-            <Button
-              variant="outline"
-              onClick={aoAbrirModalModelo}
-              className="bg-secondary hover:bg-secondary/80 border-border text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 text-xs h-10 gap-2 rounded-xl transition-all"
-            >
-              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
-              Editar Estrutura
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={aoLimparFormulario}
-              className="text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/60 text-xs h-10 gap-1.5 rounded-xl"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Limpar
-            </Button>
-          </div>
-        </motion.div>
+          {/* Checklist de progresso em 4 etapas */}
+          {!osCriada && (
+            <div className="flex items-center gap-2 pt-2.5 border-t border-border/50 overflow-x-auto no-scrollbar">
+              {[
+                { num: 1, label: 'Cliente', done: etapaClienteOk },
+                { num: 2, label: 'Problema', done: etapaProblemaOk },
+                { num: 3, label: 'Assunto', done: etapaAssuntoOk },
+                { num: 4, label: enviarGrupoAoCriar ? 'Grupo WhatsApp' : 'Envio opcional', done: etapaGrupoOk },
+              ].map((step, idx, arr) => (
+                <React.Fragment key={step.num}>
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium shrink-0 transition-colors ${
+                      step.done
+                        ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-secondary/60 text-muted-foreground'
+                    }`}
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        step.done
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-muted-foreground/20 text-muted-foreground'
+                      }`}
+                    >
+                      {step.done ? <Check className="w-2.5 h-2.5" /> : step.num}
+                    </span>
+                    <span>{step.label}</span>
+                  </div>
+                  {idx < arr.length - 1 && (
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* ─── Tela de Sucesso ─── */}
+        {/* ─── Tela de Sucesso vs Formulário ─── */}
         <AnimatePresence mode="wait">
           {osCriada ? (
             <motion.div
               key="sucesso"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
               className="max-w-xl mx-auto"
             >
-              <div className="rounded-3xl border border-emerald-500/30 bg-card p-8 flex flex-col items-center gap-6 text-center shadow-xl shadow-emerald-500/5">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 14, delay: 0.1 }}
-                  className="p-6 rounded-full bg-emerald-500/15 ring-8 ring-emerald-500/20 text-emerald-500"
-                >
-                  <CheckCircle2 className="w-16 h-16" />
-                </motion.div>
-
-                <div>
-                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs mb-2">
-                    Ordem de Serviço Diária #{numeroDiarioCriado || proximoNumeroDiarioFormatado} Registrada
-                  </Badge>
-                  <p className="text-3xl font-extrabold text-foreground tracking-tight">
-                    O.S. #{numeroDiarioCriado || proximoNumeroDiarioFormatado} do Dia
-                  </p>
-                  <p className="text-emerald-600 dark:text-emerald-400 text-xs font-semibold mt-1">
-                    Protocolo ISPFY: #{idChamadoCriado} • Total hoje: {contagemDiaria} O.S.
-                  </p>
-                  <p className="text-muted-foreground mt-1.5 text-sm">
-                    Cadastrada com sucesso para{' '}
-                    <span className="text-emerald-600 dark:text-emerald-300 font-semibold">
-                      {obterNomeClienteISPFY(clienteSelecionado)}
-                    </span>
-                  </p>
+              <div className="rounded-2xl border border-emerald-500/30 bg-card p-6 sm:p-7 space-y-5 shadow-lg">
+                <div className="flex flex-col items-center text-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[11px] mb-1.5">
+                      Protocolo ISPFY #{idChamadoCriado}
+                    </Badge>
+                    <h3 className="text-2xl font-bold tracking-tight text-foreground">
+                      O.S. #{numeroDiarioCriado || proximoNumeroDiarioFormatado} registrada!
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Cliente:{' '}
+                      <strong className="text-foreground">
+                        {obterNomeClienteISPFY(clienteSelecionado)}
+                      </strong>{' '}
+                      • Total hoje: {contagemDiaria} O.S.
+                    </p>
+                  </div>
                 </div>
 
-                {/* Resumo da O.S. criada */}
-                <div className="w-full rounded-2xl border border-border divide-y divide-border text-left text-xs overflow-hidden bg-secondary/30">
-                  <div className="flex justify-between items-center px-4 py-3">
-                    <span className="text-muted-foreground">Plano de Internet</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{planoCliente || 'Não especificado'}</span>
+                {/* Resumo */}
+                <div className="rounded-xl border border-border/70 divide-y divide-border/60 text-xs bg-secondary/25 overflow-hidden">
+                  <div className="flex justify-between items-center px-3.5 py-2.5">
+                    <span className="text-muted-foreground">Plano</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {planoCliente || 'Não especificado'}
+                    </span>
                   </div>
-                  <div className="flex justify-between items-center px-4 py-3">
+                  <div className="flex justify-between items-center px-3.5 py-2.5">
                     <span className="text-muted-foreground">Assunto</span>
-                    <span className="text-foreground font-medium">{nomeAssunto}</span>
+                    <span className="font-medium text-foreground">{nomeAssunto}</span>
                   </div>
-                  <div className="flex justify-between items-center px-4 py-3">
+                  <div className="flex justify-between items-center px-3.5 py-2.5">
                     <span className="text-muted-foreground">Prioridade</span>
                     <span className={`font-semibold ${infoPrioridadeAtual.corTexto}`}>
                       {infoPrioridadeAtual.rotulo}
                     </span>
                   </div>
                   {telefoneClienteSelecionado && (
-                    <div className="flex justify-between items-center px-4 py-3">
-                      <span className="text-muted-foreground">Contato do Cliente</span>
-                      <span className="text-foreground">{telefoneClienteSelecionado}</span>
+                    <div className="flex justify-between items-center px-3.5 py-2.5">
+                      <span className="text-muted-foreground">Contato</span>
+                      <span className="font-mono text-foreground">{telefoneClienteSelecionado}</span>
                     </div>
                   )}
                   {enderecoCliente && (
-                    <div className="flex justify-between items-start px-4 py-3 gap-3">
+                    <div className="flex justify-between items-start px-3.5 py-2.5 gap-3">
                       <span className="text-muted-foreground shrink-0">Endereço</span>
                       <span className="text-foreground text-right">{enderecoCliente}</span>
                     </div>
                   )}
-                  {(nomeRedeWifi.trim() || senhaWifi.trim()) && (
-                    <div className="flex justify-between items-center px-4 py-3">
-                      <span className="text-muted-foreground">Wi-Fi (Instalação)</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">
-                        {nomeRedeWifi.trim() ? `Rede: ${nomeRedeWifi.trim()}` : ''} {senhaWifi.trim() ? `| Senha: ${senhaWifi.trim()}` : ''}
+                </div>
+
+                {/* Reenvio / Envio para grupo WhatsApp */}
+                <div className="p-4 rounded-xl bg-emerald-500/[0.07] border border-emerald-500/25 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                      <IconeWhatsApp className="w-4 h-4 text-emerald-500" />
+                      Grupo WhatsApp
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleTogglePinCurrentGroup()}
+                      disabled={savingPinnedGroup || !grupoSelecionadoPhone}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+                        isGrupoAtualFixo
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+                          : 'bg-background text-muted-foreground hover:text-foreground border-border'
+                      }`}
+                    >
+                      <Pin className="w-2.5 h-2.5" />
+                      {isGrupoAtualFixo ? 'Grupo fixo' : 'Fixar grupo'}
+                    </button>
+                  </div>
+
+                  <Select
+                    value={grupoSelecionadoPhone}
+                    onValueChange={(val) => {
+                      grupoAlteradoManualRef.current = true;
+                      setGrupoSelecionadoPhone(val);
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-background border-input text-foreground h-10 text-xs rounded-xl">
+                      <SelectValue placeholder="Selecione o grupo..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
+                      {gruposDisponiveis.map((grupo) => (
+                        <SelectItem
+                          key={grupo.phone}
+                          value={grupo.phone}
+                          className="text-xs cursor-pointer"
+                        >
+                          {grupo.phone === pinnedGroupPhone ? '📌 ' : '👥 '}
+                          {grupo.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {grupoEnviadoComSucesso && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs">
+                      <CheckCheck className="w-4 h-4 shrink-0" />
+                      <span>
+                        Enviada para <strong>{grupoEnviadoComSucesso}</strong>
                       </span>
                     </div>
                   )}
+
+                  <Button
+                    onClick={aoEnviarParaGrupo}
+                    disabled={enviandoParaGrupo || !grupoSelecionadoPhone || carregandoGrupos}
+                    className="w-full h-10 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                  >
+                    {enviandoParaGrupo ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        {grupoEnviadoComSucesso ? 'Reenviar para o Grupo' : 'Enviar para o Grupo'}
+                      </>
+                    )}
+                  </Button>
                 </div>
 
-                {/* Ações de Envio e Cópia */}
-                <div className="w-full flex flex-col gap-3">
-                  <div className="w-full p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-left space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                        <IconeWhatsApp className="w-4 h-4 text-emerald-500" />
-                        Disparar para Grupo WhatsApp
-                      </span>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
-                        {gruposWhatsApp.length} grupos
-                      </Badge>
-                    </div>
-
-                    <Select
-                      value={grupoSelecionadoPhone}
-                      onValueChange={setGrupoSelecionadoPhone}
-                    >
-                      <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500">
-                        <SelectValue placeholder="Selecione o grupo..." />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
-                        {gruposWhatsApp.map((grupo) => (
-                          <SelectItem
-                            key={grupo.phone}
-                            value={grupo.phone}
-                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-600 dark:focus:text-emerald-300 cursor-pointer"
-                          >
-                            👥 {grupo.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
-                    <Button
-                      onClick={aoEnviarParaGrupo}
-                      disabled={enviandoParaGrupo || !grupoSelecionadoPhone || carregandoGrupos}
-                      className="w-full h-11 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99]"
-                      style={{
-                        background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                        boxShadow: '0 4px 20px rgba(37,211,102,0.35)',
-                      }}
-                    >
-                      {enviandoParaGrupo ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
-                      ) : (
-                        <><Send className="w-4 h-4" /> Enviar para o Grupo Selecionado</>
-                      )}
-                    </Button>
-
-                    {grupoEnviadoComSucesso && (
-                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs">
-                        <CheckCheck className="w-4 h-4 shrink-0 text-emerald-500" />
-                        <span>Enviada com sucesso para: <strong>{grupoEnviadoComSucesso}</strong></span>
-                      </div>
-                    )}
-                  </div>
-
+                <div className="grid grid-cols-2 gap-2.5">
                   <Button
                     variant="outline"
                     onClick={aoCopiarInformacoes}
-                    className="w-full flex items-center justify-center gap-2 border-border text-foreground hover:bg-secondary h-11 rounded-xl text-sm font-semibold"
+                    className="h-10 rounded-xl text-xs font-semibold gap-1.5"
                   >
-                    <Copy className="w-4 h-4 text-emerald-500" />
-                    Copiar Dados da O.S.
+                    <Copy className="w-3.5 h-3.5 text-emerald-500" />
+                    Copiar Texto
                   </Button>
-
                   <Button
                     onClick={aoLimparFormulario}
-                    className="w-full flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 border border-border"
+                    className="h-10 rounded-xl text-xs font-semibold gap-1.5"
                   >
-                    <RotateCcw className="w-4 h-4" />
-                    Criar Nova Ordem de Serviço
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Abrir Nova O.S.
                   </Button>
                 </div>
               </div>
@@ -976,25 +1235,34 @@ const ISPFYNovaOS: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+              className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start"
             >
-              {/* Coluna Principal: Formulário */}
-              <div className="xl:col-span-7 space-y-6">
-                {/* 1. Seleção de Cliente e Plano */}
+              {/* ─── Coluna Esquerda: Formulário Estruturado (7 cols) ─── */}
+              <div className="xl:col-span-7 space-y-4">
+                {/* 1. Cliente & Acesso */}
                 <SecaoFormularioOS
-                  titulo="1. Cliente & Plano de Internet"
-                  icone={<User className="w-4 h-4 text-emerald-500" />}
+                  numero="1"
+                  titulo="Cliente & Dados Técnicos"
+                  icone={<User className="w-4 h-4" />}
+                  concluido={etapaClienteOk}
+                  badge={
+                    clienteSelecionado
+                      ? `ID #${clienteSelecionado.id}`
+                      : todosClientes.length > 0
+                      ? `${todosClientes.length} ativos`
+                      : undefined
+                  }
                 >
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     <Input
                       value={termoBusca}
                       onChange={(e) => aoAlterarBusca(e.target.value)}
-                      placeholder="Buscar por nome, telefone ou CPF..."
-                      className="pl-10 pr-10 bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 h-11 text-sm rounded-xl"
+                      placeholder="Pesquisar cliente por nome, telefone, CPF ou bairro..."
+                      className="pl-9 pr-9 bg-background border-input h-10 text-xs sm:text-sm rounded-xl"
                     />
                     {(carregandoBusca || carregandoClientePreselecionado) && (
-                      <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-spin" />
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin" />
                     )}
                     {clienteSelecionado && !carregandoBusca && !carregandoClientePreselecionado && (
                       <button
@@ -1012,64 +1280,67 @@ const ISPFYNovaOS: React.FC = () => {
                           setTextoManualOS(null);
                         }}
                         title="Trocar cliente"
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
 
                   {carregandoClientePreselecionado && !clienteSelecionado && (
-                    <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-700 dark:text-emerald-300 font-medium">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-emerald-500" />
-                      <span>Carregando dados do cliente selecionado...</span>
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-xs text-primary font-medium">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                      <span>Carregando cliente selecionado...</span>
                     </div>
                   )}
 
-                  {/* Resultados da busca */}
+                  {/* Lista de resultados da busca */}
                   <AnimatePresence>
                     {resultadosBusca.length > 0 && (
                       <motion.div
-                        initial={{ opacity: 0, y: -6 }}
+                        initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        className="rounded-2xl border border-border overflow-hidden divide-y divide-border max-h-[280px] overflow-y-auto custom-scrollbar bg-popover shadow-xl text-popover-foreground"
+                        exit={{ opacity: 0, y: -4 }}
+                        className="rounded-xl border border-border/80 overflow-hidden divide-y divide-border/60 max-h-[240px] overflow-y-auto bg-popover shadow-md"
                       >
-                        {resultadosBusca.map((cliente) => {
+                        {resultadosBusca.slice(0, 40).map((cliente) => {
                           const telefone = obterTelefoneClienteISPFY(cliente);
                           const localidade = cliente.endereco_cobranca_bairro || cliente.cidade;
                           return (
                             <button
                               key={cliente.id}
-                              onClick={() => aoSelecionarCliente(cliente)}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left group"
+                              type="button"
+                              onClick={() => void aoSelecionarCliente(cliente)}
+                              className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-accent/70 transition-colors text-left group"
                             >
-                              <div className="w-8 h-8 rounded-xl bg-secondary group-hover:bg-emerald-500/20 flex items-center justify-center transition-colors shrink-0">
-                                <User className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+                              <div className="w-8 h-8 rounded-lg bg-secondary group-hover:bg-primary/15 flex items-center justify-center shrink-0 text-xs font-bold text-muted-foreground group-hover:text-primary">
+                                {obterNomeClienteISPFY(cliente).charAt(0).toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">
+                                <p className="text-xs sm:text-sm font-semibold text-foreground truncate">
                                   {obterNomeClienteISPFY(cliente)}
                                 </p>
-                                <div className="flex items-center gap-3 mt-0.5">
+                                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground">
                                   {telefone && (
-                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                      <Phone className="w-2.5 h-2.5" />{telefone}
+                                    <span className="flex items-center gap-1 truncate">
+                                      <Phone className="w-2.5 h-2.5 shrink-0" />
+                                      {telefone}
                                     </span>
                                   )}
                                   {localidade && (
-                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                      <MapPin className="w-2.5 h-2.5" />{localidade}
+                                    <span className="flex items-center gap-1 truncate">
+                                      <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                      {localidade}
                                     </span>
                                   )}
                                 </div>
                               </div>
                               {isRegistroAtivo(cliente.ativo) && (
-                                <Badge className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 shrink-0">
                                   Ativo
-                                </Badge>
+                                </span>
                               )}
-                              <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors shrink-0" />
+                              <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:text-primary shrink-0" />
                             </button>
                           );
                         })}
@@ -1077,208 +1348,227 @@ const ISPFYNovaOS: React.FC = () => {
                     )}
                   </AnimatePresence>
 
-                  {/* Card do Cliente Selecionado */}
+                  {/* Ficha compacta do cliente selecionado */}
                   <AnimatePresence>
                     {clienteSelecionado && (
                       <motion.div
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="rounded-2xl border border-emerald-500/30 p-4 space-y-4 bg-emerald-500/5 dark:bg-emerald-500/10"
+                        className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] dark:bg-emerald-500/[0.07] p-3.5 space-y-3"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400 font-bold text-base shadow-sm">
+                        {/* Identificação */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400 font-bold text-sm">
                               {obterNomeClienteISPFY(clienteSelecionado).charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-foreground font-bold text-base truncate">
+                              <p className="text-sm font-bold text-foreground truncate">
                                 {obterNomeClienteISPFY(clienteSelecionado)}
                               </p>
-                              <p className="text-muted-foreground text-xs">ID ISPFY: #{clienteSelecionado.id}</p>
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                <span className="font-mono">#{clienteSelecionado.id}</span>
+                                {telefoneClienteSelecionado && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono">{telefoneClienteSelecionado}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          {isRegistroAtivo(clienteSelecionado.ativo) ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-xs shrink-0">
-                              Ativo
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 text-xs shrink-0">
-                              Inativo
-                            </Badge>
-                          )}
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
+                              isRegistroAtivo(clienteSelecionado.ativo)
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                            }`}
+                          >
+                            {isRegistroAtivo(clienteSelecionado.ativo) ? 'Ativo' : 'Inativo'}
+                          </span>
                         </div>
 
-                        {/* 📶 Card de Plano de Internet */}
-                        <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
-                              <Wifi className="w-3.5 h-3.5" /> Plano de Internet
-                              {carregandoPlano && <Loader2 className="w-3 h-3 animate-spin text-emerald-500 ml-1" />}
-                            </span>
-                            <div className="flex items-center gap-2">
+                        {/* Endereço + Plano + PPPoE em grid compacto */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                          {/* Plano */}
+                          <div className="p-2.5 rounded-xl bg-card border border-border/70 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                <Zap className="w-3 h-3 text-emerald-500" />
+                                Plano
+                                {carregandoPlano && (
+                                  <Loader2 className="w-3 h-3 animate-spin text-emerald-500 ml-0.5" />
+                                )}
+                              </span>
                               <button
+                                type="button"
                                 onClick={() => setEditandoPlano(!editandoPlano)}
-                                className="text-[11px] text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 transition-colors"
+                                className="text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors"
                               >
-                                <Edit3 className="w-3 h-3" />
-                                {editandoPlano ? 'Concluir' : 'Digitar manual'}
+                                {editandoPlano ? 'Concluir' : 'Manual'}
                               </button>
                             </div>
-                          </div>
 
-                          {carregandoPlano ? (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
-                              <span>Identificando plano de internet no ISPFY...</span>
-                            </div>
-                          ) : editandoPlano ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={planoCliente}
-                                onChange={(e) => setPlanoCliente(e.target.value)}
-                                placeholder="Digite o nome do plano (ex: FIBRA 700 MEGA)..."
-                                className="bg-background border-emerald-500/40 text-foreground text-xs h-9"
-                              />
-                              <Button
-                                size="sm"
-                                onClick={() => setEditandoPlano(false)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-3 text-xs"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-bold text-foreground tracking-wide flex items-center gap-1.5">
-                                  {planoCliente ? (
-                                    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 text-xs py-1 px-2.5">
-                                      <Zap className="w-3 h-3 mr-1 text-emerald-500" /> {planoCliente}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground italic text-xs">Nenhum plano identificado</span>
-                                  )}
+                            {carregandoPlano ? (
+                              <p className="text-[11px] text-muted-foreground">Carregando plano...</p>
+                            ) : editandoPlano ? (
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  value={planoCliente}
+                                  onChange={(e) => setPlanoCliente(e.target.value)}
+                                  placeholder="Ex: FIBRA 700 MEGA"
+                                  className="h-7 text-xs bg-background"
+                                />
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  onClick={() => setEditandoPlano(false)}
+                                  className="h-7 w-7 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-foreground truncate">
+                                  {planoCliente || 'Não identificado'}
                                 </span>
                                 {contratosCliente.length > 1 && (
-                                  <Badge variant="outline" className="text-[10px] bg-secondary text-muted-foreground border-border">
-                                    {contratosCliente.length} contratos
+                                  <Badge variant="outline" className="text-[9px] shrink-0">
+                                    {contratosCliente.length} contr.
                                   </Badge>
                                 )}
                               </div>
+                            )}
 
-                              {todosPlanos.length > 0 && (
-                                <div className="flex items-center gap-2">
-                                  <Select
-                                    value={planoCliente}
-                                    onValueChange={setPlanoCliente}
-                                  >
-                                    <SelectTrigger className="w-full sm:w-[240px] h-7 text-[11px] bg-background border-border text-foreground hover:border-emerald-500/40">
-                                      <SelectValue placeholder="Trocar / Selecionar Plano..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-popover border-border text-popover-foreground text-xs max-h-64 z-50">
-                                      {todosPlanos.map((plano) => (
-                                        <SelectItem key={plano.id} value={plano.nome || plano.descricao || `Plano #${plano.id}`}>
-                                          {plano.nome || plano.descricao} {plano.valor_mensal && plano.valor_mensal !== '0.00' ? `— R$ ${plano.valor_mensal}` : ''}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            {!carregandoPlano && !editandoPlano && todosPlanos.length > 0 && (
+                              <Select value={planoCliente} onValueChange={setPlanoCliente}>
+                                <SelectTrigger className="h-7 text-[11px] bg-background border-border/70 rounded-lg">
+                                  <SelectValue placeholder="Trocar plano..." />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-56 text-xs z-50">
+                                  {todosPlanos.map((plano) => (
+                                    <SelectItem
+                                      key={plano.id}
+                                      value={plano.nome || plano.descricao || `Plano #${plano.id}`}
+                                      className="text-xs"
+                                    >
+                                      {plano.nome || plano.descricao}
+                                      {plano.valor_mensal && plano.valor_mensal !== '0.00'
+                                        ? ` — R$ ${plano.valor_mensal}`
+                                        : ''}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+
+                          {/* PPPoE ou Endereço */}
+                          <div className="p-2.5 rounded-xl bg-card border border-border/70 space-y-1.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                              <Key className="w-3 h-3 text-amber-500" />
+                              Credenciais PPPoE
+                            </span>
+                            {loginsCliente.length > 0 ? (
+                              <div className="space-y-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    copiarValorRapido(
+                                      loginsCliente[0]?.usuario || loginsCliente[0]?.login || '',
+                                      'Login PPPoE'
+                                    )
+                                  }
+                                  className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-secondary/50 hover:bg-secondary text-[11px] transition-colors"
+                                  title="Clique para copiar login"
+                                >
+                                  <span className="text-muted-foreground">Login:</span>
+                                  <span className="font-mono font-semibold text-foreground truncate">
+                                    {loginsCliente[0]?.usuario || loginsCliente[0]?.login || '–'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    copiarValorRapido(loginsCliente[0]?.senha || '', 'Senha PPPoE')
+                                  }
+                                  className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-secondary/50 hover:bg-secondary text-[11px] transition-colors"
+                                  title="Clique para copiar senha"
+                                >
+                                  <span className="text-muted-foreground">Senha:</span>
+                                  <span className="font-mono font-semibold text-foreground truncate">
+                                    {loginsCliente[0]?.senha || '–'}
+                                  </span>
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-muted-foreground italic">
+                                Nenhum login PPPoE retornado
+                              </p>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Credenciais PPPoE */}
-                        {loginsCliente.length > 0 && (
-                          <div className="p-3 rounded-xl bg-secondary/50 border border-border space-y-1.5 text-xs">
-                            <span className="text-muted-foreground text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1">
-                              <Key className="w-3 h-3 text-amber-500" /> Acesso PPPoE do Cliente
-                            </span>
-                            <div className="flex flex-wrap gap-3 items-center pt-0.5">
-                              <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
-                                <span className="text-muted-foreground">Login:</span>
-                                <span className="text-foreground font-mono font-medium">{loginsCliente[0]?.usuario || loginsCliente[0]?.login || '–'}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border">
-                                <span className="text-muted-foreground">Senha:</span>
-                                <span className="text-foreground font-mono font-medium">{loginsCliente[0]?.senha || '–'}</span>
-                              </div>
-                            </div>
+                        {enderecoCliente && (
+                          <div className="flex items-start gap-2 px-2.5 py-2 rounded-xl bg-card border border-border/70 text-xs">
+                            <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                            <span className="text-foreground/90 leading-snug">{enderecoCliente}</span>
                           </div>
                         )}
 
-                        {/* Detalhes de Contato e Endereço */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                          {telefoneClienteSelecionado && (
-                            <LinhaDetalheOS
-                              icone={<Phone className="w-3.5 h-3.5 text-emerald-500" />}
-                              rotulo="Telefone / WhatsApp"
-                              valor={telefoneClienteSelecionado}
+                        {/* Wi-Fi e Ponto de Referência */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                              Wi-Fi (SSID)
+                            </Label>
+                            <Input
+                              value={nomeRedeWifi}
+                              onChange={(e) => setNomeRedeWifi(e.target.value)}
+                              placeholder="Opcional"
+                              className="h-8 text-xs bg-background rounded-lg"
                             />
-                          )}
-                          {enderecoCliente && (
-                            <LinhaDetalheOS
-                              icone={<MapPin className="w-3.5 h-3.5 text-blue-500" />}
-                              rotulo="Endereço"
-                              valor={enderecoCliente}
-                            />
-                          )}
-                        </div>
-
-                        {/* Configuração de Wi-Fi (Instalação / Troca de Roteador) */}
-                        <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5 shadow-sm">
-                          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
-                            <Wifi className="w-3.5 h-3.5 text-emerald-500" /> Rede Wi-Fi (Instalação / Roteador)
-                          </span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div className="space-y-1">
-                              <Label className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
-                                Nome da Rede Wi-Fi (SSID)
-                              </Label>
-                              <Input
-                                value={nomeRedeWifi}
-                                onChange={(e) => setNomeRedeWifi(e.target.value)}
-                                placeholder="Ex: AVL_FIBRA_CLIENTE"
-                                className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
-                                Senha do Wi-Fi
-                              </Label>
-                              <Input
-                                value={senhaWifi}
-                                onChange={(e) => setSenhaWifi(e.target.value)}
-                                placeholder="Ex: @senha1234"
-                                className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500 font-mono"
-                              />
-                            </div>
                           </div>
-                        </div>
-
-                        {/* Ponto de Referência */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground flex items-center gap-1 font-medium">
-                            <Navigation className="w-3 h-3 text-emerald-500" /> Ponto de Referência para a Equipe
-                          </Label>
-                          <Input
-                            value={pontoReferencia}
-                            onChange={(e) => setPontoReferencia(e.target.value)}
-                            placeholder="Ex: Próximo à padaria, em frente ao poste com transformador..."
-                            className="bg-background border-input text-foreground placeholder:text-muted-foreground text-xs h-9 rounded-xl focus-visible:ring-emerald-500"
-                          />
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                              Senha Wi-Fi
+                            </Label>
+                            <Input
+                              value={senhaWifi}
+                              onChange={(e) => setSenhaWifi(e.target.value)}
+                              placeholder="Opcional"
+                              className="h-8 text-xs font-mono bg-background rounded-lg"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                              Ponto de Referência
+                            </Label>
+                            <Input
+                              value={pontoReferencia}
+                              onChange={(e) => setPontoReferencia(e.target.value)}
+                              placeholder="Ex: Perto da padaria..."
+                              className="h-8 text-xs bg-background rounded-lg"
+                            />
+                          </div>
                         </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </SecaoFormularioOS>
 
-                {/* 2. Tipo de Problema */}
+                {/* 2. Tipo de Problema (Compacto e tátil) */}
                 <SecaoFormularioOS
-                  titulo="2. Tipo de Problema"
-                  icone={<AlertCircle className="w-4 h-4 text-emerald-500" />}
-                  badge={problemasSelecionados.length > 0 ? `${problemasSelecionados.length} selecionado(s)` : undefined}
+                  numero="2"
+                  titulo="Tipo de Problema"
+                  icone={<AlertCircle className="w-4 h-4" />}
+                  concluido={etapaProblemaOk}
+                  badge={
+                    problemasSelecionados.length > 0
+                      ? `${problemasSelecionados.length} selecionado(s)`
+                      : undefined
+                  }
                 >
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {OPCOES_PROBLEMAS.map((problema) => {
@@ -1286,38 +1576,38 @@ const ISPFYNovaOS: React.FC = () => {
                       const cores = MAPA_CORES_PROBLEMAS[problema.cor];
                       const Icone = problema.icon;
                       return (
-                        <motion.button
+                        <button
                           key={problema.id}
-                          whileTap={{ scale: 0.97 }}
+                          type="button"
                           onClick={() => alternarProblema(problema.id)}
-                          className={`relative flex flex-col items-center gap-2 p-3 rounded-2xl border text-xs font-medium transition-all duration-200 ${
-                            selecionado
-                              ? `${cores.chipSelecionado} scale-[1.02]`
-                              : cores.chip
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left text-xs font-medium transition-all ${
+                            selecionado ? cores.chipSelecionado : cores.chip
                           }`}
                         >
-                          {selecionado && (
-                            <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-current/20 flex items-center justify-center">
-                              <CheckCircle2 className="w-3 h-3" />
-                            </span>
-                          )}
-                          <Icone className="w-5 h-5" />
-                          <span className="text-center leading-tight">{problema.label}</span>
-                        </motion.button>
+                          <Icone
+                            className={`w-4 h-4 shrink-0 ${
+                              selecionado ? 'text-current' : cores.iconColor
+                            }`}
+                          />
+                          <span className="leading-tight truncate flex-1">{problema.label}</span>
+                          {selecionado && <Check className="w-3.5 h-3.5 shrink-0" />}
+                        </button>
                       );
                     })}
                   </div>
                 </SecaoFormularioOS>
 
-                {/* 3. Assunto e Prioridade */}
+                {/* 3. Assunto, Prioridade & Observações */}
                 <SecaoFormularioOS
-                  titulo="3. Assunto & Prioridade"
-                  icone={<Ticket className="w-4 h-4 text-emerald-500" />}
+                  numero="3"
+                  titulo="Assunto, Prioridade & Observações"
+                  icone={<Ticket className="w-4 h-4" />}
+                  concluido={etapaAssuntoOk}
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-foreground font-medium">
-                        Assunto do Chamado <span className="text-red-500">*</span>
+                      <Label className="text-xs font-semibold text-foreground">
+                        Assunto do Chamado <span className="text-rose-500">*</span>
                       </Label>
                       {carregandoAssuntos ? (
                         <div className="flex items-center gap-2 text-muted-foreground text-xs h-10 px-3 rounded-xl bg-secondary/50 border border-border">
@@ -1328,18 +1618,20 @@ const ISPFYNovaOS: React.FC = () => {
                           value={assuntoSelecionado}
                           onValueChange={(valor) => {
                             setAssuntoSelecionado(valor);
-                            setNomeAssunto(assuntos.find((item) => item.id === valor)?.assunto ?? valor);
+                            setNomeAssunto(
+                              assuntos.find((item) => item.id === valor)?.assunto ?? valor
+                            );
                           }}
                         >
-                          <SelectTrigger className="bg-background border-input text-foreground focus:ring-emerald-500 text-xs h-10 rounded-xl">
+                          <SelectTrigger className="bg-background border-input h-10 text-xs rounded-xl">
                             <SelectValue placeholder="Selecione o assunto..." />
                           </SelectTrigger>
-                          <SelectContent className="bg-popover border-border text-popover-foreground max-h-52 z-50">
+                          <SelectContent className="max-h-56 z-50">
                             {assuntos.map((assunto) => (
                               <SelectItem
                                 key={assunto.id}
                                 value={assunto.id}
-                                className="focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 text-xs cursor-pointer"
+                                className="text-xs cursor-pointer"
                               >
                                 {assunto.assunto}
                               </SelectItem>
@@ -1350,241 +1642,369 @@ const ISPFYNovaOS: React.FC = () => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-foreground font-medium">Nível de Prioridade</Label>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {Object.entries(ROTULOS_PRIORIDADE_OS).map(([chave, info]) => (
-                          <button
-                            key={chave}
-                            onClick={() => setPrioridade(chave)}
-                            className={`h-10 rounded-xl text-xs font-semibold border transition-all ${
-                              prioridade === chave
-                                ? `${info.classeChip} ${info.corTexto} scale-[1.04] shadow-sm`
-                                : 'bg-secondary/40 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
-                            }`}
-                          >
-                            {info.rotulo}
-                          </button>
-                        ))}
+                      <Label className="text-xs font-semibold text-foreground">Prioridade</Label>
+                      <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-secondary/60 border border-border/60 h-10">
+                        {Object.entries(ROTULOS_PRIORIDADE_OS).map(([chave, info]) => {
+                          const active = prioridade === chave;
+                          return (
+                            <button
+                              key={chave}
+                              type="button"
+                              onClick={() => setPrioridade(chave)}
+                              className={`flex items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition-all ${
+                                active
+                                  ? 'bg-card text-foreground shadow-sm ring-1 ring-border'
+                                  : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${PRIORIDADE_DOT[chave] || 'bg-primary'}`}
+                              />
+                              <span>{info.rotulo}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  {/* Observação adicional */}
-                  <div className="space-y-1.5 pt-1">
-                    <Label className="text-xs text-foreground font-medium">Observações adicionais para o técnico</Label>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-foreground">
+                      Observações para o técnico
+                    </Label>
                     <Textarea
                       value={observacao}
                       onChange={(e) => setObservacao(e.target.value)}
-                      placeholder="Descreva observações específicas, instruções ou avisos..."
+                      placeholder="Instruções específicas, melhor horário, equipamento a levar..."
                       rows={3}
-                      className="bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500 resize-none text-xs rounded-xl"
+                      className="bg-background border-input resize-none text-xs rounded-xl"
                     />
                   </div>
                 </SecaoFormularioOS>
 
-                {/* 4. Destino no WhatsApp (Grupos da Equipe) */}
-                <SecaoFormularioOS
-                  titulo="4. Destino no WhatsApp (Equipe de Operações)"
-                  icone={<IconeWhatsApp className="w-4 h-4 text-emerald-500" />}
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-foreground font-medium">
-                        Grupo WhatsApp que receberá a O.S.:
-                      </Label>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
-                        {gruposWhatsApp.length} grupos conectados
-                      </Badge>
-                    </div>
-
-                    <Select
-                      value={grupoSelecionadoPhone}
-                      onValueChange={setGrupoSelecionadoPhone}
-                    >
-                      <SelectTrigger className="w-full bg-background border-input text-foreground h-11 text-xs focus:ring-emerald-500 rounded-xl">
-                        <SelectValue placeholder="Selecione o grupo..." />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground z-50">
-                        {gruposWhatsApp.map((grupo) => (
-                          <SelectItem
-                            key={grupo.phone}
-                            value={grupo.phone}
-                            className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 cursor-pointer"
+                {/* 4. Grupo WhatsApp Fixo & Disparo */}
+                <div ref={grupoCardRef}>
+                  <SecaoFormularioOS
+                    numero="4"
+                    titulo="Grupo WhatsApp de Envio"
+                    icone={<IconeWhatsApp className="w-4 h-4 text-emerald-500" />}
+                    concluido={etapaGrupoOk}
+                    badge={
+                      isGrupoAtualFixo
+                        ? 'Grupo fixo ativo'
+                        : `${gruposDisponiveis.length} grupo(s)`
+                    }
+                  >
+                    <div className="space-y-3">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <Select
+                            value={grupoSelecionadoPhone}
+                            onValueChange={(val) => {
+                              grupoAlteradoManualRef.current = true;
+                              setGrupoSelecionadoPhone(val);
+                            }}
                           >
-                            👥 {grupo.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                            <SelectTrigger className="w-full bg-background border-input h-10 text-xs rounded-xl">
+                              <SelectValue placeholder="Selecione o grupo WhatsApp..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-64 z-50">
+                              {gruposDisponiveis.map((grupo) => (
+                                <SelectItem
+                                  key={grupo.phone}
+                                  value={grupo.phone}
+                                  className="text-xs cursor-pointer"
+                                >
+                                  {grupo.phone === pinnedGroupPhone ? '📌 ' : '👥 '}
+                                  {grupo.name}
+                                  {grupo.phone === pinnedGroupPhone ? ' (Fixo)' : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                    <label className="flex items-center gap-2.5 cursor-pointer pt-1 select-none">
-                      <input
-                        type="checkbox"
-                        checked={enviarGrupoAoCriar}
-                        onChange={(e) => setEnviarGrupoAoCriar(e.target.checked)}
-                        className="w-4 h-4 rounded border-border bg-background text-emerald-500 focus:ring-emerald-500 cursor-pointer"
-                      />
-                      <span className="text-xs text-foreground">
-                        Disparar mensagem no grupo selecionado automaticamente ao abrir a O.S.
-                      </span>
-                    </label>
-                  </div>
-                </SecaoFormularioOS>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={isGrupoAtualFixo ? 'default' : 'outline'}
+                            disabled={savingPinnedGroup || !grupoSelecionadoPhone}
+                            onClick={() => void handleTogglePinCurrentGroup()}
+                            className={`h-10 px-3 rounded-xl text-xs font-semibold gap-1.5 ${
+                              isGrupoAtualFixo
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                : 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10'
+                            }`}
+                            title={
+                              isGrupoAtualFixo
+                                ? 'Clique para desafixar este grupo padrão'
+                                : 'Salvar este grupo como padrão fixo para todas as O.S.'
+                            }
+                          >
+                            {savingPinnedGroup ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : isGrupoAtualFixo ? (
+                              <PinOff className="w-3.5 h-3.5" />
+                            ) : (
+                              <Pin className="w-3.5 h-3.5" />
+                            )}
+                            {isGrupoAtualFixo ? 'Grupo Fixo' : 'Fixar grupo'}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            disabled={carregandoGrupos}
+                            onClick={() => void carregarGruposWhatsApp(false)}
+                            className="h-10 w-10 rounded-xl shrink-0"
+                            title="Recarregar lista de grupos do WhatsApp"
+                          >
+                            <RefreshCw
+                              className={`w-3.5 h-3.5 ${carregandoGrupos ? 'animate-spin' : ''}`}
+                            />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Aviso de status do grupo fixo */}
+                      {pinnedGroupPhone && !isGrupoAtualFixo ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px]">
+                          <span className="text-amber-800 dark:text-amber-300">
+                            Alterado apenas para esta O.S. Grupo fixo atual:{' '}
+                            <strong>{pinnedGroupName || 'Salvo'}</strong>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              grupoAlteradoManualRef.current = false;
+                              setGrupoSelecionadoPhone(pinnedGroupPhone);
+                            }}
+                            className="font-semibold text-amber-700 dark:text-amber-200 underline hover:opacity-80"
+                          >
+                            Voltar ao fixo
+                          </button>
+                        </div>
+                      ) : isGrupoAtualFixo ? (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-700 dark:text-emerald-300">
+                          <Pin className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            <strong>{grupoAtualSelecionado?.name || pinnedGroupName}</strong> está
+                            fixado como destino padrão para todas as O.S. (tela cheia e O.S. rápida).
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
+                          Clique em <strong>Fixar grupo</strong> para deixar esse grupo sempre
+                          selecionado ao abrir novas O.S.
+                        </p>
+                      )}
+
+                      <label className="flex items-center justify-between gap-3 pt-2 border-t border-border/50 cursor-pointer">
+                        <div>
+                          <p className="text-xs font-medium text-foreground">
+                            Enviar automaticamente no WhatsApp ao abrir a O.S.
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Despacha a mensagem abaixo no grupo escolhido assim que o chamado for
+                            criado.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={enviarGrupoAoCriar}
+                          onCheckedChange={(checked) => {
+                            setEnviarGrupoAoCriar(checked);
+                            void setAutoSendToGroup(checked);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </SecaoFormularioOS>
+                </div>
               </div>
 
-              {/* ─── Coluna Direita: Live Console & WhatsApp Preview (5 Colunas) ─── */}
-              <div className="xl:col-span-5 flex flex-col gap-5">
-                <div className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden sticky top-6 space-y-4 p-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-border">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 flex items-center justify-center">
-                        <IconeWhatsApp className="w-4 h-4 text-emerald-500" />
+              {/* ─── Coluna Direita: Console WhatsApp & Ação Principal (5 cols) ─── */}
+              <div className="xl:col-span-5">
+                <div className="rounded-2xl border border-border/75 bg-card shadow-sm overflow-hidden sticky top-20 flex flex-col">
+                  {/* Topo do Preview WhatsApp */}
+                  <div className="px-4 py-3 border-b border-border/70 flex items-center justify-between gap-2 bg-secondary/25">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <IconeWhatsApp className="w-4 h-4" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-foreground uppercase tracking-wider">Pré-visualização</p>
-                          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[9px] px-1.5 py-0 font-mono">
-                            Próxima do dia: #{proximoNumeroDiarioFormatado}
-                          </Badge>
-                        </div>
-                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">WhatsApp O.S. • {dataFormatada}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-foreground truncate">
+                          Prévia da Mensagem
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                          {enviarGrupoAoCriar ? (
+                            <>
+                              {isGrupoAtualFixo && <Pin className="w-2.5 h-2.5 text-emerald-500" />}
+                              <span className="truncate">
+                                {grupoAtualSelecionado?.name || 'Selecione um grupo'}
+                              </span>
+                            </>
+                          ) : (
+                            <span>Envio automático desativado</span>
+                          )}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button
+                        type="button"
                         size="sm"
-                        variant="ghost"
+                        variant={editandoMensagemAoVivo ? 'default' : 'outline'}
                         onClick={() => setEditandoMensagemAoVivo(!editandoMensagemAoVivo)}
-                        className="h-8 px-2.5 text-xs text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg gap-1 border border-border"
+                        className="h-8 px-2.5 text-[11px] rounded-lg gap-1"
                       >
-                        <Edit3 className="w-3 h-3 text-emerald-500" />
-                        {editandoMensagemAoVivo ? 'Visualizar' : 'Editar Texto'}
+                        {editandoMensagemAoVivo ? (
+                          <>
+                            <Eye className="w-3 h-3" />
+                            Ver
+                          </>
+                        ) : (
+                          <>
+                            <Edit3 className="w-3 h-3" />
+                            Editar
+                          </>
+                        )}
                       </Button>
                       <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={aoAbrirModalModelo}
-                        title="Personalizar Estrutura Padrão"
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg border border-border"
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={!clienteSelecionado}
+                        onClick={aoCopiarInformacoes}
+                        title="Copiar texto da O.S."
+                        className="h-8 w-8 rounded-lg"
                       >
-                        <Sliders className="w-3.5 h-3.5" />
+                        <Copy className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
 
-                  {/* Bubble de Mensagem WhatsApp */}
-                  <div className="p-4 rounded-2xl border border-emerald-500/30 text-xs font-mono relative leading-relaxed bg-emerald-50/90 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-500/30 dark:text-emerald-100 shadow-inner">
-                    {editandoMensagemAoVivo ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
-                          <span>✏️ Modo de edição manual ativo:</span>
-                          {textoManualOS !== null && (
-                            <button
-                              onClick={() => { setTextoManualOS(null); setEditandoMensagemAoVivo(false); }}
-                              className="text-muted-foreground hover:text-foreground underline text-[10px]"
+                  {/* Corpo do preview */}
+                  <div className="p-4 space-y-4">
+                    <div className="p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-50/75 dark:bg-emerald-950/30 text-xs font-mono leading-relaxed text-emerald-950 dark:text-emerald-100">
+                      {editandoMensagemAoVivo ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-[11px] font-sans">
+                            <span className="text-amber-600 dark:text-amber-300 font-semibold">
+                              Edição manual ativa
+                            </span>
+                            {textoManualOS !== null && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTextoManualOS(null);
+                                  setEditandoMensagemAoVivo(false);
+                                }}
+                                className="text-muted-foreground hover:text-foreground underline text-[11px]"
+                              >
+                                Restaurar automático
+                              </button>
+                            )}
+                          </div>
+                          <Textarea
+                            value={textoManualOS !== null ? textoManualOS : gerarTextoOS()}
+                            onChange={(e) => setTextoManualOS(e.target.value)}
+                            rows={12}
+                            className="bg-background border-emerald-500/35 text-foreground text-xs font-mono leading-relaxed rounded-lg resize-none"
+                          />
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap select-text max-h-[300px] overflow-y-auto pr-1">
+                          {mensagemEfetiva}
+                        </div>
+                      )}
+
+                      <div className="mt-2.5 pt-2 border-t border-emerald-500/15 flex items-center justify-between text-[10px] font-sans text-muted-foreground">
+                        <span className="tabular-nums">{mensagemEfetiva.length} caracteres</span>
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          {textoManualOS !== null ? 'Editado manualmente' : 'Sincronizado ao vivo'}
+                          <CheckCheck className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Mapa compacto */}
+                    {linksMapa.urlIncorporada ? (
+                      <div className="rounded-xl border border-border/75 overflow-hidden bg-secondary/20">
+                        <div className="px-3 py-1.5 border-b border-border/60 flex items-center justify-between text-[11px]">
+                          <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                            Mapa do Cliente
+                          </span>
+                          {linksMapa.urlDireta && (
+                            <a
+                              href={linksMapa.urlDireta}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline inline-flex items-center gap-1 font-medium"
                             >
-                              Restaurar gerado
-                            </button>
+                              <Navigation className="w-3 h-3" />
+                              Google Maps
+                            </a>
                           )}
                         </div>
-                        <Textarea
-                          value={textoManualOS !== null ? textoManualOS : gerarTextoOS()}
-                          onChange={(e) => setTextoManualOS(e.target.value)}
-                          rows={14}
-                          className="bg-background border-emerald-500/40 text-foreground text-xs font-mono leading-relaxed rounded-xl resize-none"
-                        />
+                        <div className="relative h-44">
+                          <iframe
+                            key={linksMapa.urlIncorporada}
+                            src={linksMapa.urlIncorporada}
+                            className="absolute inset-0 w-full h-full border-0"
+                            allowFullScreen
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                            title="Localização do cliente"
+                          />
+                        </div>
                       </div>
                     ) : (
-                      <div className="whitespace-pre-wrap select-text max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
-                        {mensagemEfetiva}
+                      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-dashed border-border/70 bg-secondary/20 text-xs text-muted-foreground">
+                        <MapPin className="w-4 h-4 shrink-0 opacity-60" />
+                        <span>O mapa de localização aparece automaticamente ao escolher o cliente.</span>
                       </div>
                     )}
 
-                    <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-muted-foreground">
-                      <span>{mensagemEfetiva.length} caracteres</span>
-                      {textoManualOS !== null && (
-                        <span className="text-amber-600 dark:text-amber-400 font-semibold">● Texto editado manualmente</span>
-                      )}
+                    {/* Botão principal */}
+                    <div className="space-y-2 pt-1">
+                      <Button
+                        type="button"
+                        onClick={() => void aoCriarOS()}
+                        disabled={criandoOS || !formularioPronto}
+                        className="w-full h-11 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 disabled:opacity-45 gap-2"
+                      >
+                        {criandoOS ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Registrando O.S....
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            {enviarGrupoAoCriar
+                              ? `Abrir O.S. #${proximoNumeroDiarioFormatado} e Enviar`
+                              : `Abrir O.S. #${proximoNumeroDiarioFormatado} no ISPFY`}
+                          </>
+                        )}
+                      </Button>
+
+                      {pendenciasEnvio.length > 0 ? (
+                        <p className="text-[11px] text-center text-muted-foreground">
+                          Pendente: <strong className="text-foreground">{pendenciasEnvio.join(' • ')}</strong>
+                        </p>
+                      ) : enviarGrupoAoCriar && grupoAtualSelecionado ? (
+                        <p className="text-[11px] text-center text-emerald-700 dark:text-emerald-400 font-medium truncate">
+                          Destino: {isGrupoAtualFixo ? '📌 ' : ''}
+                          {grupoAtualSelecionado.name}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-
-                  {/* Ações Rápidas */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <Button
-                      variant="outline"
-                      onClick={aoCopiarInformacoes}
-                      disabled={!clienteSelecionado}
-                      className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-emerald-500" />
-                      Copiar O.S.
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={aoAbrirModalModelo}
-                      className="bg-secondary hover:bg-secondary/80 border-border text-foreground text-xs h-10 gap-1.5 rounded-xl"
-                    >
-                      <Sliders className="w-3.5 h-3.5 text-blue-500" />
-                      Modelo Base
-                    </Button>
-                  </div>
-
-                  {/* Mapa Geográfico */}
-                  <div className="rounded-2xl border border-border overflow-hidden bg-secondary/30">
-                    <div className="px-3.5 py-2 border-b border-border flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-emerald-500" /> Localização do Cliente
-                      </span>
-                      {linksMapa.urlDireta && (
-                        <a
-                          href={linksMapa.urlDireta}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-600 dark:text-emerald-400 hover:underline text-[11px] flex items-center gap-1 transition-colors font-medium"
-                        >
-                          <Navigation className="w-3 h-3" /> Abrir Maps
-                        </a>
-                      )}
-                    </div>
-
-                    {linksMapa.urlIncorporada ? (
-                      <div className="relative" style={{ paddingBottom: '60%' }}>
-                        <iframe
-                          key={linksMapa.urlIncorporada}
-                          src={linksMapa.urlIncorporada}
-                          className="absolute inset-0 w-full h-full border-0"
-                          allowFullScreen
-                          loading="lazy"
-                          referrerPolicy="no-referrer-when-downgrade"
-                          title="Localização do cliente"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground/60">
-                        <MapPin className="w-8 h-8 mb-1.5 opacity-40" />
-                        <p className="text-xs">Selecione o cliente para visualizar o mapa</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Botão de Envio Principal */}
-                  <motion.button
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={aoCriarOS}
-                    disabled={criandoOS || !clienteSelecionado || !assuntoSelecionado}
-                    className="w-full h-13 py-3.5 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-emerald-600/25"
-                    style={{
-                      background: 'linear-gradient(135deg, #059669 0%, #16a34a 100%)',
-                    }}
-                  >
-                    {criandoOS ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /> Registrando e Despachando O.S....</>
-                    ) : (
-                      <><Send className="w-5 h-5" /> Abrir O.S. e Enviar para Grupo</>
-                    )}
-                  </motion.button>
                 </div>
               </div>
             </motion.div>
@@ -1593,34 +2013,35 @@ const ISPFYNovaOS: React.FC = () => {
 
         {/* ─── Modal de Configuração da Estrutura / Template da O.S. ─── */}
         <Dialog open={modalModeloAberto} onOpenChange={setModalModeloAberto}>
-          <DialogContent className="max-w-2xl bg-card border-border text-card-foreground p-6 rounded-3xl shadow-2xl">
+          <DialogContent className="max-w-2xl bg-card border-border text-card-foreground p-6 rounded-2xl shadow-2xl">
             <DialogHeader className="space-y-1.5">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-500">
-                  <Sliders className="w-5 h-5" />
+                <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-500">
+                  <Sliders className="w-4 h-4" />
                 </div>
-                <DialogTitle className="text-xl font-bold text-foreground">
+                <DialogTitle className="text-lg font-bold text-foreground">
                   Personalizar Estrutura da O.S.
                 </DialogTitle>
               </div>
               <DialogDescription className="text-muted-foreground text-xs">
-                Edite a forma e o layout como a Ordem de Serviço será gerada e enviada para o WhatsApp. Clique nas variáveis abaixo para inseri-las no modelo.
+                Edite o modelo da mensagem gerada para o WhatsApp. Clique nas variáveis abaixo para
+                inseri-las na posição do cursor.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-2">
               <div className="space-y-1.5">
                 <Label className="text-xs text-foreground font-medium">
-                  Variáveis dinâmicas disponíveis (clique para inserir):
+                  Variáveis dinâmicas disponíveis:
                 </Label>
-                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto custom-scrollbar p-1">
+                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
                   {VARIAVEIS_TEMPLATE_OS.map((variavel) => (
                     <button
                       key={variavel.tag}
                       type="button"
                       onClick={() => inserirTagNoModelo(variavel.tag)}
                       title={variavel.desc}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono transition-all flex items-center gap-1"
+                      className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono transition-colors flex items-center gap-1"
                     >
                       <span>+</span>
                       <strong className="font-semibold">{variavel.rotulo}:</strong>
@@ -1631,15 +2052,13 @@ const ISPFYNovaOS: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-foreground font-medium">
-                  Estrutura do Texto:
-                </Label>
+                <Label className="text-xs text-foreground font-medium">Estrutura do Texto:</Label>
                 <Textarea
                   ref={campoModeloRef}
                   value={textoTemporarioModelo}
                   onChange={(e) => setTextoTemporarioModelo(e.target.value)}
                   rows={10}
-                  className="bg-background border-input text-foreground font-mono text-xs leading-relaxed focus-visible:ring-emerald-500 rounded-xl"
+                  className="bg-background border-input text-foreground font-mono text-xs leading-relaxed rounded-xl"
                   placeholder="Defina o modelo da O.S...."
                 />
               </div>
@@ -1650,9 +2069,9 @@ const ISPFYNovaOS: React.FC = () => {
                 type="button"
                 variant="outline"
                 onClick={aoRestaurarModeloPadrao}
-                className="bg-secondary border-border text-foreground hover:bg-secondary/80 text-xs h-10 rounded-xl"
+                className="text-xs h-9 rounded-xl gap-1.5"
               >
-                <RotateCcw className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
+                <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
                 Restaurar Padrão AVL
               </Button>
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1660,14 +2079,14 @@ const ISPFYNovaOS: React.FC = () => {
                   type="button"
                   variant="ghost"
                   onClick={() => setModalModeloAberto(false)}
-                  className="text-muted-foreground hover:text-foreground text-xs h-10 rounded-xl"
+                  className="text-xs h-9 rounded-xl"
                 >
                   Cancelar
                 </Button>
                 <Button
                   type="button"
                   onClick={aoSalvarModelo}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-10 px-5 rounded-xl font-semibold gap-1.5 shadow-lg shadow-emerald-600/30"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 px-4 rounded-xl font-semibold gap-1.5"
                 >
                   <Check className="w-4 h-4" />
                   Salvar Modelo
@@ -1690,40 +2109,42 @@ const ISPFYNovaOS: React.FC = () => {
   );
 };
 
-// ─── Subcomponentes auxiliares ────────────────────────────────────────────────
+// ─── Subcomponente de Seção Minimalista ───────────────────────────────────────
 const SecaoFormularioOS: React.FC<{
+  numero: string;
   titulo: string;
   icone: React.ReactNode;
+  concluido?: boolean;
   badge?: string;
   children: React.ReactNode;
-}> = ({ titulo, icone, badge, children }) => (
-  <div className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden">
-    <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-card">
-      <div className="flex items-center gap-2">
-        <span className="text-emerald-500 dark:text-emerald-400">{icone}</span>
-        <span className="text-foreground text-sm font-semibold tracking-wide">{titulo}</span>
+}> = ({ numero, titulo, icone, concluido, badge, children }) => (
+  <div className="rounded-2xl border border-border/75 bg-card shadow-sm overflow-hidden">
+    <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-2 bg-secondary/20">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span
+          className={`w-6 h-6 rounded-lg text-[11px] font-bold flex items-center justify-center shrink-0 transition-colors ${
+            concluido
+              ? 'bg-emerald-500 text-white'
+              : 'bg-secondary text-muted-foreground border border-border/70'
+          }`}
+        >
+          {concluido ? <Check className="w-3.5 h-3.5" /> : numero}
+        </span>
+        <span className="text-emerald-600 dark:text-emerald-400 shrink-0">{icone}</span>
+        <span className="text-foreground text-xs sm:text-sm font-semibold tracking-tight truncate">
+          {titulo}
+        </span>
       </div>
       {badge && (
-        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 text-[10px]">
+        <Badge
+          variant="outline"
+          className="bg-background/80 text-muted-foreground border-border/70 text-[10px] font-medium shrink-0"
+        >
           {badge}
         </Badge>
       )}
     </div>
-    <div className="p-5 space-y-4">{children}</div>
-  </div>
-);
-
-const LinhaDetalheOS: React.FC<{ icone: React.ReactNode; rotulo: string; valor: string }> = ({
-  icone,
-  rotulo,
-  valor,
-}) => (
-  <div className="flex items-start gap-2.5 rounded-xl bg-secondary/50 border border-border px-3 py-2">
-    <span className="mt-0.5 shrink-0">{icone}</span>
-    <div className="min-w-0 flex-1">
-      <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium">{rotulo}</p>
-      <p className="text-foreground text-xs font-medium break-all">{valor}</p>
-    </div>
+    <div className="p-4 space-y-3.5">{children}</div>
   </div>
 );
 

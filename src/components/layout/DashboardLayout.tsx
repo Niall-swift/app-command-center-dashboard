@@ -14,6 +14,9 @@ import { MobileBottomDock } from './MobileBottomDock';
 import { IspfyWebviewKeepAliveLayer } from '@/components/ispfy/IspfyWebViewKeepAlive';
 import { usePwaInstall } from '@/hooks/usePwaInstall';
 import { useUiPreferences } from '@/contexts/UiPreferencesContext';
+import { useAuth } from '@/contexts/AuthContext';
+
+const LazyChatKeepAlive = lazy(() => import('@/pages/Chat'));
 
 const loadGlobalCommandPalette = () =>
   import('./GlobalCommandPalette').then((module) => ({
@@ -70,11 +73,22 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const location = useLocation();
   const { preferences } = useUiPreferences();
+  const { canAccessRoute } = useAuth();
   const [paletteMounted, setPaletteMounted] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [studioMounted, setStudioMounted] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
   const { canInstall, promptInstall } = usePwaInstall();
+
+  const isChatRoute = location.pathname === '/chat';
+  const canAccessChat = canAccessRoute('/chat');
+  const [chatEverVisited, setChatEverVisited] = useState(() => isChatRoute && canAccessChat);
+
+  useEffect(() => {
+    if (isChatRoute && canAccessChat) {
+      setChatEverVisited(true);
+    }
+  }, [isChatRoute, canAccessChat]);
 
   const openCommandPalette = useCallback(() => {
     setPaletteMounted(true);
@@ -253,6 +267,24 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             }
           >
             <IspfyWebviewKeepAliveLayer />
+            {chatEverVisited && canAccessChat && (
+              <div className={isChatRoute ? 'block' : 'hidden'} aria-hidden={!isChatRoute}>
+                <Suspense
+                  fallback={
+                    <div className="min-h-[50vh] flex items-center justify-center">
+                      <div className="text-center space-y-2">
+                        <div className="animate-spin rounded-full h-7 w-7 border-2 border-primary border-t-transparent mx-auto" />
+                        <p className="text-xs text-muted-foreground font-medium">
+                          Carregando Chat...
+                        </p>
+                      </div>
+                    </div>
+                  }
+                >
+                  <LazyChatKeepAlive isRouteActive={isChatRoute} />
+                </Suspense>
+              </div>
+            )}
             {children}
           </div>
         </main>

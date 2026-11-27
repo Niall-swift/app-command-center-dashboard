@@ -20,7 +20,6 @@ import { PwaAppBridge } from "./components/layout/PwaAppBridge";
 
 // Code-splitting por rota para reduzir o bundle inicial e acelerar o carregamento do PWA
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Chat = lazy(() => import("./pages/Chat"));
 const Requests = lazy(() => import("./pages/Requests"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const Bots = lazy(() => import("./pages/Bots"));
@@ -78,7 +77,8 @@ function AnimatedRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Dashboard />} />
-      <Route path="/chat" element={<Chat />} />
+      {/* Chat é mantido vivo via Keep-Alive no DashboardLayout para não resetar a conversa ao trocar de tela */}
+      <Route path="/chat" element={null} />
       <Route path="/requests" element={<Requests />} />
       <Route path="/analytics" element={<Analytics />} />
       <Route path="/bots" element={<Bots />} />

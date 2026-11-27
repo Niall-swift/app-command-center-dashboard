@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,7 @@ import { whapiService, DEFAULT_AVL_WHATSAPP_GROUPS } from '@/services/whapi/whap
 import type { WhapiGroup } from '@/types/whapi';
 import { toast } from 'sonner';
 import { useDailyOS } from '@/hooks/useDailyOS';
+import { usePinnedOsGroup } from '@/hooks/usePinnedOsGroup';
 import { abrirConversaWhatsApp } from '@/lib/utils';
 import {
   ROTULOS_PRIORIDADE_OS,
@@ -51,6 +52,7 @@ import {
   PlusCircle,
   Copy,
   Wifi,
+  Pin,
 } from 'lucide-react';
 
 interface QuickOSModalProps {
@@ -127,12 +129,43 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     registerOS: registrarOS,
   } = useDailyOS();
 
+  const {
+    pinnedGroupPhone,
+    pinnedGroupName,
+    autoSendToGroup,
+    pinGroup,
+    setAutoSendToGroup,
+  } = usePinnedOsGroup();
+
   const [gruposWhatsApp, setGruposWhatsApp] = useState<WhapiGroup[]>(DEFAULT_AVL_WHATSAPP_GROUPS);
   const [carregandoGrupos, setCarregandoGrupos] = useState(false);
-  const [grupoSelecionadoPhone, setGrupoSelecionadoPhone] = useState('120363426874994471-group');
-  const [enviarGrupoAoCriar, setEnviarGrupoAoCriar] = useState(true);
+  const [grupoSelecionadoPhone, setGrupoSelecionadoPhone] = useState(
+    () => pinnedGroupPhone || '120363426874994471-group'
+  );
+  const [enviarGrupoAoCriar, setEnviarGrupoAoCriar] = useState(autoSendToGroup);
   const [enviandoParaGrupo, setEnviandoParaGrupo] = useState(false);
   const [grupoEnviadoComSucesso, setGrupoEnviadoComSucesso] = useState<string | null>(null);
+  const grupoAlteradoManualRef = useRef(false);
+
+  const gruposDisponiveis = useMemo(() => {
+    if (!pinnedGroupPhone) return gruposWhatsApp;
+    const exists = gruposWhatsApp.some((g) => g.phone === pinnedGroupPhone);
+    if (exists) return gruposWhatsApp;
+    return [
+      { phone: pinnedGroupPhone, name: pinnedGroupName || 'Grupo fixo salvo' },
+      ...gruposWhatsApp,
+    ];
+  }, [gruposWhatsApp, pinnedGroupPhone, pinnedGroupName]);
+
+  useEffect(() => {
+    setEnviarGrupoAoCriar(autoSendToGroup);
+  }, [autoSendToGroup]);
+
+  useEffect(() => {
+    if (pinnedGroupPhone && !grupoAlteradoManualRef.current) {
+      setGrupoSelecionadoPhone(pinnedGroupPhone);
+    }
+  }, [pinnedGroupPhone]);
 
   const gruposCarregadosRef = useRef(false);
 
@@ -146,9 +179,11 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       .then((grupos) => {
         if (!grupos || grupos.length === 0) return;
         setGruposWhatsApp(grupos);
-        const padrao = selecionarGrupoWhatsAppPadrao(grupos);
-        if (padrao) {
-          setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
+        if (!pinnedGroupPhone) {
+          const padrao = selecionarGrupoWhatsAppPadrao(grupos);
+          if (padrao) {
+            setGrupoSelecionadoPhone((atual) => atual || padrao.phone);
+          }
         }
       })
       .catch((err) => {
@@ -156,7 +191,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
         console.error(err);
       })
       .finally(() => setCarregandoGrupos(false));
-  }, [aberto]);
+  }, [aberto, pinnedGroupPhone]);
 
   useEffect(() => {
     return () => {
@@ -178,6 +213,10 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     setChamadoCriadoId('');
     setNumeroDiarioCriado(null);
     setGrupoEnviadoComSucesso(null);
+    grupoAlteradoManualRef.current = false;
+    if (pinnedGroupPhone) {
+      setGrupoSelecionadoPhone(pinnedGroupPhone);
+    }
 
     if (preselectedClient) {
       setClienteSelecionado(preselectedClient);
@@ -223,7 +262,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
     return () => {
       cancelado = true;
     };
-  }, [aberto, preselectedClient]);
+  }, [aberto, preselectedClient, pinnedGroupPhone]);
 
   // ─── Carregar assuntos ao entrar na etapa 2 ────────────────────────────────
   useEffect(() => {
@@ -356,7 +395,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       const idChamado = resultado.id ?? '';
       setChamadoCriadoId(idChamado);
 
-      const gruposValidos = gruposWhatsApp.length > 0 ? gruposWhatsApp : DEFAULT_AVL_WHATSAPP_GROUPS;
+      const gruposValidos = gruposDisponiveis.length > 0 ? gruposDisponiveis : DEFAULT_AVL_WHATSAPP_GROUPS;
       const grupoDestino = gruposValidos.find((grupo) => grupo.phone === grupoSelecionadoPhone);
       const nomeGrupo = grupoDestino?.name || 'Grupo selecionado';
 
@@ -416,7 +455,7 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
       toast.warning('Selecione um grupo do WhatsApp.');
       return;
     }
-    const grupoDestino = gruposWhatsApp.find((grupo) => grupo.phone === grupoSelecionadoPhone);
+    const grupoDestino = gruposDisponiveis.find((grupo) => grupo.phone === grupoSelecionadoPhone);
     const nomeGrupo = grupoDestino?.name || 'Grupo selecionado';
 
     setEnviandoParaGrupo(true);
@@ -759,30 +798,51 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
 
                 {/* Destino WhatsApp Grupo */}
                 <div className="space-y-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <Label className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
                       <IconeWhatsApp /> Grupo WhatsApp de Destino
                     </Label>
-                    <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30">
-                      {gruposWhatsApp.length} grupos
-                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = gruposDisponiveis.find((g) => g.phone === grupoSelecionadoPhone);
+                        if (!target) return;
+                        void pinGroup(target.phone, target.name).then(() => {
+                          grupoAlteradoManualRef.current = false;
+                          toast.success(`Grupo fixo para O.S. salvo: ${target.name}`);
+                        });
+                      }}
+                      disabled={!grupoSelecionadoPhone || pinnedGroupPhone === grupoSelecionadoPhone}
+                      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                        pinnedGroupPhone === grupoSelecionadoPhone
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+                          : 'bg-background text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-300 border-border hover:border-emerald-500/40'
+                      }`}
+                    >
+                      <Pin className="w-2.5 h-2.5" />
+                      {pinnedGroupPhone === grupoSelecionadoPhone ? 'Grupo fixo' : 'Fixar grupo'}
+                    </button>
                   </div>
 
                   <Select
                     value={grupoSelecionadoPhone}
-                    onValueChange={setGrupoSelecionadoPhone}
+                    onValueChange={(val) => {
+                      grupoAlteradoManualRef.current = true;
+                      setGrupoSelecionadoPhone(val);
+                    }}
                   >
                     <SelectTrigger className="bg-background border-input text-foreground h-9 text-xs focus:ring-emerald-500">
                       <SelectValue placeholder="Selecione o grupo..." />
                     </SelectTrigger>
                     <SelectContent className="max-h-56 bg-popover border-border text-popover-foreground z-50">
-                      {gruposWhatsApp.map((grupo) => (
+                      {gruposDisponiveis.map((grupo) => (
                         <SelectItem
                           key={grupo.phone}
                           value={grupo.phone}
                           className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 cursor-pointer"
                         >
-                          👥 {grupo.name}
+                          {grupo.phone === pinnedGroupPhone ? '📌 ' : '👥 '}
+                          {grupo.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -792,7 +852,10 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                     <input
                       type="checkbox"
                       checked={enviarGrupoAoCriar}
-                      onChange={(e) => setEnviarGrupoAoCriar(e.target.checked)}
+                      onChange={(e) => {
+                        setEnviarGrupoAoCriar(e.target.checked);
+                        void setAutoSendToGroup(e.target.checked);
+                      }}
                       className="w-3.5 h-3.5 rounded border-border bg-background text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                     />
                     <span className="text-[11px] text-foreground">
@@ -903,13 +966,14 @@ export const QuickOSModal: React.FC<QuickOSModalProps> = ({
                           <SelectValue placeholder="Selecione o grupo..." />
                         </SelectTrigger>
                         <SelectContent className="max-h-60 bg-popover border-border text-popover-foreground">
-                          {gruposWhatsApp.map((grupo) => (
+                          {gruposDisponiveis.map((grupo) => (
                             <SelectItem
                               key={grupo.phone}
                               value={grupo.phone}
                               className="text-xs focus:bg-emerald-500/20 focus:text-emerald-700 dark:focus:text-emerald-300 cursor-pointer"
                             >
-                              👥 {grupo.name}
+                              {grupo.phone === pinnedGroupPhone ? '📌 ' : '👥 '}
+                              {grupo.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
