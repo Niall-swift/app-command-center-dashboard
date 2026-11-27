@@ -11,6 +11,7 @@ import { GlobalNetworkAlertPill } from './GlobalNetworkAlertPill';
 import { ZapiHealthPill } from './ZapiHealthPill';
 import { SystemHealthPill } from './SystemHealthPill';
 import { MobileBottomDock } from './MobileBottomDock';
+import { IspfyWebviewKeepAliveLayer } from '@/components/ispfy/IspfyWebViewKeepAlive';
 import { usePwaInstall } from '@/hooks/usePwaInstall';
 import { useUiPreferences } from '@/contexts/UiPreferencesContext';
 
@@ -251,6 +252,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 : 'flex-1 p-3.5 sm:p-4 md:p-[var(--avl-main-pad)] pb-24 md:pb-[var(--avl-main-pad)] min-w-0 overflow-x-hidden'
             }
           >
+            <IspfyWebviewKeepAliveLayer />
             {children}
           </div>
         </main>

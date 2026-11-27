@@ -95,6 +95,7 @@ const ALL_PANEL_ROUTES = [
   "/bots",
   "/notifications",
   "/requests",
+  "/ispfy/web",
   "/ispfy/consulta",
   "/ispfy/financeiro",
   "/ispfy/auditoria",

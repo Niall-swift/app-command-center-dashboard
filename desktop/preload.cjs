@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('avlDesktop', {
   isDesktop: true,
+  supportsWebviewTag: true,
   platform: process.platform,
   ispfy: {
     show: (bounds) => ipcRenderer.invoke('ispfy:show', bounds),

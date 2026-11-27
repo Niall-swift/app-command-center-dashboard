@@ -20,8 +20,21 @@ export interface AvlDesktopIspfyError {
   url: string;
 }
 
+export interface ElectronWebviewElement extends HTMLElement {
+  src: string;
+  partition: string;
+  reload: () => void;
+  goBack: () => void;
+  goForward: () => void;
+  canGoBack: () => boolean;
+  canGoForward: () => boolean;
+  getURL: () => string;
+  loadURL: (url: string) => Promise<void>;
+}
+
 export interface AvlDesktopBridge {
   isDesktop: true;
+  supportsWebviewTag?: boolean;
   platform: string;
   ispfy: {
     show: (bounds: AvlDesktopBounds) => Promise<boolean>;
