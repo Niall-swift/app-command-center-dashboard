@@ -35,6 +35,7 @@ export interface AvlDesktopBridge {
     getState: () => Promise<{ mounted: boolean; visible: boolean; url: string }>;
     onState: (callback: (state: AvlDesktopIspfyState) => void) => () => void;
     onError: (callback: (err: AvlDesktopIspfyError) => void) => () => void;
+    onRequestSync?: (callback: () => void) => () => void;
   };
 }
 

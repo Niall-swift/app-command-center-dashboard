@@ -112,13 +112,25 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   const isDark = resolvedTheme === 'dark';
+  const isIspfyWebRoute = location.pathname === '/ispfy/web';
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background text-foreground transition-colors duration-200 antialiased">
+      <div
+        className={`flex w-full bg-background text-foreground transition-colors duration-200 antialiased ${
+          isIspfyWebRoute ? 'h-screen overflow-hidden' : 'min-h-screen'
+        }`}
+      >
         <AppSidebar onOpenGlobalSearch={openCommandPalette} />
-        <main className="flex-1 flex flex-col min-w-0 avl-canvas-bg">
-          <header className="sticky top-0 z-30 bg-background/75 backdrop-blur-2xl border-b border-border/55 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3 transition-colors duration-200">
+        <main
+          className={`flex-1 flex flex-col min-w-0 avl-canvas-bg ${
+            isIspfyWebRoute ? 'h-screen min-h-0 overflow-hidden' : ''
+          }`}
+        >
+          <header
+            data-avl-header="true"
+            className="sticky top-0 z-30 shrink-0 bg-background/75 backdrop-blur-2xl border-b border-border/55 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3 transition-colors duration-200"
+          >
             <div className="flex items-center gap-3 min-w-0">
               <SidebarTrigger className="text-muted-foreground hover:text-foreground hover:bg-secondary/80 rounded-xl transition-colors" />
               <div className="min-w-0">
@@ -234,8 +246,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <div
             className={
-              location.pathname === '/ispfy/web'
-                ? 'flex-1 p-2 sm:p-3 pb-20 md:pb-3 min-w-0 overflow-x-hidden'
+              isIspfyWebRoute
+                ? 'flex-1 min-h-0 p-2 sm:p-3 flex flex-col min-w-0 overflow-hidden'
                 : 'flex-1 p-3.5 sm:p-4 md:p-[var(--avl-main-pad)] pb-24 md:pb-[var(--avl-main-pad)] min-w-0 overflow-x-hidden'
             }
           >

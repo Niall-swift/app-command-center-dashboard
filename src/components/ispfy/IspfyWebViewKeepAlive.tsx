@@ -30,7 +30,12 @@ import { Input } from '@/components/ui/input';
 import { useNetworkMonitor } from '@/contexts/NetworkMonitorContext';
 import { useQuickClientDrawer } from '@/contexts/QuickClientDrawerContext';
 import { useAuth } from '@/contexts/AuthContext';
-import type { AvlDesktopIspfyError, AvlDesktopIspfyState } from '@/types/avlDesktop';
+import { useSidebar } from '@/components/ui/sidebar';
+import type {
+  AvlDesktopBounds,
+  AvlDesktopIspfyError,
+  AvlDesktopIspfyState,
+} from '@/types/avlDesktop';
 
 export const ISPFY_OFFICIAL_WEB_URL = 'https://avltelecom.ispfycloud.com.br:8443/';
 
@@ -117,7 +122,11 @@ export const IspfyDockedHubPage: React.FC = () => {
 };
 
 const NativeDesktopIspfyHost: React.FC = () => {
+  const { open: sidebarOpen, openMobile: sidebarOpenMobile } = useSidebar();
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const lastBoundsKeyRef = useRef<string>('');
+  const wasVisibleRef = useRef<boolean>(false);
+
   const [viewState, setViewState] = useState<AvlDesktopIspfyState>({
     mounted: false,
     visible: false,
@@ -131,42 +140,98 @@ const NativeDesktopIspfyHost: React.FC = () => {
   const [sessionUnloaded, setSessionUnloaded] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
+  const computeClampedBounds = useCallback((): AvlDesktopBounds | null => {
+    const el = hostRef.current;
+    if (!el) return null;
+
+    const rect = el.getBoundingClientRect();
+    const headerEl = document.querySelector('[data-avl-header="true"]') as HTMLElement | null;
+    const minTop = headerEl ? Math.ceil(headerEl.getBoundingClientRect().bottom) : 0;
+
+    // Respeita a borda direita real da sidebar visível (inclusive durante a animação de 200ms)
+    let minLeft = 0;
+    const sidebarEl = document.querySelector(
+      '[data-sidebar="sidebar"]:not([data-mobile="true"])'
+    ) as HTMLElement | null;
+    if (sidebarEl) {
+      const sRect = sidebarEl.getBoundingClientRect();
+      if (sRect.width > 0 && sRect.right > 0) {
+        minLeft = Math.ceil(sRect.right);
+      }
+    }
+
+    const left = Math.max(minLeft, Math.ceil(rect.left) + 1);
+    const top = Math.max(minTop, Math.ceil(rect.top) + 1);
+    const right = Math.min(window.innerWidth, Math.floor(rect.right) - 1);
+    const bottom = Math.min(window.innerHeight, Math.floor(rect.bottom) - 1);
+
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+
+    if (width < 20 || height < 20) return null;
+    return { x: left, y: top, width, height };
+  }, []);
+
   const syncBounds = useCallback(
     (forceShow = false) => {
       const bridge = window.avlDesktop?.ispfy;
-      const el = hostRef.current;
-      if (!bridge || !el || sessionUnloaded) return;
+      if (!bridge || sessionUnloaded) return;
 
       if (hasOpenOverlayInDom()) {
         setOverlayOpen(true);
-        void bridge.hide();
+        if (wasVisibleRef.current) {
+          wasVisibleRef.current = false;
+          lastBoundsKeyRef.current = '';
+          void bridge.hide();
+        }
         return;
       }
 
       setOverlayOpen(false);
-      const rect = el.getBoundingClientRect();
-      const bounds = {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      };
-
-      if (bounds.width < 20 || bounds.height < 20) {
-        void bridge.hide();
+      const bounds = computeClampedBounds();
+      if (!bounds) {
+        if (wasVisibleRef.current) {
+          wasVisibleRef.current = false;
+          lastBoundsKeyRef.current = '';
+          void bridge.hide();
+        }
         return;
       }
 
-      if (forceShow) {
+      const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+      if (!forceShow && wasVisibleRef.current && lastBoundsKeyRef.current === key) {
+        return;
+      }
+
+      lastBoundsKeyRef.current = key;
+      if (forceShow || !wasVisibleRef.current) {
+        wasVisibleRef.current = true;
         void bridge.show(bounds);
       } else {
         void bridge.setBounds(bounds);
       }
     },
-    [sessionUnloaded]
+    [sessionUnloaded, computeClampedBounds]
   );
 
-  // Escuta estado e erros do WebContentsView nativo
+  // Rastreia continuamente frame-a-frame durante transições da Sidebar / redimensionamentos (~300ms)
+  const trackTransitionFrames = useCallback(
+    (durationMs = 320) => {
+      const start = performance.now();
+      let rafId = 0;
+      const tick = () => {
+        syncBounds(false);
+        if (performance.now() - start < durationMs) {
+          rafId = window.requestAnimationFrame(tick);
+        }
+      };
+      rafId = window.requestAnimationFrame(tick);
+      return () => window.cancelAnimationFrame(rafId);
+    },
+    [syncBounds]
+  );
+
+  // Escuta estado, erros e pedidos de ressincronização do processo principal Electron
   useEffect(() => {
     const bridge = window.avlDesktop?.ispfy;
     if (!bridge) return;
@@ -180,12 +245,25 @@ const NativeDesktopIspfyHost: React.FC = () => {
     const unsubError = bridge.onError((err) => {
       setLoadError(err);
     });
+    const unsubRequestSync = bridge.onRequestSync
+      ? bridge.onRequestSync(() => {
+          syncBounds(true);
+          trackTransitionFrames(240);
+        })
+      : () => undefined;
 
     return () => {
       unsubState();
       unsubError();
+      unsubRequestSync();
     };
-  }, []);
+  }, [syncBounds, trackTransitionFrames]);
+
+  // Acompanha abertura/fechamento da Sidebar frame-a-frame (transição CSS de 200ms)
+  useEffect(() => {
+    if (sessionUnloaded) return;
+    return trackTransitionFrames(320);
+  }, [sidebarOpen, sidebarOpenMobile, sessionUnloaded, trackTransitionFrames]);
 
   // Mostra o WebContentsView ao entrar em /ispfy/web e oculta (Keep-Alive!) ao sair
   useEffect(() => {
@@ -193,6 +271,8 @@ const NativeDesktopIspfyHost: React.FC = () => {
     if (!bridge) return;
 
     if (sessionUnloaded) {
+      wasVisibleRef.current = false;
+      lastBoundsKeyRef.current = '';
       void bridge.hide();
       return;
     }
@@ -201,7 +281,7 @@ const NativeDesktopIspfyHost: React.FC = () => {
 
     const el = hostRef.current;
     const resizeObserver = new ResizeObserver(() => {
-      syncBounds(true);
+      syncBounds(false);
     });
     if (el) {
       resizeObserver.observe(el);
@@ -209,13 +289,7 @@ const NativeDesktopIspfyHost: React.FC = () => {
 
     // Detecta abertura de modais, Ctrl+K, Gaveta 360°, Personalizar e Tela PIN para nunca sobrepor
     const mutationObserver = new MutationObserver(() => {
-      const hasOverlay = hasOpenOverlayInDom();
-      setOverlayOpen(hasOverlay);
-      if (hasOverlay) {
-        void bridge.hide();
-      } else {
-        syncBounds(true);
-      }
+      syncBounds(false);
     });
     mutationObserver.observe(document.body, {
       childList: true,
@@ -224,22 +298,32 @@ const NativeDesktopIspfyHost: React.FC = () => {
       attributeFilter: ['data-state', 'aria-modal', 'style', 'class'],
     });
 
-    const onWindowResize = () => syncBounds(true);
+    const onWindowResize = () => syncBounds(false);
     window.addEventListener('resize', onWindowResize);
     window.addEventListener('scroll', onWindowResize, true);
 
+    // Guarda leve contra qualquer deslocamento de layout sem resize (ex.: troca de fonte ou subtítulo)
+    const driftGuard = window.setInterval(() => {
+      syncBounds(false);
+    }, 300);
+
     return () => {
       window.cancelAnimationFrame(frame);
+      window.clearInterval(driftGuard);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       window.removeEventListener('resize', onWindowResize);
       window.removeEventListener('scroll', onWindowResize, true);
+      wasVisibleRef.current = false;
+      lastBoundsKeyRef.current = '';
       void bridge.hide();
     };
   }, [sessionUnloaded, syncBounds]);
 
   const handleDestroy = async () => {
     await window.avlDesktop?.ispfy.destroy();
+    wasVisibleRef.current = false;
+    lastBoundsKeyRef.current = '';
     setSessionUnloaded(true);
     toast.info('Sessão embutida do ISPFY encerrada.');
   };
@@ -250,7 +334,7 @@ const NativeDesktopIspfyHost: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-88px)] min-h-[520px] rounded-2xl border border-border/75 bg-card overflow-hidden shadow-sm">
+    <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-border/75 bg-card overflow-hidden shadow-sm">
       {/* Barra superior integrada do WebView nativo */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/40 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">

@@ -23,5 +23,10 @@ contextBridge.exposeInMainWorld('avlDesktop', {
       ipcRenderer.on('ispfy:error', listener);
       return () => ipcRenderer.removeListener('ispfy:error', listener);
     },
+    onRequestSync: (callback) => {
+      const listener = () => callback();
+      ipcRenderer.on('ispfy:requestSync', listener);
+      return () => ipcRenderer.removeListener('ispfy:requestSync', listener);
+    },
   },
 });

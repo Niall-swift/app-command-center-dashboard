@@ -4,7 +4,7 @@ const fs = require('fs');
 
 const ISPFY_URL = 'https://avltelecom.ispfycloud.com.br:8443/';
 const ISPFY_HOST = 'avltelecom.ispfycloud.com.br';
-const PROD_APP_URL = 'https://avl-telecom.web.app/';
+const PROD_APP_URL = 'https://app-avl-telecom.vercel.app/';
 const DEV_APP_URL = 'http://localhost:8080/';
 
 const isDevFlag = process.argv.includes('--dev') || process.env.AVL_DESKTOP_DEV === '1';
@@ -130,11 +130,28 @@ function ensureIspfyView() {
 
 function sanitizeBounds(bounds) {
   if (!bounds || typeof bounds !== 'object') return lastBounds;
-  const x = Math.max(0, Math.round(Number(bounds.x) || 0));
-  const y = Math.max(0, Math.round(Number(bounds.y) || 0));
-  const width = Math.max(0, Math.round(Number(bounds.width) || 0));
-  const height = Math.max(0, Math.round(Number(bounds.height) || 0));
+  const zoom =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow.webContents.getZoomFactor() || 1
+      : 1;
+  const [contentW, contentH] =
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow.getContentSize() : [1440, 900];
+
+  const rawX = Math.round((Number(bounds.x) || 0) * zoom);
+  const rawY = Math.round((Number(bounds.y) || 0) * zoom);
+  const rawW = Math.round((Number(bounds.width) || 0) * zoom);
+  const rawH = Math.round((Number(bounds.height) || 0) * zoom);
+
+  const x = Math.max(0, Math.min(rawX, contentW));
+  const y = Math.max(0, Math.min(rawY, contentH));
+  const width = Math.max(0, Math.min(rawW, contentW - x));
+  const height = Math.max(0, Math.min(rawH, contentH - y));
   return { x, y, width, height };
+}
+
+function notifyRequestBoundsSync() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('ispfy:requestSync');
 }
 
 function createMainWindow() {
@@ -172,6 +189,7 @@ function createMainWindow() {
       const isAuthFlow =
         parsed.hostname.includes('accounts.google.com') ||
         parsed.hostname.includes('firebaseapp.com') ||
+        parsed.hostname.includes('app-avl-telecom.vercel.app') ||
         parsed.hostname.includes('avl-telecom.web.app') ||
         parsed.hostname === 'localhost';
       if (isAuthFlow) {
@@ -198,6 +216,12 @@ function createMainWindow() {
     }
     return { action: 'deny' };
   });
+
+  mainWindow.on('resize', notifyRequestBoundsSync);
+  mainWindow.on('maximize', notifyRequestBoundsSync);
+  mainWindow.on('unmaximize', notifyRequestBoundsSync);
+  mainWindow.on('enter-full-screen', notifyRequestBoundsSync);
+  mainWindow.on('leave-full-screen', notifyRequestBoundsSync);
 
   mainWindow.on('closed', () => {
     ispfyView = null;

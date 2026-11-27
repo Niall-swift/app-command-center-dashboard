@@ -39,6 +39,7 @@ const QuickOSFabComponent: React.FC = () => {
 
   if (
     !preferences.showQuickOsFab ||
+    location.pathname === '/ispfy/web' ||
     (!canAccessRoute('/ispfy/nova-os') && !canAccessRoute('/ispfy/tickets'))
   ) {
     return null;
